@@ -1,0 +1,5 @@
+# Modules whose license go-licenses cannot detect, accepted after a manual check.
+# Format: <module path> <reason>. Remove an entry once the module publishes a license file.
+github.com/cactus/go-statsd-client/statsd  No license file in this submodule; the repository is MIT (Copyright (c) 2012-2016 Eli Janssen)
+github.com/nexus-rpc/nexus-proto-annotations  No license file in v0.1.0; a Temporal (Nexus) project, under review
+github.com/apache/thrift  Apache-2.0; its LICENSE also carries a GNU all-permissive notice for bundled build files, which the scanner reports instead

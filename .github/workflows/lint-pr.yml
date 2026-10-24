@@ -1,0 +1,61 @@
+name: Lint PR
+
+on:
+  pull_request_target:
+    types: [opened, reopened, edited, synchronize]
+
+# pull_request_target runs with the base branch context; keep permissions minimal and never check out the PR head.
+permissions: {}
+
+concurrency:
+  group: lint-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  validate-pr-title:
+    name: Validate PR title
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      # The base branch, so the PR under review cannot alter the validator.
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Validate the PR title
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          title=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq '.title')
+          python3 .github/scripts/validate_commits.py "$title"
+
+  validate-commit-messages:
+    name: Validate commit messages
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Validate non-merge commit subjects
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          commits=$(gh api --paginate \
+            "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/commits?per_page=100" \
+            --jq '.[] | select((.parents | length) <= 1) | [.sha[0:7], (.commit.message | split("\n")[0] | rtrimstr("\r") | @base64)] | @tsv')
+          failed=0
+          while IFS=$'\t' read -r sha encoded_subject; do
+            [[ -n "$sha" ]] || continue
+            subject=$(printf '%s' "$encoded_subject" | base64 --decode)
+            if ! python3 .github/scripts/validate_commits.py "$subject"; then
+              printf 'Commit: %s\n\n' "$sha" >&2
+              failed=1
+            fi
+          done <<< "$commits"
+          exit "$failed"

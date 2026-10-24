@@ -1,0 +1,43 @@
+name: Security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # Daily, so a newly published vulnerability in a pinned dependency surfaces without a code change.
+    - cron: '30 2 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  licenses:
+    name: License check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: engine/go.mod
+          cache-dependency-path: engine/go.sum
+      - name: Inventory is up to date
+        run: make licenses && git diff --exit-code third-party/go-licenses.csv
+      - name: No forbidden, restricted or unknown licenses
+        run: make license-check
+
+  vulnerabilities:
+    name: Vulnerability scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: engine/go.mod
+          cache-dependency-path: engine/go.sum
+      - run: make vulncheck

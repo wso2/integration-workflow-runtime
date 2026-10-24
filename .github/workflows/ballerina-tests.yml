@@ -1,0 +1,80 @@
+name: Ballerina tests
+
+# Runs Ballerina programs on jBallerina (ballerina/workflow) against the engine binary built from this commit.
+# Smoke on every pull request; the full suite on main, nightly and on demand.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: 'Suite to run'
+        required: true
+        default: full
+        type: choice
+        options: [smoke, full]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ballerina-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  TEMPORAL_CLI_VERSION: '1.9.1'
+
+jobs:
+  suite:
+    name: ${{ matrix.suite }} suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: >-
+          ${{ fromJSON(
+            github.event_name == 'pull_request' && '["smoke"]' ||
+            github.event_name == 'workflow_dispatch' && format('["{0}"]', inputs.suite) ||
+            '["smoke", "full"]') }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: engine/go.mod
+          cache-dependency-path: engine/go.sum
+      - name: Build the engine
+        run: make engine && ./build/workflow-engine version
+      - name: Set up Ballerina (latest)
+        uses: ballerina-platform/setup-ballerina@v1.1.5
+        with:
+          version: latest
+      - name: Install the Temporal CLI (test harness only)
+        run: |
+          base="https://github.com/temporalio/cli/releases/download/v${TEMPORAL_CLI_VERSION}"
+          archive="temporal_cli_${TEMPORAL_CLI_VERSION}_linux_amd64.tar.gz"
+          curl -sSfLO "$base/$archive"
+          curl -sSfLO "$base/checksums.txt"
+          grep " ${archive}\$" checksums.txt | sha256sum -c -
+          tar -xzf "$archive" temporal
+          sudo mv temporal /usr/local/bin/temporal
+          temporal --version
+      - name: Run the ${{ matrix.suite }} suite
+        env:
+          ENGINE_LOG_DIR: build/logs
+        run: python3 tests/ballerina/run_suite.py ${{ matrix.suite }} --engine build/workflow-engine
+      - name: Upload engine and test logs
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.suite }}-logs
+          path: |
+            build/logs/
+            tests/ballerina/${{ matrix.suite }}/target/report/
+          if-no-files-found: ignore

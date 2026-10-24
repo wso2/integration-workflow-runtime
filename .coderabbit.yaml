@@ -1,0 +1,7 @@
+reviews:
+  auto_review:
+    base_branches:
+      - ".*"
+  path_filters:
+    - "!third-party/go-licenses.csv"
+    - "!engine/go.sum"

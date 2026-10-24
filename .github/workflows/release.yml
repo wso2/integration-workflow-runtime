@@ -1,0 +1,62 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    name: Resolve version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      is_prerelease: ${{ steps.version.outputs.is_prerelease }}
+    steps:
+      - name: Get the version from the tag
+        id: version
+        run: |
+          version="${GITHUB_REF#refs/tags/v}"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "tag $GITHUB_REF_NAME is not vMAJOR.MINOR.PATCH[-PRERELEASE]" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          # Any -suffix (e.g. -alpha.1, -rc.1) is a prerelease.
+          if [[ "$version" == *-* ]]; then
+            echo "is_prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    name: Build distribution
+    needs: version
+    uses: ./.github/workflows/build-dist.yml
+    with:
+      version: ${{ needs.version.outputs.version }}
+      ref: ${{ github.sha }}
+
+  release:
+    name: Create release
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        run: cd dist && sha256sum *.zip > SHA256SUMS
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.zip
+            dist/SHA256SUMS
+          generate_release_notes: true
+          prerelease: ${{ needs.version.outputs.is_prerelease }}

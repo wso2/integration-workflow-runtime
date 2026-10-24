@@ -1,0 +1,6 @@
+# Points ballerina/workflow at the engine started by tests/ballerina/run_suite.py.
+[ballerina.workflow]
+mode = "LOCAL"
+url = "localhost:17233"
+namespace = "default"
+taskQueue = "WORKFLOW_RUNTIME_SMOKE"

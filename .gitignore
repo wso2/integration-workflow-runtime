@@ -22,3 +22,26 @@
 # virtual machine crash logs, see http://www.java.com/en/download/help/error_hotspot.xml
 hs_err_pid*
 replay_pid*
+
+# Build output
+/build/
+/dist/
+.DS_Store
+node_modules/
+Config.toml
+
+# Go and test artifacts
+*.test
+*.out
+coverage.*
+.artifacts/
+__pycache__/
+*.py[cod]
+
+# Ballerina test packages: build output and lock files (the suites always resolve the latest patch releases)
+tests/ballerina/*/target/
+tests/ballerina/*/Dependencies.toml
+!tests/ballerina/*/tests/Config.toml
+
+# Go workspace checksum
+go.work.sum

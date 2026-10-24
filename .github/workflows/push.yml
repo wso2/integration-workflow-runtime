@@ -1,0 +1,50 @@
+name: Build on push
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to build'
+        required: false
+        default: main
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    name: Resolve version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      ref: ${{ steps.ref.outputs.ref }}
+    steps:
+      - name: Resolve ref
+        id: ref
+        env:
+          BRANCH: ${{ github.event.inputs.branch }}
+          DEFAULT_REF: ${{ github.ref }}
+        run: echo "ref=${BRANCH:-$DEFAULT_REF}" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.ref.outputs.ref }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Nightly version
+        id: version
+        env:
+          REF: ${{ steps.ref.outputs.ref }}
+        run: |
+          base_version="$(.github/scripts/resolve_next_version.sh "$REF")"
+          # <base>-<YYYYMMDD>-<HHMM00>-<shortsha>, as ballerina-nutcracker does.
+          echo "version=${base_version}-$(date -u +%Y%m%d-%H%M00)-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build distribution
+    needs: version
+    uses: ./.github/workflows/build-dist.yml
+    with:
+      version: ${{ needs.version.outputs.version }}
+      ref: ${{ needs.version.outputs.ref }}

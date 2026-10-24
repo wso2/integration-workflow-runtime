@@ -1,0 +1,30 @@
+# Illustrative; key names follow the proposal and are not final.
+[runtime]
+profiles = ["all"]          # or e.g. ["history"], ["manager"]
+
+[database]
+type = "postgresql"         # postgresql | mysql | cassandra | sqlite
+host = "db.example.com"
+port = 5432
+user = "workflow"
+password = "$secret{db_password}"
+
+[users]
+store = "local"             # "local" (try-out and demos) or "sso" (production); never both
+
+[users.local]
+bootstrapAdmin = "admin"
+
+[users.sso]
+issuer = "https://idp.example.com/oauth2/token"
+clientId = "workflow-runtime"
+groupsClaim = "groups"
+superAdminGroup = "workflow-admins"
+
+[adminPortal]
+enabled = true
+path = "/admin"
+
+[userPortal]
+enabled = true
+path = "/portal"
