@@ -14,7 +14,7 @@ Temporal's services in our own binary. See [0001](../docs/decisions/0001-tempora
 
 ```sh
 # From engine/: make engine puts both binaries in the repository-root build/ directory.
-../build/workflow-engine start --config-file ../tests/engine/temporal-test.yaml --allow-no-auth
+../build/workflow-engine start --runtime-config ../tests/engine/runtime-sqlite.toml --allow-no-auth
 
 # Create both databases, then install their schemas (the SQL files are embedded in the tool).
 SQL="../build/workflow-engine-sql --plugin postgres12 --ep db.example.com -p 5432 -u workflow"

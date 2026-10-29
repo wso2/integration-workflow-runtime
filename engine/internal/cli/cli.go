@@ -37,9 +37,13 @@ import (
 	_ "go.temporal.io/server/common/persistence/sql/sqlplugin/sqlite"
 	"go.temporal.io/server/common/primitives"
 	"go.temporal.io/server/temporal"
+
+	"github.com/wso2/integration-workflow-runtime/engine/internal/runtimeconfig"
 )
 
-const usageText = "usage: workflow-engine version | start --config-file <file> [--service <name>]... [--allow-no-auth]"
+const usageText = `usage: workflow-engine version
+       workflow-engine start (--runtime-config <runtime.toml> | --config-file <temporal.yaml>) [--service <name>]... [--allow-no-auth]
+       workflow-engine render-config --runtime-config <runtime.toml>`
 
 type serverFactory func(opts ...temporal.ServerOption) (temporal.Server, error)
 
@@ -66,15 +70,21 @@ func (c command) run(args []string) int {
 		_, _ = fmt.Fprintf(c.stdout, "workflow-engine %s (Temporal server %s)\n", c.version, headers.ServerVersion)
 		return 0
 	case "start":
-		if err := c.start(args[1:]); err != nil {
-			_, _ = fmt.Fprintln(c.stderr, err)
-			return 1
-		}
-		return 0
+		return c.exitCode(c.start(args[1:]))
+	case "render-config":
+		return c.exitCode(c.renderConfig(args[1:]))
 	default:
 		_, _ = fmt.Fprintln(c.stderr, usageText)
 		return 2
 	}
+}
+
+func (c command) exitCode(err error) int {
+	if err != nil {
+		_, _ = fmt.Fprintln(c.stderr, err)
+		return 1
+	}
+	return 0
 }
 
 type serviceList []string
@@ -89,7 +99,8 @@ func (s *serviceList) Set(v string) error {
 func (c command) start(args []string) error {
 	flags := flag.NewFlagSet("start", flag.ContinueOnError)
 	flags.SetOutput(c.stderr)
-	configFile := flags.String("config-file", "", "Temporal server configuration, written by the launcher")
+	runtimeConfig := flags.String("runtime-config", "", "the runtime's runtime.toml; Temporal's configuration is generated from it")
+	configFile := flags.String("config-file", "", "a Temporal server configuration file, used as is")
 	allowNoAuth := flags.Bool("allow-no-auth", false, "start without an authorizer (development and tests only)")
 	var services serviceList
 	flags.Var(&services, "service", "service to start, repeatable: frontend, internal-frontend, history, matching, worker")
@@ -99,13 +110,9 @@ func (c command) start(args []string) error {
 		}
 		return err
 	}
-	if *configFile == "" {
-		return errors.New("--config-file is required")
-	}
-
-	cfg, err := config.Load(config.WithConfigFile(*configFile))
+	cfg, err := loadConfig(*runtimeConfig, *configFile)
 	if err != nil {
-		return fmt.Errorf("unable to load configuration: %w", err)
+		return err
 	}
 	if len(services) == 0 {
 		services = defaultServices(cfg)
@@ -151,6 +158,46 @@ func (c command) start(args []string) error {
 		return fmt.Errorf("unable to create the server: %w", err)
 	}
 	return server.Start()
+}
+
+func (c command) renderConfig(args []string) error {
+	flags := flag.NewFlagSet("render-config", flag.ContinueOnError)
+	flags.SetOutput(c.stderr)
+	runtimeConfig := flags.String("runtime-config", "", "the runtime's runtime.toml")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if *runtimeConfig == "" {
+		return errors.New("--runtime-config is required")
+	}
+	cfg, err := runtimeconfig.Load(*runtimeConfig)
+	if err != nil {
+		return err
+	}
+	rendered, err := runtimeconfig.Render(cfg)
+	if err != nil {
+		return fmt.Errorf("unable to render the configuration: %w", err)
+	}
+	_, err = c.stdout.Write(rendered)
+	return err
+}
+
+// loadConfig returns the Temporal configuration from exactly one of a runtime.toml and a Temporal YAML file.
+func loadConfig(runtimeConfig, configFile string) (*config.Config, error) {
+	switch {
+	case runtimeConfig != "" && configFile != "":
+		return nil, errors.New("pass either --runtime-config or --config-file, not both")
+	case runtimeConfig != "":
+		return runtimeconfig.Load(runtimeConfig)
+	case configFile != "":
+		cfg, err := config.Load(config.WithConfigFile(configFile))
+		if err != nil {
+			return nil, fmt.Errorf("unable to load configuration: %w", err)
+		}
+		return cfg, nil
+	default:
+		return nil, errors.New("--runtime-config or --config-file is required")
+	}
 }
 
 // defaultServices is Temporal's default set plus the internal frontend when the configuration defines one.

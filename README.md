@@ -37,6 +37,7 @@ make build           # build/workflow-engine, build/workflow-engine-sql
 make check           # every CI gate: vet, lint, gofmt, unit tests (75% coverage), licenses, vulnerabilities
 make test-smoke      # Ballerina smoke suite against the engine (needs bal and the temporal CLI)
 make test-full       # Ballerina full suite
+make test-docker     # CI gates and both suites on SQLite, PostgreSQL and MySQL, only Docker needed
 ./build/workflow-engine version
 ```
 

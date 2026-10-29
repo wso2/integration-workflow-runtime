@@ -1,7 +1,8 @@
 name: Ballerina tests
 
-# Runs Ballerina programs on jBallerina (ballerina/workflow) against the engine binary built from this commit.
-# Smoke on every pull request; the full suite on main, nightly and on demand.
+# Runs Ballerina programs on jBallerina (ballerina/workflow) against the engine binary built from this commit, started
+# from tests/engine/runtime-<database>.toml. Smoke on every pull request on SQLite, PostgreSQL and MySQL; smoke and full
+# on all three on main, nightly and on demand.
 
 on:
   pull_request:
@@ -17,6 +18,12 @@ on:
         default: full
         type: choice
         options: [smoke, full]
+      database:
+        description: 'Database'
+        required: true
+        default: sqlite
+        type: choice
+        options: [sqlite, postgresql, mysql]
 
 permissions:
   contents: read
@@ -27,10 +34,12 @@ concurrency:
 
 env:
   TEMPORAL_CLI_VERSION: '1.9.1'
+  # Throwaway credentials for the service containers below; not a secret.
+  WORKFLOW_TEST_DB_PASSWORD: workflow-test
 
 jobs:
   suite:
-    name: ${{ matrix.suite }} suite
+    name: ${{ matrix.suite }} suite on ${{ matrix.database }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     strategy:
@@ -41,6 +50,27 @@ jobs:
             github.event_name == 'pull_request' && '["smoke"]' ||
             github.event_name == 'workflow_dispatch' && format('["{0}"]', inputs.suite) ||
             '["smoke", "full"]') }}
+        database: >-
+          ${{ fromJSON(
+            github.event_name == 'workflow_dispatch' && format('["{0}"]', inputs.database) ||
+            '["sqlite", "postgresql", "mysql"]') }}
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: workflow
+          POSTGRES_PASSWORD: workflow-test
+        ports: ['15432:5432']
+        options: >-
+          --health-cmd "pg_isready -U workflow" --health-interval 5s --health-timeout 5s --health-retries 20
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: workflow-test
+        ports: ['13306:3306']
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -pworkflow-test" --health-interval 5s --health-timeout 5s
+          --health-retries 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -67,15 +97,17 @@ jobs:
           tar -xzf "$archive" temporal
           sudo mv temporal /usr/local/bin/temporal
           temporal --version
-      - name: Run the ${{ matrix.suite }} suite
+      - name: Run the ${{ matrix.suite }} suite on ${{ matrix.database }}
         env:
           ENGINE_LOG_DIR: build/logs
-        run: go run ./tools/cmd/balsuite ${{ matrix.suite }} --engine build/workflow-engine
+        run: >-
+          go run ./tools/cmd/balsuite ${{ matrix.suite }} --database ${{ matrix.database }}
+          --engine build/workflow-engine
       - name: Upload engine and test logs
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: ${{ matrix.suite }}-logs
+          name: ${{ matrix.suite }}-${{ matrix.database }}-logs
           path: |
             build/logs/
             tests/ballerina/${{ matrix.suite }}/target/report/

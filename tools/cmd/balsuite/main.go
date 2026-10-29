@@ -14,7 +14,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// Command balsuite runs a Ballerina suite against the engine: balsuite <smoke|full> --engine build/workflow-engine
+// Command balsuite runs a Ballerina suite against the engine started from tests/engine/runtime-<database>.toml:
+// balsuite <smoke|full> --engine build/workflow-engine [--database sqlite|postgresql|mysql]
 package main
 
 import (
@@ -36,12 +37,13 @@ func run(args []string) int {
 	flags := flag.NewFlagSet("balsuite", flag.ContinueOnError)
 	root := flags.String("root", ".", "repository root")
 	engine := flags.String("engine", "", "path to the workflow-engine binary (required)")
+	database := flags.String("database", "sqlite", "sqlite, postgresql or mysql: which tests/engine/runtime-<database>.toml to use")
 	bal := flags.String("bal", envOr("BAL", "bal"), "jBallerina `bal` command")
 	temporal := flags.String("temporal", envOr("TEMPORAL_CLI", "temporal"), "Temporal CLI")
 	startup := flags.Duration("startup-timeout", 90*time.Second, "limit for the engine to become SERVING")
 	testTimeout := flags.Duration("test-timeout", 30*time.Minute, "limit for `bal test`")
 	flags.Usage = func() {
-		fmt.Fprintln(os.Stderr, "usage: balsuite <smoke|full> --engine <workflow-engine> [flags]")
+		fmt.Fprintln(os.Stderr, "usage: balsuite <smoke|full> --engine <workflow-engine> [--database sqlite|postgresql|mysql] [flags]")
 		flags.PrintDefaults()
 	}
 	if len(args) == 0 || (args[0] != "smoke" && args[0] != "full") {
@@ -55,6 +57,12 @@ func run(args []string) int {
 		fmt.Fprintln(os.Stderr, "--engine is required")
 		return 2
 	}
+	if *database != "sqlite" {
+		if _, ok := balsuite.SQLDatabases[*database]; !ok {
+			fmt.Fprintf(os.Stderr, "unknown database %q\n", *database)
+			return 2
+		}
+	}
 	enginePath, err := filepath.Abs(*engine)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -65,11 +73,14 @@ func run(args []string) int {
 		fmt.Fprintln(os.Stderr, err)
 		return 2
 	}
+	runtimeConfig := filepath.Join(rootPath, "tests", "engine", "runtime-"+*database+".toml")
 	return balsuite.Run(context.Background(), balsuite.Options{
 		Suite:          args[0],
+		Database:       *database,
 		Root:           rootPath,
 		Engine:         enginePath,
-		EngineArgs:     []string{"--config-file", filepath.Join(rootPath, "tests", "engine", "temporal-test.yaml"), "--allow-no-auth"},
+		EngineArgs:     []string{"--runtime-config", runtimeConfig, "--allow-no-auth"},
+		Prepare:        func(ctx context.Context) error { return balsuite.CreateSQLSchemas(ctx, *database, enginePath) },
 		Bal:            *bal,
 		Temporal:       *temporal,
 		LogDir:         os.Getenv("ENGINE_LOG_DIR"),

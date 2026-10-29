@@ -1,13 +1,27 @@
-# Illustrative; key names follow the proposal and are not final.
+# The runtime's configuration. [engine] and [database] are read by workflow-engine (docs/features/runtime-config.md);
+# the other tables are illustrative until their components arrive.
 [runtime]
 profiles = ["all"]          # or e.g. ["history"], ["manager"]
 
+[engine]
+# Listen on every interface and tell other nodes and clients which address reaches this one.
+# bindAddress = "0.0.0.0"
+# broadcastAddress = "10.0.0.5"
+# historyShards = 512        # fixed after the first start
+logLevel = "info"
+
 [database]
-type = "postgresql"         # postgresql | mysql | cassandra | sqlite
+type = "postgresql"         # postgresql | mysql | sqlite
 host = "db.example.com"
 port = 5432
 user = "workflow"
-password = "$secret{db_password}"
+password = "$env{WORKFLOW_DB_PASSWORD}"
+name = "temporal"
+visibilityName = "temporal_visibility"
+
+# [database.tls]
+# enabled = true
+# caFile = "conf/certs/db-ca.pem"
 
 [users]
 store = "local"             # "local" (try-out and demos) or "sso" (production); never both

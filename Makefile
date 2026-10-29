@@ -35,7 +35,7 @@ TOOLCHAIN_ENV = GOROOT=$$(go env GOROOT) PATH=$$(go env GOROOT)/bin:$$PATH GOTOO
 LICENSE_IGNORES = $(shell grep -v '^\s*\#' third-party/license-exceptions.txt | awk 'NF {print "--ignore " $$1}')
 
 ## Tools: installed once per version into $(TOOL_BIN), as a versioned binary plus an unversioned symlink.
-TOOL_BIN := $(CURDIR)/$(OUT)/tools
+TOOL_BIN ?= $(CURDIR)/$(OUT)/tools
 GOLANGCI_LINT_VERSION ?= v2.13.2
 GO_LICENSES_VERSION ?= v2.0.1
 GOVULNCHECK_VERSION ?= v1.9.0
@@ -53,7 +53,7 @@ GOOS= GOARCH= GOBIN="$(TOOL_BIN)" go install "$(2)@$(3)"; mv "$$link" "$(1)"; ln
 endef
 
 .PHONY: build engine dist sbom tools vet lint fmt-check test test-coverage test-race licenses license-check \
-	vulncheck check test-smoke test-full install-hooks release clean
+	vulncheck check test-smoke test-full test-docker install-hooks release clean
 
 build: engine
 
@@ -137,6 +137,14 @@ test-smoke: engine
 
 test-full: engine
 	go run ./tools/cmd/balsuite full --engine $(OUT)/workflow-engine$(EXE)
+
+# The GitHub Actions gates and Ballerina suites in Docker, PostgreSQL and MySQL included; nothing else to install.
+# DOCKER_TARGET: all (default), gates, smoke or full. DATABASES: a subset of "sqlite postgresql mysql".
+COMPOSE := docker compose -f tests/docker/compose.yml
+test-docker:
+	@mkdir -p $(OUT)/docker
+	@$(COMPOSE) run --rm --build runner $(or $(DOCKER_TARGET),all) "$(or $(DATABASES),sqlite postgresql mysql)"; \
+		status=$$?; $(COMPOSE) down --volumes=false --remove-orphans >/dev/null 2>&1; exit $$status
 
 install-hooks:
 	@git config --local core.hooksPath .githooks

@@ -1,0 +1,23 @@
+# Engine configuration for the Ballerina suites: every service in one process, ports 17xxx so a local run does not
+# clash with a Temporal on 7233. The runner passes --allow-no-auth.
+# The database runs on 15432; balsuite creates both schemas first (tools/internal/balsuite/sqlschema.go).
+
+[engine]
+logLevel = "warn"
+
+[engine.ports]
+frontend = 17233
+frontendHttp = 17243
+internalFrontend = 17236
+history = 17234
+matching = 17235
+worker = 17239
+
+[database]
+type = "postgresql"
+host = "127.0.0.1"
+port = 15432
+user = "workflow"
+password = "$env{WORKFLOW_TEST_DB_PASSWORD}"
+name = "temporal"
+visibilityName = "temporal_visibility"

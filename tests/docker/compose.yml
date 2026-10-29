@@ -1,0 +1,76 @@
+# Copyright (c) 2026, WSO2 LLC. (http://www.wso2.com).
+#
+# WSO2 LLC. licenses this file to you under the Apache License,
+# Version 2.0 (the "License"); you may not use this file except
+# in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Local copy of the GitHub Actions test jobs: PostgreSQL and MySQL on the ports tests/engine/runtime-*.toml use,
+# sharing one network namespace with the runner so 127.0.0.1 reaches them. See docs/guides/TESTING.md.
+name: workflow-runtime-tests
+
+x-shared-network: &shared-network
+  network_mode: service:net
+
+services:
+  net:
+    image: busybox:1.37
+    command: ["sleep", "infinity"]
+    init: true
+
+  postgres:
+    <<: *shared-network
+    image: postgres:16
+    command: ["postgres", "-p", "15432"]
+    environment:
+      POSTGRES_USER: workflow
+      POSTGRES_PASSWORD: ${WORKFLOW_TEST_DB_PASSWORD:-workflow-test}
+    tmpfs: [/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-p", "15432", "-U", "workflow"]
+      interval: 2s
+      retries: 30
+
+  mysql:
+    <<: *shared-network
+    image: mysql:8.4
+    command: ["--port=13306", "--mysqlx=OFF"]
+    environment:
+      MYSQL_ROOT_PASSWORD: ${WORKFLOW_TEST_DB_PASSWORD:-workflow-test}
+    tmpfs: [/var/lib/mysql]
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -P 13306 -uroot -p\"$$MYSQL_ROOT_PASSWORD\" --silent"]
+      interval: 2s
+      retries: 60
+
+  runner:
+    <<: *shared-network
+    build: .
+    depends_on:
+      postgres: {condition: service_healthy}
+      mysql: {condition: service_healthy}
+    environment:
+      WORKFLOW_TEST_DB_PASSWORD: ${WORKFLOW_TEST_DB_PASSWORD:-workflow-test}
+    volumes:
+      - ../..:/src:ro
+      - ../../build/docker:/out
+      - go-mod:/go/pkg/mod
+      - go-build:/root/.cache/go-build
+      - golangci:/root/.cache/golangci-lint
+      - tools:/opt/tools
+      - ballerina:/root/.ballerina
+
+volumes:
+  tools:
+  go-mod:
+  go-build:
+  golangci:
+  ballerina:
