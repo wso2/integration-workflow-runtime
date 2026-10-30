@@ -41,6 +41,7 @@ import (
 	"go.temporal.io/server/temporal"
 
 	"github.com/wso2/integration-workflow-runtime/engine/internal/runtimeconfig"
+	"github.com/wso2/integration-workflow-runtime/engine/internal/sqlschema"
 	"github.com/wso2/integration-workflow-runtime/engine/plugins/jwtclaims"
 )
 
@@ -55,16 +56,22 @@ func newTemporalServer(services []string, opts ...temporal.ServerOption) (tempor
 	return temporal.NewServer(append(opts, temporal.ForServices(services))...)
 }
 
+type schemaPreparer func(p config.Persistence, logger log.Logger) error
+
 type command struct {
-	version   string
-	stdout    io.Writer
-	stderr    io.Writer
-	newServer serverFactory
+	version       string
+	stdout        io.Writer
+	stderr        io.Writer
+	newServer     serverFactory
+	prepareSchema schemaPreparer
 }
 
 // Main runs the command with the given arguments and returns the process exit code.
 func Main(version string, args []string) int {
-	c := command{version: version, stdout: os.Stdout, stderr: os.Stderr, newServer: newTemporalServer}
+	c := command{
+		version: version, stdout: os.Stdout, stderr: os.Stderr,
+		newServer: newTemporalServer, prepareSchema: sqlschema.Prepare,
+	}
 	return c.run(args)
 }
 
@@ -155,6 +162,11 @@ func (c command) start(args []string) error {
 	audienceMapper, err := authorization.GetAudienceMapperFromConfig(&cfg.Global.Authorization)
 	if err != nil {
 		return fmt.Errorf("unable to create the audience mapper: %w", err)
+	}
+	if rt != nil && rt.ManageSchema {
+		if err := c.prepareSchema(cfg.Persistence, logger); err != nil {
+			return fmt.Errorf("unable to prepare the database schema: %w", err)
+		}
 	}
 
 	server, err := c.newServer(services,
