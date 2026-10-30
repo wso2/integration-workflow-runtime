@@ -51,16 +51,14 @@ var searchAttributes = map[string]string{"WorkflowKind": "Keyword"}
 
 // Options describes one run.
 type Options struct {
-	Suite      string   // smoke or full
-	Database   string   // sqlite, postgresql or mysql: names the log file and the SERVING message
-	Root       string   // repository root; the suite is tests/ballerina/<Suite>
-	Engine     string   // workflow-engine binary
-	EngineArgs []string // arguments after `start`
-	Bal        string   // bal command
-	Temporal   string   // temporal CLI
-	LogDir     string   // engine log directory; a temporary one, removed after the run, when empty
-	// Prepare runs after the engine binary is known and before it starts, for example to create SQL schemas.
-	Prepare        func(ctx context.Context) error
+	Suite          string   // smoke or full
+	Database       string   // sqlite, postgresql or mysql: names the log file and the SERVING message
+	Root           string   // repository root; the suite is tests/ballerina/<Suite>
+	Engine         string   // workflow-engine binary
+	EngineArgs     []string // arguments after `start`
+	Bal            string   // bal command
+	Temporal       string   // temporal CLI
+	LogDir         string   // engine log directory; a temporary one, removed after the run, when empty
 	StartupTimeout time.Duration
 	TestTimeout    time.Duration
 }
@@ -271,12 +269,6 @@ func Run(ctx context.Context, o Options, stdout, stderr io.Writer) int {
 	}
 	defer func() { _ = logFile.Close() }()
 
-	if o.Prepare != nil {
-		if err := o.Prepare(ctx); err != nil {
-			_, _ = fmt.Fprintf(stderr, "error: %v\n", err)
-			return 1
-		}
-	}
 	engine, err := startEngine(o.Engine, o.EngineArgs, logFile, stopTimeout)
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "error: %v\n", err)

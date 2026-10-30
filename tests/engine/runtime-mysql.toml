@@ -1,6 +1,6 @@
 # Engine configuration for the Ballerina suites: every service in one process, ports 17xxx so a local run does not
 # clash with a Temporal on 7233. The runner passes --allow-no-auth.
-# The database runs on 13306; balsuite creates both schemas first (tools/internal/balsuite/sqlschema.go).
+# The database runs on 13306; the engine creates both databases and their schemas on start.
 
 [engine]
 logLevel = "warn"

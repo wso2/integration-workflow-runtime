@@ -19,7 +19,6 @@ package balsuite
 import (
 	"bytes"
 	"context"
-	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -122,18 +121,6 @@ func TestRunRemovesTheTemporaryLogDirectory(t *testing.T) {
 				t.Fatalf("temporary log directories left behind: %v (%v)", left, err)
 			}
 		})
-	}
-}
-
-func TestRunRunsPrepareBeforeTheEngine(t *testing.T) {
-	o := options(t, servingTemporal, idleEngine, "#!/bin/sh\nexit 0\n")
-	o.Prepare = func(context.Context) error { return errors.New("schema setup failed") }
-	var stderr bytes.Buffer
-	if code := Run(context.Background(), o, &bytes.Buffer{}, &stderr); code != 1 {
-		t.Fatalf("Run = %d, want 1", code)
-	}
-	if !strings.Contains(stderr.String(), "schema setup failed") {
-		t.Fatalf("stderr = %q", stderr.String())
 	}
 }
 

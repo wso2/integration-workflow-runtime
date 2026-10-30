@@ -83,6 +83,11 @@ jobs:
             tools/go.sum
       - name: Build the engine
         run: make engine && ./build/workflow-engine version
+      # Both service databases run in every job; one job covers the schema test for both.
+      - name: Test schema preparation on PostgreSQL and MySQL
+        if: matrix.database == 'postgresql' && matrix.suite == 'smoke'
+        working-directory: engine
+        run: go test -count=1 -run TestPrepareOnRealDatabases -v ./internal/sqlschema
       - name: Set up Ballerina (latest)
         uses: ballerina-platform/setup-ballerina@585120e3f0e540bf127376ee6e75d39e8ce6aaa4 # v1.1.5
         with:

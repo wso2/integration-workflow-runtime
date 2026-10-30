@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"time"
 
 	"github.com/wso2/integration-workflow-runtime/tools/internal/balsuite"
@@ -57,11 +58,9 @@ func run(args []string) int {
 		fmt.Fprintln(os.Stderr, "--engine is required")
 		return 2
 	}
-	if *database != "sqlite" {
-		if _, ok := balsuite.SQLDatabases[*database]; !ok {
-			fmt.Fprintf(os.Stderr, "unknown database %q\n", *database)
-			return 2
-		}
+	if !slices.Contains([]string{"sqlite", "postgresql", "mysql"}, *database) {
+		fmt.Fprintf(os.Stderr, "unknown database %q\n", *database)
+		return 2
 	}
 	enginePath, err := filepath.Abs(*engine)
 	if err != nil {
@@ -80,7 +79,6 @@ func run(args []string) int {
 		Root:           rootPath,
 		Engine:         enginePath,
 		EngineArgs:     []string{"--runtime-config", runtimeConfig, "--allow-no-auth"},
-		Prepare:        func(ctx context.Context) error { return balsuite.CreateSQLSchemas(ctx, *database, enginePath) },
 		Bal:            *bal,
 		Temporal:       *temporal,
 		LogDir:         os.Getenv("ENGINE_LOG_DIR"),
