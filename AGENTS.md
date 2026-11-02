@@ -14,7 +14,7 @@ Read [docs/guides/ARCHITECTURE.md](docs/guides/ARCHITECTURE.md) before changing 
 |---|---|---|
 | Engine | `engine/` | Our Go binary that embeds Temporal's server (frontend, history, matching, worker) as a library, pinned in `engine/go.mod` |
 | Engine endpoint | `engine/` (planned) | The integrations' one port (7233): gRPC to Temporal's frontend, `/runtime/...` HTTPS to the Manager |
-| Launcher | `launcher/` (planned) | Starts components per profile, writes Temporal's configuration from `conf/runtime.toml`, enforces one-minor upgrades |
+| Launcher | `engine/cmd/workflow-runtime` | `bin/workflow-runtime`, the command customers run: finds the runtime's home and starts the engine from `conf/runtime.toml` (`dev` for development mode). Supervision, restart and the one-minor upgrade guard are planned |
 | Manager | `manager/` (planned) | Go service: engine administration, Workflow Management API, SSO sign-in, roles; serves both portals |
 | Portals | `portals/` (planned) | Admin Portal and User Portal, static TypeScript apps served by the Manager |
 | Distribution | `distribution/` | Zip and Docker layout, `conf/runtime.toml` |

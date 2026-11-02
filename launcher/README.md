@@ -1,13 +1,16 @@
 # launcher
 
-Planned. One process per node that:
+The launcher is `bin/workflow-runtime`, built from [`engine/cmd/workflow-runtime`](../engine/cmd/workflow-runtime)
+(`engine/internal/launcher`) so the distribution's Go binaries share one module. Today it:
 
-- reads `conf/runtime.toml` and the profiles to run;
-- writes Temporal's configuration (persistence, TLS, JWT authorizer trusting the Manager's keys) and starts
-  `workflow-engine` with the services of those profiles, including the internal frontend when auth is on;
-- starts the Manager (a Go process) for the `manager` profile;
-- refuses an engine more than one Temporal minor ahead of the version recorded in the Runtime DB (the engine
-  itself creates and upgrades the schema on start);
-- restarts a component on failure and reports health.
+- finds the runtime's home from its own location and works from there, so relative paths in `conf/runtime.toml`
+  resolve against it;
+- starts `workflow-engine` from `conf/runtime.toml` (or the file `WORKFLOW_RUNTIME_CONFIG` names), and runs
+  development mode with `dev`;
+- replaces itself with the engine on Linux and macOS, and runs it as a child on Windows.
 
-Likely a second command in the `engine` module, so the distribution ships one Go binary for both.
+Planned:
+
+- start the API server for the `api` profile;
+- refuse an engine more than one Temporal minor ahead of the version recorded at the last start;
+- restart a component on failure and report health.

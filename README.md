@@ -7,14 +7,15 @@ The runtime is the engine that runs WSO2 Integrator's durable workflows. It is b
 server, which runs inside it as an internal component: customers provide a database and an identity provider,
 and never install or patch Temporal themselves.
 
-Status: early development. The engine builds and runs; the launcher, Manager and portals are being built.
+Status: early development. The engine, its security, schema management, development mode and packaging work; the
+Manager (API server) and portals are being built.
 
 ## Layout
 
 | Path | Component | Language |
 |---|---|---|
 | `engine/` | Temporal's services in our own binary (`workflow-engine`) and the schema tool (`workflow-engine-sql`) | Go |
-| `launcher/` | Starts and supervises components per profile; writes Temporal's configuration from `runtime.toml`; enforces one-minor upgrades | Go |
+| `launcher/` | Notes on the launcher, `bin/workflow-runtime` (its code is in `engine/cmd/workflow-runtime`) | Docs |
 | `manager/` | The Manager: administration API, SSO sign-in, roles; serves the portals | Go |
 | `portals/` | Admin Portal and User Portal, static web apps served by the Manager | TypeScript |
 | `distribution/` | Zip and Docker assembly, configuration templates, the systemd example | Docker |
