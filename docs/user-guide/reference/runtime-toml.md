@@ -96,6 +96,7 @@ Each gRPC service also uses a membership port 300 below its port (6933, 6936, 69
 | `path` | | SQLite only: the database file |
 | `inMemory` | `false` | SQLite only: keep everything in memory |
 | `maxConns` | `20` (`1` for SQLite) | Connections per database; must be `1` for an in-memory SQLite database |
+| `manageSchema` | `true` | Create the databases and install or upgrade their schemas on start; `false` when a DBA applies them |
 
 ### `[database.tls]`
 
