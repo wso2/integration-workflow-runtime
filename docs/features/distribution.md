@@ -14,7 +14,7 @@ every profile. Both carry the same binaries, the one configuration file, SBOMs a
 | `bin/workflow-runtime.sh` / `.bat` | Starts the engine from `conf/runtime.toml`; `render-config` and `version` pass through. `WORKFLOW_RUNTIME_CONFIG` names another file |
 | `conf/runtime.toml` | The one file to edit ([runtime configuration](runtime-config.md), [engine security](engine-security.md)) |
 | `systemd/workflow-runtime.service` | Example unit for Linux virtual machines (zip for Linux only) |
-| Image `ghcr.io/wso2/integration-workflow-runtime:<version>` | Distroless, non-root; mount `runtime.toml` at `/opt/wso2-workflow-runtime/conf/runtime.toml` |
+| Container image (WSO2's registry from the first release) | Distroless, non-root; mount `runtime.toml` at `/opt/wso2-workflow-runtime/conf/runtime.toml` |
 | `distribution/docker/compose.yml` | Tries the runtime with PostgreSQL on one machine |
 | `make dist` / `make image` | Build a zip for `GOOS`/`GOARCH`, or the image from the linux zips (`IMAGE`, `IMAGE_PLATFORMS`, `IMAGE_ARGS`) |
 
@@ -26,9 +26,11 @@ every profile. Both carry the same binaries, the one configuration file, SBOMs a
   arguments after the image name are added (for example `--allow-no-auth` when trying it out).
 - In a container, set `bindAddress = "0.0.0.0"` and `broadcastAddress = "auto"`: the engine advertises the
   container's own address to the other nodes.
-- A release tag builds the zips for Linux, macOS and Windows on amd64 and arm64, signs them with Sigstore, and
-  publishes the image for linux/amd64 and linux/arm64, signed the same way. The image is assembled from the linux
-  zips, so its binaries are the released ones.
+- A release tag builds the zips for Linux, macOS and Windows on amd64 and arm64 and signs them with Sigstore. When
+  the repository variable `WORKFLOW_RUNTIME_IMAGE` names the image in WSO2's registry (with the secrets
+  `IMAGE_REGISTRY_USERNAME` and `IMAGE_REGISTRY_PASSWORD`), it also publishes the image for linux/amd64 and
+  linux/arm64, signed the same way. The image is assembled from the linux zips, so its binaries are the released
+  ones.
 
 ## Deploying on AWS
 
