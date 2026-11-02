@@ -1,0 +1,3 @@
+# The image is assembled from the linux distribution directories only.
+*
+!dist/wso2-workflow-runtime-*-linux-*/

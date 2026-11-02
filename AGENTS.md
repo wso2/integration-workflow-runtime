@@ -38,6 +38,7 @@ Decision records live in `docs/decisions/`; feature documentation in `docs/featu
 | `make test-docker` | The CI gates and both suites in Docker, PostgreSQL and MySQL included (`DOCKER_TARGET`, `DATABASES`) |
 | `make license-check` / `make vulncheck` | License gate and `govulncheck` |
 | `make sbom` | CycloneDX SBOM per binary in `build/sbom/` (included by `make dist`) |
+| `make dist` / `make image` | A distribution zip for `GOOS`/`GOARCH`; the container image from the linux zips (`IMAGE_PLATFORMS`, `IMAGE_ARGS=--load` or `--push`) |
 | `make check` | Every gate CI runs, except the Ballerina suites |
 | `make dist` | Zip for one `GOOS`/`GOARCH` in `dist/` |
 | `make install-hooks` | Install the commit hook (subject format, license headers, gofmt, build, lint) |

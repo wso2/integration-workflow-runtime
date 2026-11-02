@@ -1,0 +1,20 @@
+# Example unit for a VM install in /opt/wso2-workflow-runtime, run as the "workflow" user.
+# Put secrets such as WORKFLOW_DB_PASSWORD in /etc/wso2-workflow-runtime/env (mode 0600).
+[Unit]
+Description=WSO2 Integration Workflow Runtime
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=workflow
+Group=workflow
+WorkingDirectory=/opt/wso2-workflow-runtime
+EnvironmentFile=-/etc/wso2-workflow-runtime/env
+ExecStart=/opt/wso2-workflow-runtime/bin/workflow-runtime.sh start
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
