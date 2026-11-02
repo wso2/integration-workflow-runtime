@@ -16,7 +16,7 @@
 
 // Package runtimeconfig turns the runtime's conf/runtime.toml into a Temporal server configuration.
 //
-// Only the [engine] and [database] tables are read here; other tables belong to other components.
+// The [engine] and [database] tables and [runtime] profiles are read here; other tables belong to other components.
 package runtimeconfig
 
 import (
@@ -39,6 +39,8 @@ import (
 	"go.temporal.io/server/common/config"
 	"go.temporal.io/server/common/log"
 	"gopkg.in/yaml.v3"
+
+	"github.com/wso2/integration-workflow-runtime/engine/plugins/jwtclaims"
 )
 
 const (
@@ -68,17 +70,30 @@ var (
 	logLevels      = []string{"debug", "info", "warn", "error"}
 )
 
+// Runtime is what the engine takes from runtime.toml.
+type Runtime struct {
+	// Temporal is the generated, validated Temporal server configuration.
+	Temporal *config.Config
+	// Services are the Temporal services this node runs, from [runtime] profiles.
+	Services []string
+	// Auth configures the identity-provider claim mapper; nil when [engine.auth] is off.
+	Auth *jwtclaims.Settings
+}
+
 type settings struct {
 	Engine   engineSettings   `toml:"engine"`
 	Database databaseSettings `toml:"database"`
 }
 
 type engineSettings struct {
-	BindAddress      string        `toml:"bindAddress"`
-	BroadcastAddress string        `toml:"broadcastAddress"`
-	HistoryShards    int32         `toml:"historyShards"`
-	LogLevel         string        `toml:"logLevel"`
-	Ports            portsSettings `toml:"ports"`
+	BindAddress      string            `toml:"bindAddress"`
+	BroadcastAddress string            `toml:"broadcastAddress"`
+	HistoryShards    int32             `toml:"historyShards"`
+	LogLevel         string            `toml:"logLevel"`
+	Ports            portsSettings     `toml:"ports"`
+	TLS              engineTLSSettings `toml:"tls"`
+	Auth             authSettings      `toml:"auth"`
+	Metrics          metricsSettings   `toml:"metrics"`
 }
 
 type portsSettings struct {
@@ -113,8 +128,8 @@ type tlsSettings struct {
 	EnableHostVerification *bool  `toml:"enableHostVerification"`
 }
 
-// Load reads a runtime.toml file and returns the validated Temporal server configuration it describes.
-func Load(path string) (*config.Config, error) {
+// Load reads a runtime.toml file and returns the validated configuration it describes.
+func Load(path string) (*Runtime, error) {
 	data, err := os.ReadFile(filepath.Clean(path)) //nolint:gosec // G304: the path is the operator's --runtime-config flag
 	if err != nil {
 		return nil, fmt.Errorf("unable to read %s: %w", path, err)
@@ -137,7 +152,7 @@ func Render(cfg *config.Config) ([]byte, error) {
 	return yaml.Marshal(&copied)
 }
 
-func parse(data []byte, lookupEnv func(string) (string, bool)) (*config.Config, error) {
+func parse(data []byte, lookupEnv func(string) (string, bool)) (*Runtime, error) {
 	values, err := toml.Parser().Unmarshal(data)
 	if err != nil {
 		return nil, fmt.Errorf("invalid runtime configuration: %w", err)
@@ -153,6 +168,13 @@ func parse(data []byte, lookupEnv func(string) (string, bool)) (*config.Config, 
 	if err := decodeTable(k, "database", &s.Database); err != nil {
 		return nil, err
 	}
+	nodeServices, err := services(k)
+	if err != nil {
+		return nil, err
+	}
+	if len(nodeServices) == 0 {
+		return nil, errNoServices
+	}
 	s.applyDefaults()
 	if err := s.validate(); err != nil {
 		return nil, err
@@ -165,7 +187,12 @@ func parse(data []byte, lookupEnv func(string) (string, bool)) (*config.Config, 
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid Temporal configuration: %w", err)
 	}
-	return cfg, nil
+	rt := &Runtime{Temporal: cfg, Services: nodeServices}
+	if s.Engine.Auth.on() {
+		claims := s.Engine.Auth.claimSettings()
+		rt.Auth = &claims
+	}
+	return rt, nil
 }
 
 // decodeTable fills target from one of the tables this package owns, rejecting unknown keys (typos) in it; the
@@ -235,6 +262,9 @@ func (s *settings) validate() error {
 		problems = append(problems, "engine.historyShards must be at least 1")
 	}
 	problems = append(problems, e.Ports.problems()...)
+	problems = append(problems, e.TLS.problems()...)
+	problems = append(problems, e.Auth.problems()...)
+	problems = append(problems, e.Metrics.problems()...)
 	if d.MaxConns < 1 {
 		problems = append(problems, "database.maxConns must be at least 1")
 	}
@@ -335,7 +365,10 @@ func (s *settings) temporalConfig(password string) *config.Config {
 	frontendHTTP := net.JoinHostPort(e.BroadcastAddress, strconv.Itoa(e.Ports.FrontendHTTP))
 	return &config.Config{
 		Global: config.Global{
-			Membership: config.Membership{MaxJoinDuration: 30 * time.Second, BroadcastAddress: e.BroadcastAddress},
+			Membership:    config.Membership{MaxJoinDuration: 30 * time.Second, BroadcastAddress: e.BroadcastAddress},
+			TLS:           e.TLS.temporalTLS(),
+			Authorization: e.Auth.temporalAuthorization(),
+			Metrics:       e.Metrics.temporalMetrics(),
 		},
 		Persistence: config.Persistence{
 			DefaultStore:     defaultStore,

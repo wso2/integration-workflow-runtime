@@ -34,6 +34,15 @@ other, not both.
 | `[database.tls]` `enabled`, `caFile`, `certFile` and `keyFile` (both or neither), `serverName` (MySQL only) | off | TLS to the database (PostgreSQL and MySQL; refused for SQLite) |
 | `[database.tls]` `enableHostVerification` | `true` | Verify the server's certificate and host name; `false` turns verification off, which lets anyone between the engine and the database impersonate it |
 
+### `[runtime]`
+
+| Key | Default | Meaning |
+|---|---|---|
+| `profiles` | `["all"]` | What this node runs: `all` or `engine` (every engine service), `frontend` (with the internal frontend), `history`, `matching`, `worker`, and `api` (the API server; the engine starts nothing for it). Profiles combine |
+
+Nodes find each other through the shared database, so a distributed deployment is the same `runtime.toml` on every
+node with a different `profiles` and its own `broadcastAddress`.
+
 ### `[engine]`
 
 | Key | Default | Meaning |
@@ -43,8 +52,10 @@ other, not both.
 | `historyShards` | 512 (1 for SQLite) | Temporal history shards. **Cannot be changed after the first start** |
 | `logLevel` | `info` | `debug`, `info`, `warn` or `error` |
 | `[engine.ports]` `frontend`, `frontendHttp`, `internalFrontend`, `history`, `matching`, `worker` | 7233, 7243, 7236, 7234, 7235, 7239 | Service ports; each gRPC service's membership port is its port minus 300 (6933, 6936, …) |
+| `[engine.tls]`, `[engine.auth]` | off | TLS and identity-provider tokens; see [engine security](engine-security.md) |
+| `[engine.metrics]` `prometheusAddress` | off | `host:port` serving Prometheus metrics at `/metrics` |
 
-Other tables (`[runtime]`, `[users]`, the portals) belong to other components and are ignored here.
+Other tables (`[users]`, the portals) and other `[runtime]` keys belong to other components and are ignored here.
 
 ## Behavior
 
@@ -75,8 +86,7 @@ Other tables (`[runtime]`, `[users]`, the portals) belong to other components an
 
 ## Not covered yet
 
-Authorization and TLS for the engine's own endpoints, profiles (which services a node runs), schema creation and
-upgrade on first start, Cassandra, and secure-vault secrets.
+Schema creation and upgrade on first start, Cassandra, and secure-vault secrets.
 
 ## Tests
 
@@ -86,5 +96,6 @@ upgrade on first start, Cassandra, and secure-vault secrets.
 | `tools/internal/enginetest/sqlite_test.go` | A real engine on a new SQLite file creates the schema, keeps a namespace and a waiting workflow across a restart, and closes the workflow after it |
 | `engine/internal/runtimeconfig/runtimeconfig_test.go` | What a redacted rendering cannot show: resolved environment passwords, redaction without changing the configuration, reading the file |
 | `engine/internal/runtimeconfig/postgresqltls_test.go` | Temporal's PostgreSQL session verifies the certificate against the host, not `serverName`; it fails once Temporal passes the name through, so the rule can go |
-| `engine/internal/cli/cli_test.go` | `start --runtime-config`, the authorizer check, one configuration only, `render-config` |
+| `engine/internal/runtimeconfig/security_test.go` | Profiles, TLS, auth and metrics |
+| `engine/internal/cli/cli_test.go` | `start --runtime-config`, the authorizer check, one configuration only, `render-config`, profiles and the claim mapper |
 | `tests/ballerina/smoke` and `full`, with `--database sqlite\|postgresql\|mysql` | A real engine started from `runtime.toml` runs workflows on each database |

@@ -25,7 +25,11 @@ import (
 	"testing"
 
 	"go.temporal.io/server/common/config"
+	"go.temporal.io/server/common/log"
 	"go.temporal.io/server/temporal"
+
+	"github.com/wso2/integration-workflow-runtime/engine/internal/runtimeconfig"
+	"github.com/wso2/integration-workflow-runtime/engine/plugins/jwtclaims"
 )
 
 const minimalConfig = "testdata/minimal.yaml"
@@ -285,5 +289,38 @@ func TestRenderConfigErrors(t *testing.T) {
 	}
 	if err := c.renderConfig([]string{"--no-such-flag"}); err == nil {
 		t.Fatal("render-config accepted an unknown flag")
+	}
+}
+
+func TestStartWithIdentityProviderAuth(t *testing.T) {
+	server := &fakeServer{}
+	c, _, stderr := newTestCommand(server, nil)
+	if code := c.run([]string{"start", "--runtime-config", "testdata/runtime-auth.toml"}); code != 0 || !server.started {
+		t.Fatalf("exit code = %d, started = %v, stderr = %s", code, server.started, stderr.String())
+	}
+}
+
+func TestNewClaimMapper(t *testing.T) {
+	logger := log.NewNoopLogger()
+	rt, err := runtimeconfig.Load("testdata/runtime-auth.toml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(rt.Services, []string{"frontend", "internal-frontend", "history"}) {
+		t.Fatalf("services = %v", rt.Services)
+	}
+	m, err := newClaimMapper(rt.Temporal, rt, logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := m.(*jwtclaims.Mapper); !ok {
+		t.Fatalf("mapper = %T, want *jwtclaims.Mapper", m)
+	}
+	if _, err := newClaimMapper(rt.Temporal, nil, logger); err == nil || !strings.Contains(err.Error(), "only through runtime.toml") {
+		t.Fatalf("mapper without runtime settings: %v", err)
+	}
+	plain := &config.Config{Global: config.Global{Authorization: config.Authorization{ClaimMapper: "default"}}}
+	if m, err := newClaimMapper(plain, nil, logger); err != nil || m == nil {
+		t.Fatalf("Temporal's default mapper: %v, %v", m, err)
 	}
 }

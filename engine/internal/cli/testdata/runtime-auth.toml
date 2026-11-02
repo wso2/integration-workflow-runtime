@@ -1,0 +1,16 @@
+[runtime]
+profiles = ["frontend", "history"]
+
+[engine.auth]
+type = "jwt"
+jwksUrls = ["http://127.0.0.1:1/jwks"]
+rolesClaim = "cognito:groups"
+
+[[engine.auth.rules]]
+value = "workflow-admins"
+namespace = "*"
+role = "admin"
+
+[database]
+type = "sqlite"
+inMemory = true

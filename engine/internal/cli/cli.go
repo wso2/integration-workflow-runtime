@@ -39,6 +39,7 @@ import (
 	"go.temporal.io/server/temporal"
 
 	"github.com/wso2/integration-workflow-runtime/engine/internal/runtimeconfig"
+	"github.com/wso2/integration-workflow-runtime/engine/plugins/jwtclaims"
 )
 
 const usageText = `usage: workflow-engine version
@@ -110,11 +111,15 @@ func (c command) start(args []string) error {
 		}
 		return err
 	}
-	cfg, err := loadConfig(*runtimeConfig, *configFile)
+	cfg, rt, err := loadConfig(*runtimeConfig, *configFile)
 	if err != nil {
 		return err
 	}
-	if len(services) == 0 {
+	switch {
+	case len(services) > 0:
+	case rt != nil:
+		services = rt.Services
+	default:
 		services = defaultServices(cfg)
 	}
 	logger := log.NewZapLogger(log.BuildZapLogger(cfg.Log))
@@ -136,7 +141,7 @@ func (c command) start(args []string) error {
 	if !authorization.IsNoopAuthorizer(authorizer) && !hasInternalFrontend(cfg) {
 		return errors.New("an authorizer needs the internal frontend; add services.internal-frontend to the configuration")
 	}
-	claimMapper, err := authorization.GetClaimMapperFromConfig(&cfg.Global.Authorization, logger)
+	claimMapper, err := newClaimMapper(cfg, rt, logger)
 	if err != nil {
 		return fmt.Errorf("unable to create the claim mapper: %w", err)
 	}
@@ -170,11 +175,11 @@ func (c command) renderConfig(args []string) error {
 	if *runtimeConfig == "" {
 		return errors.New("--runtime-config is required")
 	}
-	cfg, err := runtimeconfig.Load(*runtimeConfig)
+	rt, err := runtimeconfig.Load(*runtimeConfig)
 	if err != nil {
 		return err
 	}
-	rendered, err := runtimeconfig.Render(cfg)
+	rendered, err := runtimeconfig.Render(rt.Temporal)
 	if err != nil {
 		return fmt.Errorf("unable to render the configuration: %w", err)
 	}
@@ -182,22 +187,40 @@ func (c command) renderConfig(args []string) error {
 	return err
 }
 
-// loadConfig returns the Temporal configuration from exactly one of a runtime.toml and a Temporal YAML file.
-func loadConfig(runtimeConfig, configFile string) (*config.Config, error) {
+// loadConfig returns the Temporal configuration from exactly one of a runtime.toml and a Temporal YAML file; the
+// runtime settings are nil for a Temporal YAML file, which is used as is.
+func loadConfig(runtimeConfig, configFile string) (*config.Config, *runtimeconfig.Runtime, error) {
 	switch {
 	case runtimeConfig != "" && configFile != "":
-		return nil, errors.New("pass either --runtime-config or --config-file, not both")
+		return nil, nil, errors.New("pass either --runtime-config or --config-file, not both")
 	case runtimeConfig != "":
-		return runtimeconfig.Load(runtimeConfig)
+		rt, err := runtimeconfig.Load(runtimeConfig)
+		if err != nil {
+			return nil, nil, err
+		}
+		return rt.Temporal, rt, nil
 	case configFile != "":
 		cfg, err := config.Load(config.WithConfigFile(configFile))
 		if err != nil {
-			return nil, fmt.Errorf("unable to load configuration: %w", err)
+			return nil, nil, fmt.Errorf("unable to load configuration: %w", err)
 		}
-		return cfg, nil
+		return cfg, nil, nil
 	default:
-		return nil, errors.New("--runtime-config or --config-file is required")
+		return nil, nil, errors.New("--runtime-config or --config-file is required")
 	}
+}
+
+// newClaimMapper builds the identity-provider mapper that runtime.toml's [engine.auth] asks for, or Temporal's own.
+func newClaimMapper(cfg *config.Config, rt *runtimeconfig.Runtime, logger log.Logger) (authorization.ClaimMapper, error) {
+	if cfg.Global.Authorization.ClaimMapper != runtimeconfig.ClaimMapperName {
+		return authorization.GetClaimMapperFromConfig(&cfg.Global.Authorization, logger)
+	}
+	if rt == nil || rt.Auth == nil {
+		return nil, fmt.Errorf("claim mapper %q is configured only through runtime.toml [engine.auth]",
+			runtimeconfig.ClaimMapperName)
+	}
+	keys := authorization.NewDefaultTokenKeyProvider(&cfg.Global.Authorization, logger)
+	return jwtclaims.New(keys, *rt.Auth)
 }
 
 // defaultServices is Temporal's default set plus the internal frontend when the configuration defines one.
