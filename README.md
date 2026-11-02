@@ -25,6 +25,8 @@ Status: early development. The engine builds and runs; the launcher, Manager and
 
 Documentation: [architecture](docs/guides/ARCHITECTURE.md), [developing](docs/guides/DEVELOPING.md),
 [testing](docs/guides/TESTING.md), [features](docs/features/README.md), [decisions](docs/decisions/).
+
+Installing and running the runtime: the [user guide](docs/user-guide/README.md).
 Contributors and coding agents: read [AGENTS.md](AGENTS.md) first.
 
 ## Build

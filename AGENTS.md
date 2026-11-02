@@ -49,6 +49,13 @@ Go 1.26.8 or later; the toolchain line in `go.work` and `engine/go.mod` selects 
 These are requirements, not suggestions. A change that misses one is not done.
 
 1. **Document it in the same commit.**
+   - **User guide first.** Anything a user can see or do (install, configure, secure, run, connect, upgrade,
+     troubleshoot) updates `docs/user-guide/` with complete, working instructions: every step, command, key and
+     default a user needs, tried on a real build, not described from the code. Add a page when a task has none,
+     and update `docs/user-guide/reference/runtime-toml.md` for every configuration key.
+   - **Check the whole guide, not only your page.** Before opening the PR, read every page the change touches and
+     the pages that link to them, and make commands, key names, defaults, ports and file paths agree with the code
+     and with each other. A PR that leaves another page wrong is not done.
    - A new or changed feature updates its page in `docs/features/` (create it from `docs/features/TEMPLATE.md`).
    - A design change updates `docs/guides/ARCHITECTURE.md` or adds a decision record in `docs/decisions/`.
    - A new or changed command, flag, configuration key or port updates the README, `docs/guides/DEVELOPING.md`
@@ -116,6 +123,11 @@ These are requirements, not suggestions. A change that misses one is not done.
 
 ## Documentation
 
+- `docs/user-guide/` is for the people who install and run the runtime. It is the source of the Workflow Runtime
+  section of the WSO2 Integrator documentation (planned under `manage/workflow-runtime/` in wso2/docs-integrator,
+  shaped like its ICP section), so write it that way: front matter (`title`, `description`, `keywords`),
+  task-oriented pages, numbered steps, `:::info`/`:::tip`/`:::caution` admonitions, plain Markdown (no MDX
+  imports), links relative to the page. No internal plans, issue numbers or code internals.
 - `docs/guides/` explains the system: `ARCHITECTURE.md` (components and how they connect), `DEVELOPING.md`
   (build, run, debug), `TESTING.md` (test layers and how to add tests).
 - `docs/features/` has one page per feature, from `TEMPLATE.md`: what it does, configuration, behavior, limits,
