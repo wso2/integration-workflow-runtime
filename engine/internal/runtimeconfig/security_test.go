@@ -17,6 +17,8 @@
 package runtimeconfig
 
 import (
+	"errors"
+	"net"
 	"os"
 	"path/filepath"
 	"slices"
@@ -213,5 +215,46 @@ func TestJWTNeedsTLSAndProtectedInternalPorts(t *testing.T) {
 		if _, err := parse([]byte(toml), noEnv); err != nil {
 			t.Errorf("%s: %v", name, err)
 		}
+	}
+}
+
+func TestLogFile(t *testing.T) {
+	if l := mustParseRuntime(t, sqliteDB).Temporal.Log; !l.Stdout || l.OutputFile != "" {
+		t.Errorf("default log = %+v", l)
+	}
+	l := mustParseRuntime(t, "[engine]\nlogFile = \"logs/engine.log\"\n"+sqliteDB).Temporal.Log
+	if l.Stdout || l.OutputFile != "logs/engine.log" || l.Level != "info" {
+		t.Errorf("file log = %+v", l)
+	}
+}
+
+func TestBroadcastAddressAuto(t *testing.T) {
+	saved := interfaceAddrs
+	t.Cleanup(func() { interfaceAddrs = saved })
+	ipnet := func(s string) net.Addr { ip, n, _ := net.ParseCIDR(s); n.IP = ip; return n }
+	toml := "[engine]\nbindAddress = \"0.0.0.0\"\nbroadcastAddress = \"auto\"\n" + sqliteDB
+	for addrs, want := range map[string]struct {
+		list []net.Addr
+		ip   string
+	}{
+		"ipv4": {[]net.Addr{ipnet("127.0.0.1/8"), ipnet("fe80::1/64"), ipnet("10.1.2.3/16")}, "10.1.2.3"},
+		"ipv6": {[]net.Addr{ipnet("127.0.0.1/8"), ipnet("2001:db8::5/64")}, "2001:db8::5"},
+	} {
+		interfaceAddrs = func() ([]net.Addr, error) { return want.list, nil }
+		if got := mustParseRuntime(t, toml).Temporal.Global.Membership.BroadcastAddress; got != want.ip {
+			t.Errorf("%s: broadcast = %q, want %q", addrs, got, want.ip)
+		}
+	}
+	interfaceAddrs = func() ([]net.Addr, error) { return []net.Addr{ipnet("127.0.0.1/8")}, nil }
+	if _, err := parse([]byte(toml), noEnv); err == nil || !strings.Contains(err.Error(), "no non-loopback address") {
+		t.Errorf("err = %v", err)
+	}
+	interfaceAddrs = func() ([]net.Addr, error) { return nil, errors.New("boom") }
+	if _, err := parse([]byte(toml), noEnv); err == nil {
+		t.Error("an interface error was ignored")
+	}
+	if _, err := parse([]byte("[engine]\nbroadcastAddress = \"runtime\"\n"+sqliteDB), noEnv); err == nil ||
+		!strings.Contains(err.Error(), `must be an IP address or "auto"`) {
+		t.Errorf("hostname: err = %v", err)
 	}
 }
