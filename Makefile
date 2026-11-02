@@ -21,7 +21,7 @@ EXE := $(if $(filter windows,$(GOOS)),.exe,)
 OUT := build
 DIST_NAME := wso2-workflow-runtime-$(VERSION)-$(GOOS)-$(GOARCH)
 MIN_COVERAGE ?= 75
-BINARIES := workflow-engine workflow-engine-sql
+BINARIES := workflow-runtime workflow-engine workflow-engine-sql
 # Container image: name, platforms, and extra buildx arguments (--push to publish, --load for a local single platform).
 IMAGE ?= wso2-workflow-runtime
 IMAGE_PLATFORMS ?= linux/amd64,linux/arm64
@@ -70,14 +70,14 @@ engine:
 		-ldflags "-s -w -X main.version=$(VERSION)" -o ../$(OUT)/workflow-engine$(EXE) ./cmd/workflow-engine
 	cd engine && CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -trimpath \
 		-ldflags "-s -w" -o ../$(OUT)/workflow-engine-sql$(EXE) ./cmd/workflow-engine-sql
+	cd engine && CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -trimpath \
+		-ldflags "-s -w -X main.version=$(VERSION)" -o ../$(OUT)/workflow-runtime$(EXE) ./cmd/workflow-runtime
 
 # One distribution directory and zip for GOOS/GOARCH: the layout every release archive uses.
 dist: engine sbom
 	rm -rf dist/$(DIST_NAME) && mkdir -p dist/$(DIST_NAME)/bin dist/$(DIST_NAME)/conf
-	cp $(OUT)/workflow-engine$(EXE) $(OUT)/workflow-engine-sql$(EXE) dist/$(DIST_NAME)/bin/
+	cp $(OUT)/workflow-runtime$(EXE) $(OUT)/workflow-engine$(EXE) $(OUT)/workflow-engine-sql$(EXE) dist/$(DIST_NAME)/bin/
 	cp distribution/conf/runtime.toml dist/$(DIST_NAME)/conf/
-	$(if $(filter windows,$(GOOS)),cp distribution/bin/workflow-runtime.bat dist/$(DIST_NAME)/bin/,\
-		install -m 0755 distribution/bin/workflow-runtime.sh dist/$(DIST_NAME)/bin/)
 	$(if $(filter linux,$(GOOS)),cp -R distribution/systemd dist/$(DIST_NAME)/,)
 	cp distribution/README.dist.md dist/$(DIST_NAME)/README.md
 	cp -R LICENSE NOTICE third-party dist/$(DIST_NAME)/

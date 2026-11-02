@@ -11,19 +11,22 @@ every profile. Both carry the same binaries, the one configuration file, SBOMs a
 
 | Item | Meaning |
 |---|---|
-| `bin/workflow-runtime.sh` / `.bat` | Starts the engine from `conf/runtime.toml`; `render-config` and `version` pass through. `WORKFLOW_RUNTIME_CONFIG` names another file |
+| `bin/workflow-runtime` (`.exe` on Windows) | The launcher: starts the engine from `conf/runtime.toml`; `render-config`, `version` and other engine commands pass through. `WORKFLOW_RUNTIME_CONFIG` names another file |
 | `conf/runtime.toml` | The one file to edit ([runtime configuration](runtime-config.md), [engine security](engine-security.md)) |
 | `systemd/workflow-runtime.service` | Example unit for Linux virtual machines (zip for Linux only) |
+| Test image `ghcr.io/wso2/integration-workflow-runtime:<nightly version>` and `:nightly` | Published by every push to `main` (and on demand for a branch) for testing |
 | Container image (WSO2's registry from the first release) | Distroless, non-root; mount `runtime.toml` at `/opt/wso2-workflow-runtime/conf/runtime.toml` |
 | `distribution/docker/compose.yml` | Tries the runtime with PostgreSQL on one machine |
 | `make dist` / `make image` | Build a zip for `GOOS`/`GOARCH`, or the image from the linux zips (`IMAGE`, `IMAGE_PLATFORMS`, `IMAGE_ARGS`) |
 
 ## Behavior
 
-- The start script runs from the runtime's home directory, so relative paths in `runtime.toml` (certificates, log
-  file, SQLite file) resolve against it.
-- The image's entry point is `workflow-engine start --runtime-config /opt/wso2-workflow-runtime/conf/runtime.toml`;
-  arguments after the image name are added (for example `--allow-no-auth` when trying it out).
+- The launcher finds the runtime's home from its own location (symbolic links resolved) and works from there, so
+  relative paths in `runtime.toml` (certificates, log file, SQLite file) resolve against it. On Linux and macOS it
+  replaces itself with the engine, so signals and the exit code are the engine's; on Windows it runs the engine as
+  a child sharing the console.
+- The image's entry point is the launcher, so it starts the engine from `/opt/wso2-workflow-runtime/conf/runtime.toml`;
+  arguments after the image name are passed to it (for example `--allow-no-auth` when trying it out).
 - In a container, set `bindAddress = "0.0.0.0"` and `broadcastAddress = "auto"`: the engine advertises the
   container's own address to the other nodes.
 - A release tag builds the zips for Linux, macOS and Windows on amd64 and arm64 and signs them with Sigstore. When
@@ -44,7 +47,6 @@ every profile. Both carry the same binaries, the one configuration file, SBOMs a
 
 ## Limits
 
-- The image has no shell, so the start script is not used in it.
 - Without `[engine.auth]`, a start needs `--allow-no-auth`, which is for trying out only.
 
 ## Not covered yet
@@ -55,5 +57,5 @@ Patches through WSO2 Updates, Helm charts, and supervision and restart outside s
 
 | Test | Covers |
 |---|---|
-| `tools/internal/scripts/runtime_script_test.go` | The start script's working directory, configuration and argument passing |
+| `engine/internal/launcher/launcher_test.go` | The launcher's home, working directory, configuration, commands, help and errors |
 | `engine/internal/runtimeconfig/security_test.go` | `broadcastAddress = "auto"` and `logFile` |

@@ -9,11 +9,11 @@ Temporal server.
    `temporal` and `temporal_visibility`).
 2. Edit `conf/runtime.toml`: the `[database]` table, and `[engine.tls]` and `[engine.auth]` for production.
 3. Put the database password in the environment variable the file names (`WORKFLOW_DB_PASSWORD`).
-4. Run `bin/workflow-runtime.sh` (`bin\workflow-runtime.bat` on Windows). The engine creates the databases and their
+4. Run `bin/workflow-runtime` (`bin\workflow-runtime.exe` on Windows). The engine creates the databases and their
    schemas, then listens on port 7233.
 
-Without `[engine.auth]` the engine refuses to start; `bin/workflow-runtime.sh start --allow-no-auth` is for trying out
-only. `bin/workflow-runtime.sh render-config` prints the generated configuration, password hidden.
+Without `[engine.auth]` the engine refuses to start; `bin/workflow-runtime start --allow-no-auth` is for trying out
+only. `bin/workflow-runtime render-config` prints the generated configuration, password hidden.
 
 ## Connect an integration
 
@@ -32,7 +32,7 @@ authCaCert = "certs/engine-ca.pem"
 
 | Path | What |
 |---|---|
-| `bin/` | `workflow-runtime` start script, `workflow-engine`, and `workflow-engine-sql` (schema tool for DBAs) |
+| `bin/` | `workflow-runtime` (the command you run), `workflow-engine`, and `workflow-engine-sql` (schema tool for DBAs) |
 | `conf/runtime.toml` | The one file to edit |
 | `systemd/` | Example service unit (Linux) |
 | `sbom/` | CycloneDX SBOM per binary |

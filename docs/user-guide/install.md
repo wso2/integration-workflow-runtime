@@ -35,17 +35,17 @@ The engine is a single static binary: no Java or other runtime is needed.
 4. Start the runtime:
 
    ```bash
-   bin/workflow-runtime.sh          # bin\workflow-runtime.bat on Windows
+   bin/workflow-runtime          # bin\workflow-runtime.exe on Windows
    ```
 
    The engine creates its databases on the first start, then listens on port 7233.
 
 | Command | Does |
 |---|---|
-| `bin/workflow-runtime.sh` or `bin/workflow-runtime.sh start` | Starts the engine from `conf/runtime.toml` |
-| `bin/workflow-runtime.sh start --allow-no-auth` | Starts without `[engine.auth]`; development on your own machine only |
-| `bin/workflow-runtime.sh render-config` | Prints the generated configuration, password hidden |
-| `bin/workflow-runtime.sh version` | Prints the runtime's and the embedded Temporal server's versions |
+| `bin/workflow-runtime` or `bin/workflow-runtime start` | Starts the engine from `conf/runtime.toml` |
+| `bin/workflow-runtime start --allow-no-auth` | Starts without `[engine.auth]`; development on your own machine only |
+| `bin/workflow-runtime render-config` | Prints the generated configuration, password hidden |
+| `bin/workflow-runtime version` | Prints the runtime's and the embedded Temporal server's versions |
 
 Set `WORKFLOW_RUNTIME_CONFIG` to use another configuration file.
 
@@ -82,7 +82,7 @@ The Linux zip includes `systemd/workflow-runtime.service`, written for `/opt/wso
 
 | Path | What |
 |---|---|
-| `bin/` | `workflow-runtime` start script, `workflow-engine`, and `workflow-engine-sql` (schema tool for DBAs) |
+| `bin/` | `workflow-runtime` (the command you run), `workflow-engine`, and `workflow-engine-sql` (schema tool for DBAs) |
 | `conf/runtime.toml` | The configuration |
 | `systemd/` | Example service unit (Linux) |
 | `sbom/` | CycloneDX software bill of materials per binary |

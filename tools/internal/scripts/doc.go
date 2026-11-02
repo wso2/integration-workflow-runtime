@@ -14,6 +14,5 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// Package scripts holds the tests for the repository's shell scripts (.github/scripts, distribution/bin); they run
-// the scripts for real.
+// Package scripts holds the tests for the shell scripts in .github/scripts; they run the scripts for real.
 package scripts

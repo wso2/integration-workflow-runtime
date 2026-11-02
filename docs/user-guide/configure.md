@@ -57,7 +57,7 @@ applies schema changes.
 Print the configuration the engine generates, with the password hidden:
 
 ```bash
-WORKFLOW_DB_PASSWORD=<password> bin/workflow-runtime.sh render-config
+WORKFLOW_DB_PASSWORD=<password> bin/workflow-runtime render-config
 ```
 
 The engine checks every key before it starts. Unknown keys (usually typos), invalid ports, missing files and unset
@@ -67,10 +67,10 @@ The engine checks every key before it starts. Unknown keys (usually typos), inva
 
 ```bash
 export WORKFLOW_DB_PASSWORD=<password>
-bin/workflow-runtime.sh
+bin/workflow-runtime
 ```
 
-The start script runs from the runtime's directory, so relative paths in `runtime.toml` resolve against it. See
+`workflow-runtime` works from the runtime's directory, so relative paths in `runtime.toml` resolve against it. See
 [Install the runtime](install.md) for the commands and for running it as a service.
 
 Without `[engine.auth]` the engine refuses to start. Add `--allow-no-auth` only for development on your own

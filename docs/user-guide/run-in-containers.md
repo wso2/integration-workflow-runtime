@@ -7,8 +7,13 @@ keywords: [wso2 integrator, workflow runtime, docker, container, compose, kubern
 # Run in containers
 
 One image serves every profile, for linux/amd64 and linux/arm64. It runs as a non-root user from
-`/opt/wso2-workflow-runtime`, and starts the engine with `/opt/wso2-workflow-runtime/conf/runtime.toml`. Mount your
-configuration there.
+`/opt/wso2-workflow-runtime`, and its entry point, `workflow-runtime`, starts the engine with
+`/opt/wso2-workflow-runtime/conf/runtime.toml`. Mount your configuration there.
+
+:::info
+Until the first release, test images are at `ghcr.io/wso2/integration-workflow-runtime:nightly`. Releases are
+published to WSO2's registry.
+:::
 
 ## In a container, set the addresses
 

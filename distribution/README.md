@@ -4,7 +4,7 @@ Assembles the zip and the container image ([docs/features/distribution.md](../do
 
 ```
 wso2-workflow-runtime-<version>-<os>-<arch>/
-  bin/         workflow-runtime(.sh|.bat), workflow-engine, workflow-engine-sql
+  bin/         workflow-runtime (the launcher), workflow-engine, workflow-engine-sql
   conf/        runtime.toml (the one file customers edit)
   systemd/     example service unit (Linux zips)
   sbom/        CycloneDX SBOM per binary
@@ -14,7 +14,6 @@ wso2-workflow-runtime-<version>-<os>-<arch>/
 
 | Path | What |
 |---|---|
-| `bin/` | Start scripts |
 | `conf/runtime.toml` | The sample configuration shipped in every zip and the image |
 | `systemd/` | Example unit for Linux virtual machines |
 | `docker/Dockerfile` | The image, assembled from the linux zips (distroless, non-root) |

@@ -48,3 +48,41 @@ jobs:
     with:
       version: ${{ needs.version.outputs.version }}
       ref: ${{ needs.version.outputs.ref }}
+
+  # Test images go to GitHub's registry; releases go to WSO2's (release.yml).
+  image:
+    name: Publish a test image
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGE: ghcr.io/${{ github.repository }}
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.version.outputs.ref }}
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: wso2-workflow-runtime-linux-*
+          path: dist
+          merge-multiple: true
+      - name: Unpack the linux distributions
+        run: cd dist && for z in *-linux-*.zip; do unzip -q "$z"; done
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push
+        env:
+          REF: ${{ needs.version.outputs.ref }}
+        run: |
+          tags="--tag $IMAGE:$VERSION"
+          if [[ "$REF" == "refs/heads/main" || "$REF" == "main" ]]; then tags="$tags --tag $IMAGE:nightly"; fi
+          docker buildx build --platform linux/amd64,linux/arm64 --build-arg VERSION="$VERSION" \
+            -f distribution/docker/Dockerfile $tags --push .
