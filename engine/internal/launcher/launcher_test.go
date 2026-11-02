@@ -86,6 +86,7 @@ func TestLauncherCommands(t *testing.T) {
 		"start":         {[]string{"start", "--service", "frontend"}, []string{"start", "--runtime-config", "CONFIG", "--service", "frontend"}},
 		"render-config": {[]string{"render-config"}, []string{"render-config", "--runtime-config", "CONFIG"}},
 		"other":         {[]string{"start-dev", "--port", "8233"}, []string{"start-dev", "--port", "8233"}},
+		"dev":           {[]string{"dev", "--db-file", "data/dev.db"}, []string{"start-dev", "--db-file", "data/dev.db"}},
 	} {
 		got, code, _ := runLauncher(t, nil, tt.args...)
 		home := filepath.Dir(filepath.Dir(got.engine))

@@ -15,6 +15,7 @@ the configuration defines one) in one binary built from the pinned Temporal serv
 | `workflow-engine start --runtime-config <file>` | one of the two | Generate Temporal's configuration from `conf/runtime.toml` ([runtime configuration](runtime-config.md)) |
 | `workflow-engine start --config-file <file>` | one of the two | Use a Temporal server configuration (YAML) as is |
 | `workflow-engine render-config --runtime-config <file>` | | Print the configuration generated from `runtime.toml`, password hidden |
+| `workflow-engine start-dev` | | Development engine: every service on SQLite (in memory, or `--db-file`), no authorization, listening on `--ip` (127.0.0.1) and `--port` (7233); creates `default` and each `--namespace`, with the `WorkflowKind` search attribute |
 | `--service <name>` (repeatable) | From `runtime.toml`'s `[runtime] profiles`; with `--config-file`, `frontend`, `history`, `matching`, `worker`, plus `internal-frontend` when configured | `frontend`, `internal-frontend`, `history`, `matching`, `worker`; overrides the profiles |
 | `--allow-no-auth` | off | Start without an authorizer; development and tests only |
 
@@ -30,6 +31,11 @@ the configuration defines one) in one binary built from the pinned Temporal serv
 - A `runtime.toml` always generates `services.internal-frontend`, so a start from it runs the internal frontend
   with the default services and passes the internal frontend check.
 - Persistence plugins built in: PostgreSQL, MySQL, SQLite.
+- For two minutes after start, errors caused by the services joining the membership ring or acquiring shards
+  (`Not enough hosts to serve the request`, `shard status unknown`, `context canceled`, the first-start cluster
+  metadata race, `Frontend is not healthy yet`) are logged at debug level; afterwards they are errors again.
+- `start-dev` keeps its SQLite database open for the whole process (an in-memory database is deleted with its last
+  connection) and registers the namespaces in it before the services start.
 
 ## Limits
 

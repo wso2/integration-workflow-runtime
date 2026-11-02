@@ -73,5 +73,5 @@ bin/workflow-runtime
 `workflow-runtime` works from the runtime's directory, so relative paths in `runtime.toml` resolve against it. See
 [Install the runtime](install.md) for the commands and for running it as a service.
 
-Without `[engine.auth]` the engine refuses to start. Add `--allow-no-auth` only for development on your own
-machine; never expose such an engine on a network.
+Without `[engine.auth]` the engine refuses to start. For development on your own machine, use development mode
+([Quick start](quick-start.md)) or add `--allow-no-auth`; never expose such an engine on a network.

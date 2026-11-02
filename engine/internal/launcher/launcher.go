@@ -31,6 +31,7 @@ import (
 const ConfigEnv = "WORKFLOW_RUNTIME_CONFIG"
 
 const usageText = `usage: workflow-runtime [start] [--allow-no-auth] [--service <name>]...
+       workflow-runtime dev [--db-file <file>] [--namespace <name>]... [--port <port>] [--ip <address>]
        workflow-runtime render-config
        workflow-runtime version
 
@@ -71,6 +72,8 @@ func run(version string, args []string, executable func() (string, error), geten
 	switch command {
 	case "start", "render-config":
 		engineArgs = append([]string{command, "--runtime-config", config}, rest...)
+	case "dev":
+		engineArgs = append([]string{"start-dev"}, rest...)
 	case "version":
 		_, _ = fmt.Fprintf(stdout, "workflow-runtime %s\n", version)
 		engineArgs = []string{"version"}

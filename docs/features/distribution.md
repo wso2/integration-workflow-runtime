@@ -11,7 +11,7 @@ every profile. Both carry the same binaries, the one configuration file, SBOMs a
 
 | Item | Meaning |
 |---|---|
-| `bin/workflow-runtime` (`.exe` on Windows) | The launcher: starts the engine from `conf/runtime.toml`; `render-config`, `version` and other engine commands pass through. `WORKFLOW_RUNTIME_CONFIG` names another file |
+| `bin/workflow-runtime` (`.exe` on Windows) | The launcher: starts the engine from `conf/runtime.toml`; `dev` runs `start-dev`; `render-config`, `version` and other engine commands pass through. `WORKFLOW_RUNTIME_CONFIG` names another file |
 | `conf/runtime.toml` | The one file to edit ([runtime configuration](runtime-config.md), [engine security](engine-security.md)) |
 | `systemd/workflow-runtime.service` | Example unit for Linux virtual machines (zip for Linux only) |
 | Test image `ghcr.io/wso2/integration-workflow-runtime:<nightly version>` and `:nightly` | Published by every push to `main` (and on demand for a branch) for testing |

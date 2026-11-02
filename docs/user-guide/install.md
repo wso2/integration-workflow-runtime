@@ -47,6 +47,7 @@ The engine is a single static binary: no Java or other runtime is needed.
 |---|---|
 | `bin/workflow-runtime` or `bin/workflow-runtime start` | Starts the engine from `conf/runtime.toml` |
 | `bin/workflow-runtime start --allow-no-auth` | Starts without `[engine.auth]`; development on your own machine only |
+| `bin/workflow-runtime dev` | Development mode: in-memory SQLite, no authentication, the `default` namespace ([Quick start](quick-start.md)) |
 | `bin/workflow-runtime render-config` | Prints the generated configuration, password hidden |
 | `bin/workflow-runtime version` | Prints the runtime's and the embedded Temporal server's versions |
 

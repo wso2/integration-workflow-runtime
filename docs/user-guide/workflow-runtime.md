@@ -32,6 +32,7 @@ Namespaces separate teams or environments. Each has a retention period after whi
 
 ## Where to go next
 
+- [Quick start](quick-start.md)
 - [Configure the runtime](configure.md)
 - [Secure the engine](secure-the-engine.md)
 - [Run across several nodes](scale-across-nodes.md)
