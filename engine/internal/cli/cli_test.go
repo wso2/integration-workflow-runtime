@@ -19,6 +19,10 @@ package cli
 import (
 	"bytes"
 	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -322,5 +326,40 @@ func TestNewClaimMapper(t *testing.T) {
 	plain := &config.Config{Global: config.Global{Authorization: config.Authorization{ClaimMapper: "default"}}}
 	if m, err := newClaimMapper(plain, nil, logger); err != nil || m == nil {
 		t.Fatalf("Temporal's default mapper: %v, %v", m, err)
+	}
+}
+
+func TestNewClaimMapperDiscoversTheKeySet(t *testing.T) {
+	var base string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = fmt.Fprintf(w, `{"issuer":%q,"jwks_uri":%q}`, base+"/oauth2/token", base+"/oauth2/jwks")
+	}))
+	defer srv.Close()
+	base = srv.URL
+	write := func(issuer string) string {
+		p := filepath.Join(t.TempDir(), "runtime.toml")
+		toml := "[engine.auth]\ntype = \"jwt\"\nissuer = \"" + issuer + "\"\n[database]\ntype = \"sqlite\"\ninMemory = true\n"
+		if err := os.WriteFile(p, []byte(toml), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	rt, err := runtimeconfig.Load(write(base + "/oauth2/token"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := newClaimMapper(rt.Temporal, rt, log.NewNoopLogger()); err != nil {
+		t.Fatal(err)
+	}
+	if got := rt.Temporal.Global.Authorization.JWTKeyProvider.KeySourceURIs; !slices.Equal(got, []string{base + "/oauth2/jwks"}) {
+		t.Fatalf("key set = %v", got)
+	}
+	rt, err = runtimeconfig.Load(write("http://127.0.0.1:1/oauth2/token"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := newClaimMapper(rt.Temporal, rt, log.NewNoopLogger()); err == nil ||
+		!strings.Contains(err.Error(), "unable to discover the identity provider's key set") {
+		t.Fatalf("unreachable provider: %v", err)
 	}
 }

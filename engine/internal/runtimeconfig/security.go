@@ -149,8 +149,8 @@ func (a authSettings) problems() []string {
 		return []string{fmt.Sprintf(`engine.auth.type %q must be "jwt" or "none"`, a.Type)}
 	}
 	var problems []string
-	if len(a.JWKSURLs) == 0 {
-		problems = append(problems, "engine.auth.jwksUrls needs the identity provider's key set URL")
+	if len(a.JWKSURLs) == 0 && a.Issuer == "" {
+		problems = append(problems, "engine.auth needs the identity provider's issuer (its key set is discovered) or jwksUrls")
 	}
 	if a.KeyRefresh != "" {
 		if d, err := time.ParseDuration(a.KeyRefresh); err != nil || d < time.Second {

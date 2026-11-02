@@ -53,14 +53,17 @@ A role in namespace `*` applies to every namespace. Roles add up: a caller in tw
 
 ## Turn on your identity provider's tokens
 
-1. Find your provider's key set (JWKS) URL and issuer, and the claim that carries groups, roles or scopes.
-2. Add `[engine.auth]` and one rule per group:
+Any OpenID Connect provider works: WSO2 Identity Server, Asgardeo, Amazon Cognito, Microsoft Entra ID, Okta,
+Keycloak, Auth0 and others.
+
+1. Find your provider's issuer (the `iss` of its tokens) and the claim that carries groups, roles or scopes.
+2. Add `[engine.auth]` and one rule per group. With the issuer alone, the engine reads the provider's OpenID
+   Connect discovery document (`<issuer>/.well-known/openid-configuration`) at start to find its key set:
 
    ```toml
    [engine.auth]
    type = "jwt"
-   jwksUrls = ["https://idp.example.com/.well-known/jwks.json"]
-   issuer = "https://idp.example.com"
+   issuer = "https://idp.example.com/oauth2/token"
    audience = "workflow-engine"        # optional
    rolesClaim = "groups"
 
@@ -84,11 +87,17 @@ A role in namespace `*` applies to every namespace. Roles add up: a caller in tw
 
 | Provider | `rolesClaim` | Notes |
 |---|---|---|
-| Amazon Cognito | `cognito:groups` | Issuer `https://cognito-idp.<region>.amazonaws.com/<pool-id>`; key set at `<issuer>/.well-known/jwks.json` |
+| WSO2 Identity Server | `roles` or `groups` | Issuer `https://<host>:9443/oauth2/token`. Use JWT access tokens and add the roles or groups claim to the application's access token attributes |
+| Asgardeo | `roles` or `groups` | Issuer `https://api.asgardeo.io/t/<organization>/oauth2/token`. Use JWT access tokens and add the claim to the application's access token attributes |
+| Amazon Cognito | `cognito:groups` | Issuer `https://cognito-idp.<region>.amazonaws.com/<pool-id>` |
 | Microsoft Entra ID | `roles` (app roles) or `groups` | Issuer `https://login.microsoftonline.com/<tenant>/v2.0` |
 | Okta | `groups` (add a groups claim to the authorization server) | |
 | Keycloak | `realm_access.roles` | A dotted path reads a nested claim |
 | Scopes from any provider | `scope` or `scp` | Space- or comma-separated strings work |
+| Any other OpenID Connect provider | The claim it puts groups or roles in | Set `issuer`; the key set is discovered |
+
+If the provider has no discovery document, or the engine cannot reach it at start, set the key set URL yourself
+with `jwksUrls = ["https://idp.example.com/oauth2/jwks"]`; discovery is then skipped.
 
 If your provider already issues values that name the namespace, skip the rules: `default:write` works as is, and
 `valueRegex` (with the named groups `namespace` and `role`) parses other shapes such as `wf-default-write`.

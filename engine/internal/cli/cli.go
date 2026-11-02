@@ -21,10 +21,12 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"strings"
 
@@ -218,6 +220,13 @@ func newClaimMapper(cfg *config.Config, rt *runtimeconfig.Runtime, logger log.Lo
 	if rt == nil || rt.Auth == nil {
 		return nil, fmt.Errorf("claim mapper %q is configured only through runtime.toml [engine.auth]",
 			runtimeconfig.ClaimMapperName)
+	}
+	if len(cfg.Global.Authorization.JWTKeyProvider.KeySourceURIs) == 0 {
+		jwks, err := jwtclaims.Discover(context.Background(), http.DefaultClient, rt.Auth.Issuer)
+		if err != nil {
+			return nil, fmt.Errorf("unable to discover the identity provider's key set: %w", err)
+		}
+		cfg.Global.Authorization.JWTKeyProvider.KeySourceURIs = []string{jwks}
 	}
 	keys := authorization.NewDefaultTokenKeyProvider(&cfg.Global.Authorization, logger)
 	return jwtclaims.New(keys, *rt.Auth)

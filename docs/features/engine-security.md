@@ -25,9 +25,9 @@ connection, and tokens from the customer's own identity provider mapped to Tempo
 | Key | Default | Meaning |
 |---|---|---|
 | `type` | `none` | `jwt` checks a bearer token on every call; `none` needs `--allow-no-auth` |
-| `jwksUrls` | required for `jwt` | The identity provider's key set (JWKS) URLs |
+| `jwksUrls` | discovered from `issuer` | The identity provider's key set (JWKS) URLs, when it has no OpenID Connect discovery document |
 | `keyRefreshInterval` | `1m` | How often the key set is fetched again |
-| `issuer` | not checked | Required value of `iss` |
+| `issuer` | | Required value of `iss`, and where the key set is discovered at start (`<issuer>/.well-known/openid-configuration`); `issuer` or `jwksUrls` is required |
 | `audience` | not checked | Required value in `aud` |
 | `subjectClaim` | `sub` | Claim naming the caller |
 | `rolesClaim` | `permissions` | Claim holding the caller's groups, roles or scopes: a list, or a space- or comma-separated string; a dotted path reads a nested claim (`realm_access.roles`) |
@@ -67,6 +67,8 @@ role = "write"
 - A role in namespace `*` (or Temporal's `temporal-system`) applies to every namespace and to cluster operations.
 - Roles add up across values. `read` lets a caller list and describe; `write` adds starting and signalling
   workflows; `worker` lets an integration's worker poll; `admin` adds namespace management.
+- With `issuer` and no `jwksUrls`, the start command reads the provider's OpenID Connect discovery document and uses
+  its `jwks_uri`; the document must name the same issuer, and the engine does not start if it cannot read it.
 - Every token is checked for its signature, an expiry, the issuer and audience when set, and a subject. A call
   without a token, or with a token that maps to no role, is refused, except Temporal's health checks.
 - Refusals return Temporal's generic "Request unauthorized"; the reason goes to the engine log.
@@ -88,6 +90,7 @@ Roles from client certificate subjects, tokens issued by the Manager, and task-q
 
 | Test | Covers |
 |---|---|
+| `engine/plugins/jwtclaims/discovery_test.go` | Discovery: the key set URL, another issuer, no key set, invalid documents, unreachable providers |
 | `engine/plugins/jwtclaims/jwtclaims_test.go` | Temporal's format, rules on nested claims, scope strings, regex, issuer, audience, expiry, forged and malformed tokens |
 | `engine/internal/runtimeconfig/security_test.go` | TLS, auth and metrics mapping and every validation rule |
 | `engine/internal/cli/cli_test.go` | A start with identity-provider auth; which claim mapper is built |

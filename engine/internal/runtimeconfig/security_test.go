@@ -157,7 +157,7 @@ role = "admin"
 func TestAuthErrors(t *testing.T) {
 	for toml, want := range map[string]string{
 		"[engine.auth]\ntype = \"oauth\"\n":                                                  `must be "jwt" or "none"`,
-		"[engine.auth]\ntype = \"jwt\"\n":                                                    "jwksUrls needs",
+		"[engine.auth]\ntype = \"jwt\"\n":                                                    "needs the identity provider's issuer",
 		"[engine.auth]\njwksUrls = [\"https://idp\"]\n":                                      `type is not "jwt"`,
 		"[engine.auth]\ntype = \"jwt\"\njwksUrls = [\"x\"]\nkeyRefreshInterval = \"soon\"\n": "keyRefreshInterval",
 		"[engine.auth]\ntype = \"jwt\"\njwksUrls = [\"x\"]\nleewaySeconds = -1\n":            "leewaySeconds",
