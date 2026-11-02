@@ -11,12 +11,17 @@ An integration that uses the `ballerina/workflow` module connects to the runtime
 
 ## Before you start
 
-- The namespace exists. Create it once with the Temporal CLI (an `admin` token is needed when auth is on):
+- The namespace exists, with the `WorkflowKind` search attribute `ballerina/workflow` uses. Create both once with
+  the Temporal CLI (an `admin` token is needed when auth is on):
 
   ```bash
-  temporal operator namespace create --namespace orders --retention 720h \
-    --address engine.example.com:7233 --tls-ca-path ca.pem --api-key "$ADMIN_TOKEN"
+  OPTS="--address engine.example.com:7233 --tls-ca-path ca.pem --api-key $ADMIN_TOKEN"
+  temporal operator namespace create --namespace orders --retention 720h $OPTS
+  temporal operator search-attribute create --namespace orders --name WorkflowKind --type Keyword $OPTS
   ```
+
+  The integration registers `WorkflowKind` itself when it is missing, but its first workflow can then be refused for
+  a few seconds until the engine sees the new attribute.
 
 - The integration has a token with `worker` and `write` in that namespace
   ([Secure the engine](secure-the-engine.md)), and the CA certificate that signed the engine's certificate.
