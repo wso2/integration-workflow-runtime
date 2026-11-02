@@ -48,11 +48,12 @@ TLS or authentication:
 WORKFLOW_RUNTIME_IMAGE=<image>:<version> docker compose -f distribution/docker/compose.yml up
 ```
 
-Create the `default` namespace, then point an integration at `localhost:7233`
-([Connect an integration](connect-an-integration.md)):
+Create the `default` namespace and the `WorkflowKind` search attribute, then point an integration at
+`localhost:7233` ([Connect an integration](connect-an-integration.md)):
 
 ```bash
 temporal operator namespace create --namespace default --address localhost:7233
+temporal operator search-attribute create --namespace default --name WorkflowKind --type Keyword --address localhost:7233
 ```
 
 ## Amazon ECS and Kubernetes
