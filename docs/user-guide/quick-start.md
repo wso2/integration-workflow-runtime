@@ -31,7 +31,7 @@ production setup ([Install the runtime](install.md)) for anything shared.
 | `--db-file <file>` | in memory | Keeps the data in a SQLite file across restarts |
 | `--namespace <name>` | | Creates another namespace besides `default`; repeat for more |
 | `--port <port>` | `7233` | Frontend port; the engine also uses the next ten ports |
-| `--ip <address>` | `127.0.0.1` | Address to listen on |
+| `--ip <address>` | `127.0.0.1` | Address to listen on; with `0.0.0.0` the engine advertises the first non-loopback address |
 | `--log-level <level>` | `warn` | `debug`, `info`, `warn` or `error` |
 
 For example, to keep the data and add an `orders` namespace:

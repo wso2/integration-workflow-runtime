@@ -42,6 +42,10 @@ const ClusterName = clusterName
 func Dev(o DevOptions) (*Runtime, error) {
 	var b strings.Builder
 	fmt.Fprintf(&b, "[engine]\nbindAddress = %q\nlogLevel = %q\n", o.IP, o.LogLevel)
+	if o.IP == "0.0.0.0" {
+		// Every interface still needs one address the services advertise to each other.
+		b.WriteString("broadcastAddress = \"auto\"\n")
+	}
 	fmt.Fprintf(&b, "[engine.ports]\nfrontend = %d\nfrontendHttp = %d\ninternalFrontend = %d\n", o.Port, o.Port+10, o.Port+3)
 	fmt.Fprintf(&b, "history = %d\nmatching = %d\nworker = %d\n", o.Port+1, o.Port+2, o.Port+6)
 	b.WriteString("[database]\ntype = \"sqlite\"\n")

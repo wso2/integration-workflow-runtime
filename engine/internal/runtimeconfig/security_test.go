@@ -279,6 +279,10 @@ func TestDev(t *testing.T) {
 	if err != nil || file.Temporal.Persistence.DataStores[defaultStore].SQL.DatabaseName != "data/dev.db" {
 		t.Fatalf("file store: %v, %v", file, err)
 	}
+	all, err := Dev(DevOptions{IP: "0.0.0.0", Port: 7233, LogLevel: "info"})
+	if err != nil || net.ParseIP(all.Temporal.Global.Membership.BroadcastAddress) == nil {
+		t.Fatalf("every interface: %v, %v", all, err)
+	}
 	if _, err := Dev(DevOptions{IP: "localhost", Port: 7233, LogLevel: "info"}); err == nil {
 		t.Error("a host name was accepted as the IP")
 	}
