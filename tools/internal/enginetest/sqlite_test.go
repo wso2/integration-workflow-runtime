@@ -26,13 +26,13 @@ import (
 // TestSQLiteFileSurvivesRestart starts the engine on a new SQLite file (which creates the schema), records a
 // namespace and a waiting workflow, restarts the engine on the same file, and finds both still there.
 func TestSQLiteFileSurvivesRestart(t *testing.T) {
-	binary, _ := binaries(t)
+	binary := engineBinary(t)
 	dir := t.TempDir()
 	db := filepath.Join(dir, "engine.db")
 	base := freeBase(t)
 	config := writeConfig(t, dir, ports(base)+"[database]\ntype = \"sqlite\"\npath = "+tomlString(db)+"\n")
 
-	first := start(t, binary, base, "start", "--runtime-config", config, "--allow-no-auth")
+	first := start(t, binary, base, nil, "start", "--runtime-config", config, "--allow-no-auth")
 	if _, err := os.Stat(db); err != nil {
 		t.Fatalf("the first start did not create the database file: %v", err)
 	}
@@ -43,7 +43,7 @@ func TestSQLiteFileSurvivesRestart(t *testing.T) {
 	lockPorts(t) // keep the range until the restarted engine reports SERVING
 	first.stop()
 
-	second := start(t, binary, base, "start", "--runtime-config", config, "--allow-no-auth")
+	second := start(t, binary, base, nil, "start", "--runtime-config", config, "--allow-no-auth")
 	if out := second.must("operator", "namespace", "describe", "--namespace", "persisted"); !strings.Contains(out, "persisted") {
 		t.Fatalf("the namespace did not survive the restart:\n%s", out)
 	}

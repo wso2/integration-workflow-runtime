@@ -36,7 +36,7 @@ func mustParse(t *testing.T, toml string) *config.Config {
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	return rt.Temporal
+	return &rt.Temporal
 }
 
 func TestPasswordFromEnvironment(t *testing.T) {

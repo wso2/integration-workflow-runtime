@@ -56,7 +56,7 @@ func newTestCommand(server temporal.Server, factoryErr error) (command, *bytes.B
 		version: "9.9.9-test",
 		stdout:  stdout,
 		stderr:  stderr,
-		newServer: func(...temporal.ServerOption) (temporal.Server, error) {
+		newServer: func([]string, ...temporal.ServerOption) (temporal.Server, error) {
 			return server, factoryErr
 		},
 	}
@@ -313,14 +313,14 @@ func TestNewClaimMapper(t *testing.T) {
 	if !slices.Equal(rt.Services, []string{"frontend", "internal-frontend", "history"}) {
 		t.Fatalf("services = %v", rt.Services)
 	}
-	m, err := newClaimMapper(rt.Temporal, rt, logger)
+	m, err := newClaimMapper(&rt.Temporal, rt, logger)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := m.(*jwtclaims.Mapper); !ok {
 		t.Fatalf("mapper = %T, want *jwtclaims.Mapper", m)
 	}
-	if _, err := newClaimMapper(rt.Temporal, nil, logger); err == nil || !strings.Contains(err.Error(), "only through runtime.toml") {
+	if _, err := newClaimMapper(&rt.Temporal, nil, logger); err == nil || !strings.Contains(err.Error(), "only through runtime.toml") {
 		t.Fatalf("mapper without runtime settings: %v", err)
 	}
 	plain := &config.Config{Global: config.Global{Authorization: config.Authorization{ClaimMapper: "default"}}}
@@ -338,7 +338,10 @@ func TestNewClaimMapperDiscoversTheKeySet(t *testing.T) {
 	base = srv.URL
 	write := func(issuer string) string {
 		p := filepath.Join(t.TempDir(), "runtime.toml")
-		toml := "[engine.auth]\ntype = \"jwt\"\nissuer = \"" + issuer + "\"\n[database]\ntype = \"sqlite\"\ninMemory = true\n"
+		cert, _ := filepath.Abs("testdata/certs/engine.crt")
+		key, _ := filepath.Abs("testdata/certs/engine.key")
+		toml := "[engine.tls]\ncertFile = \"" + cert + "\"\nkeyFile = \"" + key + "\"\n" +
+			"[engine.auth]\ntype = \"jwt\"\nissuer = \"" + issuer + "\"\n[database]\ntype = \"sqlite\"\ninMemory = true\n"
 		if err := os.WriteFile(p, []byte(toml), 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -348,7 +351,7 @@ func TestNewClaimMapperDiscoversTheKeySet(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := newClaimMapper(rt.Temporal, rt, log.NewNoopLogger()); err != nil {
+	if _, err := newClaimMapper(&rt.Temporal, rt, log.NewNoopLogger()); err != nil {
 		t.Fatal(err)
 	}
 	if got := rt.Temporal.Global.Authorization.JWTKeyProvider.KeySourceURIs; !slices.Equal(got, []string{base + "/oauth2/jwks"}) {
@@ -358,8 +361,42 @@ func TestNewClaimMapperDiscoversTheKeySet(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := newClaimMapper(rt.Temporal, rt, log.NewNoopLogger()); err == nil ||
+	if _, err := newClaimMapper(&rt.Temporal, rt, log.NewNoopLogger()); err == nil ||
 		!strings.Contains(err.Error(), "unable to discover the identity provider's key set") {
 		t.Fatalf("unreachable provider: %v", err)
+	}
+}
+
+func TestServicesReachTheServerFactory(t *testing.T) {
+	for name, tt := range map[string]struct {
+		args []string
+		want []string
+	}{
+		"profiles":         {[]string{"--runtime-config", "testdata/runtime-auth.toml"}, []string{"frontend", "internal-frontend", "history"}},
+		"service override": {[]string{"--runtime-config", "testdata/runtime-auth.toml", "--service", "worker"}, []string{"worker"}},
+		"default profile":  {[]string{"--runtime-config", "testdata/runtime-sqlite.toml", "--allow-no-auth"}, []string{"frontend", "internal-frontend", "history", "matching", "worker"}},
+	} {
+		c, _, stderr := newTestCommand(&fakeServer{}, nil)
+		var got []string
+		c.newServer = func(services []string, _ ...temporal.ServerOption) (temporal.Server, error) {
+			got = services
+			return &fakeServer{}, nil
+		}
+		if err := c.start(tt.args); err != nil {
+			t.Fatalf("%s: start = %v (%s)", name, err, stderr.String())
+		}
+		if !slices.Equal(got, tt.want) {
+			t.Errorf("%s: services = %v, want %v", name, got, tt.want)
+		}
+	}
+}
+
+func TestNewTemporalServerBuildsAServer(t *testing.T) {
+	rt, err := runtimeconfig.Load("testdata/runtime-sqlite.toml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := newTemporalServer([]string{"frontend"}, temporal.WithConfig(&rt.Temporal)); err != nil {
+		t.Fatalf("newTemporalServer = %v", err)
 	}
 }

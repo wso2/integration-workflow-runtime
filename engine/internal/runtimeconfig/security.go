@@ -137,6 +137,26 @@ func (t engineTLSSettings) temporalTLS() config.RootTLS {
 
 func (a authSettings) on() bool { return a.Type == authTypeJWT }
 
+// securityProblems are the rules that join auth, TLS and the listen address.
+func (e engineSettings) securityProblems() []string {
+	if !e.Auth.on() {
+		return nil
+	}
+	var problems []string
+	if !e.TLS.enabled() {
+		problems = append(problems, `engine.auth.type = "jwt" needs engine.tls (certFile and keyFile): tokens would cross `+
+			"the network in plain text")
+	}
+	// The internal frontend gives Temporal's own services system access without a token, and the other services'
+	// ports are open to anyone who reaches them, so beyond this machine they need internode mutual TLS.
+	if ip := net.ParseIP(e.BindAddress); !e.TLS.Internode.Enabled && (ip == nil || !ip.IsLoopback()) {
+		problems = append(problems, fmt.Sprintf("engine.auth needs engine.tls.internode when engine.bindAddress is %s: "+
+			"the internal frontend and the other services' ports accept calls without a token, so they need mutual TLS "+
+			"between the engine's nodes", e.BindAddress))
+	}
+	return problems
+}
+
 func (a authSettings) problems() []string {
 	switch a.Type {
 	case "", "none":

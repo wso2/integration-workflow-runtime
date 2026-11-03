@@ -48,7 +48,12 @@ const usageText = `usage: workflow-engine version
        workflow-engine start (--runtime-config <runtime.toml> | --config-file <temporal.yaml>) [--service <name>]... [--allow-no-auth]
        workflow-engine render-config --runtime-config <runtime.toml>`
 
-type serverFactory func(opts ...temporal.ServerOption) (temporal.Server, error)
+// serverFactory builds the server for the services this node runs; tests record the services.
+type serverFactory func(services []string, opts ...temporal.ServerOption) (temporal.Server, error)
+
+func newTemporalServer(services []string, opts ...temporal.ServerOption) (temporal.Server, error) {
+	return temporal.NewServer(append(opts, temporal.ForServices(services))...)
+}
 
 type command struct {
 	version   string
@@ -59,7 +64,7 @@ type command struct {
 
 // Main runs the command with the given arguments and returns the process exit code.
 func Main(version string, args []string) int {
-	c := command{version: version, stdout: os.Stdout, stderr: os.Stderr, newServer: temporal.NewServer}
+	c := command{version: version, stdout: os.Stdout, stderr: os.Stderr, newServer: newTemporalServer}
 	return c.run(args)
 }
 
@@ -152,8 +157,7 @@ func (c command) start(args []string) error {
 		return fmt.Errorf("unable to create the audience mapper: %w", err)
 	}
 
-	server, err := c.newServer(
-		temporal.ForServices(services),
+	server, err := c.newServer(services,
 		temporal.WithConfig(cfg),
 		temporal.WithLogger(logger),
 		temporal.InterruptOn(temporal.InterruptCh()),
@@ -181,7 +185,7 @@ func (c command) renderConfig(args []string) error {
 	if err != nil {
 		return err
 	}
-	rendered, err := runtimeconfig.Render(rt.Temporal)
+	rendered, err := runtimeconfig.Render(&rt.Temporal)
 	if err != nil {
 		return fmt.Errorf("unable to render the configuration: %w", err)
 	}
@@ -200,7 +204,7 @@ func loadConfig(runtimeConfig, configFile string) (*config.Config, *runtimeconfi
 		if err != nil {
 			return nil, nil, err
 		}
-		return rt.Temporal, rt, nil
+		return &rt.Temporal, rt, nil
 	case configFile != "":
 		cfg, err := config.Load(config.WithConfigFile(configFile))
 		if err != nil {
@@ -227,6 +231,10 @@ func newClaimMapper(cfg *config.Config, rt *runtimeconfig.Runtime, logger log.Lo
 			return nil, fmt.Errorf("unable to discover the identity provider's key set: %w", err)
 		}
 		cfg.Global.Authorization.JWTKeyProvider.KeySourceURIs = []string{jwks}
+	}
+	if rt.Auth.Issuer == "" && rt.Auth.Audience == "" {
+		logger.Warn("engine.auth checks neither issuer nor audience: every unexpired token the key set signs is " +
+			"accepted, including tokens issued for other applications; set issuer or audience")
 	}
 	keys := authorization.NewDefaultTokenKeyProvider(&cfg.Global.Authorization, logger)
 	return jwtclaims.New(keys, *rt.Auth)

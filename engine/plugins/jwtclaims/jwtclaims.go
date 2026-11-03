@@ -104,8 +104,12 @@ func New(keys authorization.TokenKeyProvider, s Settings) (*Mapper, error) {
 	}
 	for _, rule := range s.Rules {
 		role, ok := ParseRole(rule.Role)
+		if strings.EqualFold(strings.TrimSpace(rule.Role), "worker") {
+			return nil, fmt.Errorf("rule for %q: grant write, not worker: Temporal's authorizer needs write for "+
+				"an integration's workers to poll and complete tasks", rule.Value)
+		}
 		if !ok {
-			return nil, fmt.Errorf("rule for %q: role %q must be read, write, worker or admin", rule.Value, rule.Role)
+			return nil, fmt.Errorf("rule for %q: role %q must be read, write or admin", rule.Value, rule.Role)
 		}
 		if rule.Value == "" || rule.Namespace == "" {
 			return nil, errors.New("every rule needs a value and a namespace")
@@ -210,15 +214,14 @@ func grantRole(claims *authorization.Claims, namespace string, role authorizatio
 	claims.Namespaces[namespace] |= role
 }
 
-// ParseRole maps a role name to Temporal's role.
+// ParseRole maps a role name to Temporal's role. "worker" is not one: Temporal's default authorizer needs write for a
+// worker to poll and complete tasks, so a worker-only grant would refuse every call it was meant for.
 func ParseRole(name string) (authorization.Role, bool) {
 	switch strings.ToLower(strings.TrimSpace(name)) {
 	case "read", "reader":
 		return authorization.RoleReader, true
 	case "write", "writer":
 		return authorization.RoleWriter, true
-	case "worker":
-		return authorization.RoleWorker, true
 	case "admin":
 		return authorization.RoleAdmin, true
 	}

@@ -50,14 +50,14 @@ housekeeping; integration workers never connect to it.
 
 ## Profiles
 
-One distribution; each node runs the profiles it is given (launcher, planned).
+One distribution; each node runs the profiles in its `runtime.toml` (`[runtime] profiles`).
 
 | Profile | Starts |
 |---|---|
-| `all` (default) | Everything on one machine |
-| `engine` | The four Temporal services and the engine endpoint |
-| `frontend`, `history`, `matching`, `worker` | One Temporal service (`frontend` includes the engine endpoint) |
-| `manager` | The Manager, with the portals it serves |
+| `all` (default), `engine` | Every engine service |
+| `frontend` | The frontend and the internal frontend (and the engine endpoint, when it exists) |
+| `history`, `matching`, `worker` | One Temporal service |
+| `api` | The API server, the Manager's planned name (the engine starts nothing for it) |
 
 ## Data
 

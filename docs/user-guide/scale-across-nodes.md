@@ -34,7 +34,9 @@ other through the shared database: there is no list of peers to maintain.
    ```
 
 3. Open the ports between nodes: the service ports (7233 to 7239 by default) and their membership ports (6933 to
-   6939). Integrations need only 7233.
+   6939). Integrations need only 7233. With `[engine.auth]`, turn on `[engine.tls.internode]` on every node: the
+   engine refuses to start without it, because the internal ports accept calls without a token
+   ([Secure the engine](secure-the-engine.md#turn-on-tls)).
 4. Put a load balancer in front of the frontend nodes. Integrations keep long-lived gRPC connections, so use a
    TCP (layer 4) load balancer, such as an AWS Network Load Balancer.
 

@@ -23,7 +23,7 @@ An integration that uses the `ballerina/workflow` module connects to the runtime
   The integration registers `WorkflowKind` itself when it is missing, but its first workflow can then be refused for
   a few seconds until the engine sees the new attribute.
 
-- The integration has a token with `worker` and `write` in that namespace
+- The integration has a token with `write` in that namespace
   ([Secure the engine](secure-the-engine.md)), and the CA certificate that signed the engine's certificate.
 
 ## Configure the integration

@@ -18,15 +18,17 @@ issues; `conf/runtime.toml` says which group, role or scope gives which permissi
 | Role | Allows |
 |---|---|
 | `read` | List and describe workflows and namespaces |
-| `write` | `read`, plus start, signal, cancel and terminate workflows |
-| `worker` | Poll task queues and complete tasks: what an integration's workers need |
+| `write` | `read`, plus start, signal, cancel and terminate workflows, and poll task queues and complete tasks: what an integration (its workers and the code that starts workflows) needs |
 | `admin` | Everything, including creating and changing namespaces |
+
+There is no separate worker role: Temporal's authorizer needs `write` for a worker to poll and complete tasks, so a
+rule asking for `worker` is refused at start.
 
 A role in namespace `*` applies to every namespace. Roles add up: a caller in two groups gets both roles.
 
 | Caller | Typical grant |
 |---|---|
-| An integration (its workers and the code that starts workflows) | `worker` and `write` in its namespace, through a client-credentials token |
+| An integration (its workers and the code that starts workflows) | `write` in its namespace, through a client-credentials token |
 | An operator or a CI pipeline | `admin` in `*`, or in one namespace |
 | Auditors and dashboards | `read` |
 
@@ -43,13 +45,23 @@ A role in namespace `*` applies to every namespace. Roles add up: a caller in tw
 
 3. To also require client certificates (mutual TLS), add `clientCaFile = "conf/certs/clients-ca.pem"`. Client
    certificates authenticate the connection; permissions still come from the token.
-4. On several nodes, encrypt traffic between them too:
+4. When the engine listens beyond this machine (`bindAddress` is not `127.0.0.1`), turn on mutual TLS between
+   its services and nodes. It is required with `[engine.auth]`:
 
    ```toml
    [engine.tls.internode]
    enabled = true
+   certFile = "conf/certs/node.crt"     # the frontend's certificate when left out
+   keyFile = "conf/certs/node.key"
    caFile = "conf/certs/internode-ca.pem"
    ```
+
+   :::caution
+   Only port 7233 is for integrations. The internal frontend (7236 by default) gives the engine's own services
+   system access without a token, and the other service ports (7234, 7235, 7239) and membership ports (6933 to
+   6939) are for the engine's nodes. Internode mutual TLS lets only holders of a certificate from the internode
+   CA reach them; also allow them only between the engine's nodes in your firewall or security groups.
+   :::
 
 ## Turn on your identity provider's tokens
 
@@ -75,13 +87,15 @@ Keycloak, Auth0 and others.
    [[engine.auth.rules]]
    value = "orders-integration"
    namespace = "orders"
-   role = "worker"
-
-   [[engine.auth.rules]]
-   value = "orders-integration"
-   namespace = "orders"
    role = "write"
    ```
+
+   `[engine.auth]` needs `[engine.tls]`: the engine refuses to accept tokens in plain text.
+
+   :::caution
+   Set `issuer`, and `audience` when your provider sets one for the engine. Without either, the engine accepts any
+   unexpired token the provider signed, including tokens it issued for other applications, and logs a warning.
+   :::
 
 3. Restart the engine.
 

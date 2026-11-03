@@ -17,6 +17,7 @@
 package jwtclaims
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/rand"
 	"crypto/rsa"
@@ -96,11 +97,11 @@ func TestRulesOnANestedClaim(t *testing.T) {
 	m := mapper(t, Settings{RolesClaim: "realm_access.roles", Rules: []Rule{
 		{Value: "workflow-admins", Namespace: AllNamespaces, Role: "admin"},
 		{Value: "claims-team", Namespace: "claims", Role: "writer"},
-		{Value: "claims-team", Namespace: "claims", Role: "worker"},
+		{Value: "claims-team", Namespace: "claims", Role: "read"},
 	}})
 	c := claimsFor(t, m, jwt.MapClaims{"sub": "ann", "realm_access": map[string]any{
 		"roles": []any{"claims-team", "unrelated", 7}}})
-	if c.Namespaces["claims"] != authorization.RoleWriter|authorization.RoleWorker || c.System != 0 {
+	if c.Namespaces["claims"] != authorization.RoleWriter|authorization.RoleReader || c.System != 0 {
 		t.Fatalf("claims = %+v", c)
 	}
 	admin := claimsFor(t, m, jwt.MapClaims{"sub": "ops", "realm_access": map[string]any{"roles": []any{"workflow-admins"}}})
@@ -111,11 +112,11 @@ func TestRulesOnANestedClaim(t *testing.T) {
 
 func TestScopeStringAndDottedKey(t *testing.T) {
 	m := mapper(t, Settings{RolesClaim: "scp", SubjectClaim: "client.id", Rules: []Rule{
-		{Value: "workflow.worker", Namespace: "default", Role: "worker"},
+		{Value: "workflow.read", Namespace: "default", Role: "read"},
 		{Value: "workflow.write", Namespace: "default", Role: "write"},
 	}})
-	c := claimsFor(t, m, jwt.MapClaims{"client.id": "orders-app", "scp": "openid workflow.worker,workflow.write"})
-	if c.Subject != "orders-app" || c.Namespaces["default"] != authorization.RoleWorker|authorization.RoleWriter {
+	c := claimsFor(t, m, jwt.MapClaims{"client.id": "orders-app", "scp": "openid workflow.read,workflow.write"})
+	if c.Subject != "orders-app" || c.Namespaces["default"] != authorization.RoleReader|authorization.RoleWriter {
 		t.Fatalf("claims = %+v", c)
 	}
 }
@@ -209,5 +210,44 @@ func TestUnsupportedKeyType(t *testing.T) {
 	}
 	if _, err := m.key(&jwt.Token{Method: jwt.SigningMethodHS256, Header: map[string]any{}}); err == nil {
 		t.Fatal("hmac key without a provider key accepted")
+	}
+}
+
+func TestWorkerRoleIsRefused(t *testing.T) {
+	_, err := New(testKeys{}, Settings{Rules: []Rule{{Value: "orders-app", Namespace: "orders", Role: "worker"}}})
+	if err == nil || !strings.Contains(err.Error(), "grant write, not worker") {
+		t.Fatalf("New = %v, want the worker role refused", err)
+	}
+	c := claimsFor(t, mapper(t, Settings{}), jwt.MapClaims{"sub": "app", "permissions": []any{"orders:worker"}})
+	if c.Namespaces["orders"] != authorization.RoleUndefined {
+		t.Fatalf("namespaces = %v, want no role from orders:worker", c.Namespaces)
+	}
+}
+
+// TestGrantsThroughTemporalsAuthorizer checks the mapped roles against the authorizer the engine configures.
+func TestGrantsThroughTemporalsAuthorizer(t *testing.T) {
+	m := mapper(t, Settings{RolesClaim: "groups", Rules: []Rule{
+		{Value: "orders-app", Namespace: "orders", Role: "write"},
+		{Value: "auditors", Namespace: "orders", Role: "read"},
+	}})
+	authorizer := authorization.NewDefaultAuthorizer()
+	poll := &authorization.CallTarget{APIName: "/temporal.api.workflowservice.v1.WorkflowService/PollWorkflowTaskQueue",
+		Namespace: "orders"}
+	for name, tt := range map[string]struct {
+		groups    []any
+		namespace string
+		want      authorization.Decision
+	}{
+		"write polls":                {[]any{"orders-app"}, "orders", authorization.DecisionAllow},
+		"read cannot poll":           {[]any{"auditors"}, "orders", authorization.DecisionDeny},
+		"write in another namespace": {[]any{"orders-app"}, "billing", authorization.DecisionDeny},
+	} {
+		c := claimsFor(t, m, jwt.MapClaims{"sub": "caller", "groups": tt.groups})
+		target := *poll
+		target.Namespace = tt.namespace
+		result, err := authorizer.Authorize(context.Background(), c, &target)
+		if err != nil || result.Decision != tt.want {
+			t.Errorf("%s: decision = %v (%v), want %v", name, result.Decision, err, tt.want)
+		}
 	}
 }

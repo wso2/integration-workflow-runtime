@@ -126,7 +126,8 @@ func TestTLSErrors(t *testing.T) {
 }
 
 func TestAuthMapsToTemporalAndClaims(t *testing.T) {
-	rt := mustParseRuntime(t, `[engine.auth]
+	cert, key, _ := certFiles(t)
+	rt := mustParseRuntime(t, "[engine.tls]\ncertFile = \""+cert+"\"\nkeyFile = \""+key+"\"\n"+`[engine.auth]
 type = "jwt"
 jwksUrls = ["https://idp.example.com/jwks"]
 keyRefreshInterval = "5m"
@@ -181,5 +182,31 @@ func TestMetrics(t *testing.T) {
 	if _, err := parse([]byte("[engine.metrics]\nprometheusAddress = \"9464\"\n"+sqliteDB), noEnv); err == nil ||
 		!strings.Contains(err.Error(), "must be host:port") {
 		t.Errorf("err = %v", err)
+	}
+}
+
+func TestJWTNeedsTLSAndProtectedInternalPorts(t *testing.T) {
+	cert, key, ca := certFiles(t)
+	tls := "[engine.tls]\ncertFile = \"" + cert + "\"\nkeyFile = \"" + key + "\"\n"
+	internode := "[engine.tls.internode]\nenabled = true\ncaFile = \"" + ca + "\"\n"
+	auth := "[engine.auth]\ntype = \"jwt\"\nissuer = \"https://idp.example.com\"\n"
+	everywhere := "[engine]\nbindAddress = \"0.0.0.0\"\nbroadcastAddress = \"10.0.0.5\"\n"
+	for name, tt := range map[string]struct{ toml, want string }{
+		"jwt without tls":               {auth + sqliteDB, `needs engine.tls (certFile and keyFile)`},
+		"jwt on all interfaces":         {everywhere + tls + auth + sqliteDB, "needs engine.tls.internode when engine.bindAddress is 0.0.0.0"},
+		"jwt on another machine's view": {"[engine]\nbindAddress = \"10.0.0.5\"\n" + tls + auth + sqliteDB, "needs engine.tls.internode"},
+	} {
+		if _, err := parse([]byte(tt.toml), noEnv); err == nil || !strings.Contains(err.Error(), tt.want) {
+			t.Errorf("%s: err = %v, want %q", name, err, tt.want)
+		}
+	}
+	for name, toml := range map[string]string{
+		"loopback with tls":             tls + auth + sqliteDB,
+		"all interfaces with internode": everywhere + tls + internode + auth + sqliteDB,
+		"no auth on all interfaces":     everywhere + sqliteDB,
+	} {
+		if _, err := parse([]byte(toml), noEnv); err != nil {
+			t.Errorf("%s: %v", name, err)
+		}
 	}
 }

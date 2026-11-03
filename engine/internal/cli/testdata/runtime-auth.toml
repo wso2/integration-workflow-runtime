@@ -1,6 +1,10 @@
 [runtime]
 profiles = ["frontend", "history"]
 
+[engine.tls]
+certFile = "testdata/certs/engine.crt"
+keyFile = "testdata/certs/engine.key"
+
 [engine.auth]
 type = "jwt"
 jwksUrls = ["http://127.0.0.1:1/jwks"]

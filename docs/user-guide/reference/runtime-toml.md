@@ -55,6 +55,8 @@ Each gRPC service also uses a membership port 300 below its port (6933, 6936, 69
 
 ### `[engine.auth]`
 
+`type = "jwt"` needs `[engine.tls]`, and `[engine.tls.internode]` when `bindAddress` is not a loopback address.
+
 | Key | Default | Description |
 |---|---|---|
 | `type` | `none` | `jwt` to require tokens; `none` needs `--allow-no-auth` |
@@ -73,7 +75,7 @@ Each gRPC service also uses a membership port 300 below its port (6933, 6936, 69
 |---|---|
 | `value` | A value of the roles claim, such as a group name |
 | `namespace` | A namespace, or `*` for every namespace |
-| `role` | `read`, `write`, `worker` or `admin` |
+| `role` | `read`, `write` or `admin` (an integration needs `write`) |
 
 ### `[engine.metrics]`
 
@@ -103,4 +105,4 @@ Each gRPC service also uses a membership port 300 below its port (6933, 6936, 69
 | `caFile` | system roots | CA that signs the server's certificate (for Amazon RDS, its certificate bundle) |
 | `certFile`, `keyFile` | | Client certificate, when the server requires one |
 | `serverName` | the host | Name to verify in the server's certificate |
-| `enableHostVerification` | `false` | Verify that the certificate matches the host |
+| `enableHostVerification` | `true` | Verify the server's certificate and host name; `false` turns verification off |

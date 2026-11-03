@@ -33,7 +33,7 @@ connection, and tokens from the customer's own identity provider mapped to Tempo
 | `rolesClaim` | `permissions` | Claim holding the caller's groups, roles or scopes: a list, or a space- or comma-separated string; a dotted path reads a nested claim (`realm_access.roles`) |
 | `valueRegex` | | Without rules: a regular expression with the named groups `namespace` and `role` |
 | `leewaySeconds` | 0 | Clock skew allowed on `exp`, `nbf` and `iat` |
-| `[[engine.auth.rules]]` `value`, `namespace`, `role` | | Grant `role` (`read`, `write`, `worker`, `admin`) in `namespace` (or `*` for all) to callers whose roles claim holds `value` |
+| `[[engine.auth.rules]]` `value`, `namespace`, `role` | | Grant `role` (`read`, `write`, `admin`) in `namespace` (or `*` for all) to callers whose roles claim holds `value` |
 
 ```toml
 [engine.tls]
@@ -66,7 +66,13 @@ role = "write"
   - `valueRegex` parses values in any other shape that carries both, such as `wf-default-write`.
 - A role in namespace `*` (or Temporal's `temporal-system`) applies to every namespace and to cluster operations.
 - Roles add up across values. `read` lets a caller list and describe; `write` adds starting and signalling
-  workflows; `worker` lets an integration's worker poll; `admin` adds namespace management.
+  workflows and lets an integration's workers poll and complete tasks; `admin` adds namespace management. There is no
+  worker role: Temporal's default authorizer needs write to poll, so a `worker` rule is refused.
+- `type = "jwt"` needs `[engine.tls]`, and, unless `bindAddress` is a loopback address, `[engine.tls.internode]`:
+  the internal frontend gives Temporal's own services system access without a token, so it and the other services'
+  ports accept only internode certificates.
+- With neither `issuer` nor `audience`, every unexpired token the key set signs is accepted; the start logs a
+  warning.
 - With `issuer` and no `jwksUrls`, the start command reads the provider's OpenID Connect discovery document and uses
   its `jwks_uri`; the document must name the same issuer, and the engine does not start if it cannot read it.
 - Every token is checked for its signature, an expiry, the issuer and audience when set, and a subject. A call
@@ -93,4 +99,5 @@ Roles from client certificate subjects, tokens issued by the Manager, and task-q
 | `engine/plugins/jwtclaims/discovery_test.go` | Discovery: the key set URL, another issuer, no key set, invalid documents, unreachable providers |
 | `engine/plugins/jwtclaims/jwtclaims_test.go` | Temporal's format, rules on nested claims, scope strings, regex, issuer, audience, expiry, forged and malformed tokens |
 | `engine/internal/runtimeconfig/security_test.go` | TLS, auth and metrics mapping and every validation rule |
-| `engine/internal/cli/cli_test.go` | A start with identity-provider auth; which claim mapper is built |
+| `engine/internal/cli/cli_test.go` | A start with identity-provider auth; which claim mapper is built; the services the profiles and `--service` pass to the server |
+| `tools/internal/enginetest/security_test.go` | A real engine with TLS, internode mutual TLS and an OpenID Connect provider: an integration token starts and lists in its namespace; another namespace, a reader writing, no token, expired, forged, other-issuer and unmatched tokens, and plaintext are refused; the internal frontend refuses callers without an internode certificate and answers one with it |

@@ -73,7 +73,7 @@ var (
 // Runtime is what the engine takes from runtime.toml.
 type Runtime struct {
 	// Temporal is the generated, validated Temporal server configuration.
-	Temporal *config.Config
+	Temporal config.Config
 	// Services are the Temporal services this node runs, from [runtime] profiles.
 	Services []string
 	// Auth configures the identity-provider claim mapper; nil when [engine.auth] is off.
@@ -187,7 +187,7 @@ func parse(data []byte, lookupEnv func(string) (string, bool)) (*Runtime, error)
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid Temporal configuration: %w", err)
 	}
-	rt := &Runtime{Temporal: cfg, Services: nodeServices}
+	rt := &Runtime{Temporal: *cfg, Services: nodeServices}
 	if s.Engine.Auth.on() {
 		claims := s.Engine.Auth.claimSettings()
 		rt.Auth = &claims
@@ -264,6 +264,7 @@ func (s *settings) validate() error {
 	problems = append(problems, e.Ports.problems()...)
 	problems = append(problems, e.TLS.problems()...)
 	problems = append(problems, e.Auth.problems()...)
+	problems = append(problems, e.securityProblems()...)
 	problems = append(problems, e.Metrics.problems()...)
 	if d.MaxConns < 1 {
 		problems = append(problems, "database.maxConns must be at least 1")

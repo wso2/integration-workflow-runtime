@@ -123,7 +123,7 @@ func TestConfigFixtures(t *testing.T) {
 			case err != nil:
 				t.Fatalf("parse: %v", err)
 			default:
-				rendered, err := Render(rt.Temporal)
+				rendered, err := Render(&rt.Temporal)
 				if err != nil {
 					t.Fatal(err)
 				}
