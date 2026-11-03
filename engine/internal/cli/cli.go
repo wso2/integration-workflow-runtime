@@ -175,6 +175,12 @@ func (c command) startDev(args []string) error {
 	if err != nil {
 		return err
 	}
+	// SQLite creates the file but not its directory, and a fresh distribution has no data/.
+	if *dbFile != "" {
+		if err := os.MkdirAll(filepath.Dir(*dbFile), 0o750); err != nil {
+			return fmt.Errorf("unable to create the directory of --db-file %s: %w", *dbFile, err)
+		}
+	}
 	names := append([]string{"default"}, namespaces...)
 	storage := "in memory"
 	if *dbFile != "" {
