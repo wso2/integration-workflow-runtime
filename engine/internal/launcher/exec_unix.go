@@ -14,7 +14,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-//go:build !windows
+//go:build unix
 
 package launcher
 

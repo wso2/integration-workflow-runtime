@@ -58,15 +58,13 @@ func runLauncher(t *testing.T, env map[string]string, args ...string) (launched,
 	t.Chdir(".") // the launcher changes directory; restore it after the test
 	home, executable := fakeHome(t)
 	var got launched
-	saved := launch
-	t.Cleanup(func() { launch = saved })
-	launch = func(engine string, a []string) (int, error) {
+	launch := func(engine string, a []string) (int, error) {
 		d, _ := os.Getwd()
 		got = launched{engine: engine, dir: d, args: a}
 		return 3, nil
 	}
 	var out bytes.Buffer
-	code := run("9.9.9", args, executable, func(k string) string { return env[k] }, &out, &out)
+	code := run("9.9.9", args, executable, func(k string) string { return env[k] }, launch, &out, &out)
 	if got.engine != "" && got.dir != home {
 		t.Errorf("working directory = %q, want the home %q", got.dir, home)
 	}
@@ -136,17 +134,16 @@ func TestLauncherVersionAndHelp(t *testing.T) {
 
 func TestLauncherErrors(t *testing.T) {
 	var out bytes.Buffer
-	if code := run("v", nil, func() (string, error) { return "", errors.New("gone") }, os.Getenv, &out, &out); code != 1 ||
+	unused := func(string, []string) (int, error) { return 0, nil }
+	if code := run("v", nil, func() (string, error) { return "", errors.New("gone") }, os.Getenv, unused, &out, &out); code != 1 ||
 		!strings.Contains(out.String(), "unable to find this executable") {
 		t.Fatalf("code = %d, out = %q", code, out.String())
 	}
 	home, executable := fakeHome(t)
-	saved := launch
-	t.Cleanup(func() { launch = saved })
-	launch = func(string, []string) (int, error) { return 0, errors.New("permission denied") }
+	denied := func(string, []string) (int, error) { return 0, errors.New("permission denied") }
 	t.Chdir(".")
 	out.Reset()
-	if code := run("v", nil, executable, func(string) string { return "" }, &out, &out); code != 1 ||
+	if code := run("v", nil, executable, func(string) string { return "" }, denied, &out, &out); code != 1 ||
 		!strings.Contains(out.String(), "permission denied") {
 		t.Fatalf("code = %d, out = %q (home %s)", code, out.String(), home)
 	}
@@ -154,7 +151,7 @@ func TestLauncherErrors(t *testing.T) {
 		t.Fatal(err)
 	}
 	out.Reset()
-	if code := run("v", nil, executable, func(string) string { return "" }, &out, &out); code != 1 {
+	if code := run("v", nil, executable, func(string) string { return "" }, denied, &out, &out); code != 1 {
 		t.Fatalf("a missing home: code = %d", code)
 	}
 }

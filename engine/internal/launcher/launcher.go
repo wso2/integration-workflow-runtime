@@ -37,16 +37,16 @@ const usageText = `usage: workflow-runtime [start] [--allow-no-auth] [--service 
 Starts the engine from <home>/conf/runtime.toml, or from the file %s names.
 `
 
-// launch replaces or runs the engine; tests swap it.
-var launch = execEngine
+// executor replaces this process with the engine, or runs it, and returns the exit code when it comes back.
+type executor func(engine string, args []string) (int, error)
 
 // Main runs the command and returns the process exit code when it does not hand over to the engine.
 func Main(version string, args []string) int {
-	return run(version, args, os.Executable, os.Getenv, os.Stdout, os.Stderr)
+	return run(version, args, os.Executable, os.Getenv, execEngine, os.Stdout, os.Stderr)
 }
 
 func run(version string, args []string, executable func() (string, error), getenv func(string) string,
-	stdout, stderr io.Writer) int {
+	launch executor, stdout, stderr io.Writer) int {
 	home, err := homeDir(executable)
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, err)
