@@ -95,13 +95,13 @@ Each gRPC service also uses a membership port 300 below its port (6933, 6936, 69
 | `visibilityName` | `temporal_visibility` | Visibility (search) database; must differ from `name` |
 | `path` | | SQLite only: the database file |
 | `inMemory` | `false` | SQLite only: keep everything in memory |
-| `maxConns` | `20` (`1` for SQLite) | Connections per database |
+| `maxConns` | `20` (`1` for SQLite) | Connections per database; must be `1` for an in-memory SQLite database |
 
 ### `[database.tls]`
 
 | Key | Default | Description |
 |---|---|---|
-| `enabled` | `false` | TLS to the database server |
+| `enabled` | `false` | TLS to the database server (PostgreSQL and MySQL; refused for SQLite) |
 | `caFile` | system roots | CA that signs the server's certificate (for Amazon RDS, its certificate bundle) |
 | `certFile`, `keyFile` | | Client certificate, when the server requires one |
 | `serverName` | the host | Name to verify in the server's certificate |

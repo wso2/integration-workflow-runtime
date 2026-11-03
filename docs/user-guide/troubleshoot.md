@@ -12,6 +12,7 @@ keywords: [wso2 integrator, workflow runtime, troubleshooting, errors]
 | `unknown runtime configuration keys: engine.logLvl` | A typo in `runtime.toml` | Correct the key; see the [reference](reference/runtime-toml.md) |
 | `database.password refers to environment variable WORKFLOW_DB_PASSWORD, which is not set` | The variable is missing in the engine's environment | Export it, or set it in the service's environment file |
 | `engine.broadcastAddress is required when engine.bindAddress is 0.0.0.0` | Listening on every interface without saying which address others use | Set `broadcastAddress` to this node's IP |
+| `database.tls is not supported for a sqlite database` | `[database.tls]` with `type = "sqlite"` | Remove `[database.tls]`; SQLite is a local file |
 | `engine.tls.certFile: ... no such file or directory` | A wrong path | Paths are relative to the directory the engine starts in |
 | `unable to create the claim mapper: unable to discover the identity provider's key set: ...` | The engine cannot read `<issuer>/.well-known/openid-configuration`, or it names another issuer | Check `issuer` (it must equal the tokens' `iss`) and the network, or set `jwksUrls` |
 | `engine.auth.type = "jwt" needs engine.tls` | Tokens without TLS | Add `[engine.tls]` ([Secure the engine](secure-the-engine.md)) |
