@@ -55,7 +55,7 @@ Other tables (`[runtime]`, `[users]`, the portals) belong to other components an
 - Unknown keys in `[engine]` or `[database]` are rejected, so a typo fails at start instead of being ignored.
 - The engine refuses to start on invalid settings: an unknown database type, a missing host, invalid or duplicate
   ports (membership ports included), a SQLite database with both or neither of `path` and `inMemory`, an
-  in-memory SQLite database with more than one connection, the same name for both databases, TLS files without
+  in-memory SQLite database with more than one connection, the same name for both databases, TLS settings without
   TLS enabled, half a client certificate pair, TLS for a SQLite database, or a `$env{NAME}` whose variable is not set.
 - With `[database.tls]` enabled, the server's certificate is verified unless `enableHostVerification = false`.
 - The generated configuration is then checked with Temporal's own validation.

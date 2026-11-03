@@ -5,4 +5,4 @@ host = "db"
 [database.tls]
 caFile = "ca.pem"
 -- error --
-invalid runtime configuration: database.tls files are set but database.tls.enabled is false
+invalid runtime configuration: database.tls settings are set but database.tls.enabled is false

@@ -109,10 +109,10 @@ func TestConfigFixtures(t *testing.T) {
 			_, wantsError := f.sections["error"]
 			switch {
 			case wantsError:
-				got := ""
-				if err != nil {
-					got = err.Error() + "\n"
+				if err == nil {
+					t.Fatal("the configuration parsed, but the fixture expects an error")
 				}
+				got := err.Error() + "\n"
 				if *update {
 					f.write(t, "error", got)
 					return

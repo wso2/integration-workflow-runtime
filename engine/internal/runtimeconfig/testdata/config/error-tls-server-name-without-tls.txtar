@@ -1,0 +1,9 @@
+-- runtime.toml --
+[database]
+type = "postgresql"
+host = "db"
+
+[database.tls]
+serverName = "db.internal"
+-- error --
+invalid runtime configuration: database.tls settings are set but database.tls.enabled is false

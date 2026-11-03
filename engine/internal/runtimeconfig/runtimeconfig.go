@@ -264,8 +264,9 @@ func (s *settings) validate() error {
 	if (d.TLS.CertFile == "") != (d.TLS.KeyFile == "") {
 		problems = append(problems, "database.tls needs both certFile and keyFile, or neither")
 	}
-	if !d.TLS.Enabled && (d.TLS.CAFile != "" || d.TLS.CertFile != "" || d.TLS.KeyFile != "") {
-		problems = append(problems, "database.tls files are set but database.tls.enabled is false")
+	if !d.TLS.Enabled && (d.TLS.CAFile != "" || d.TLS.CertFile != "" || d.TLS.KeyFile != "" ||
+		d.TLS.ServerName != "" || d.TLS.EnableHostVerification != nil) {
+		problems = append(problems, "database.tls settings are set but database.tls.enabled is false")
 	}
 	if len(problems) > 0 {
 		return errors.New("invalid runtime configuration: " + strings.Join(problems, "; "))
