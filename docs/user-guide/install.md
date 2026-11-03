@@ -54,9 +54,12 @@ Set `WORKFLOW_RUNTIME_CONFIG` to use another configuration file.
 The Linux zip includes `systemd/workflow-runtime.service`, written for `/opt/wso2-workflow-runtime` and a
 `workflow` user.
 
-1. Extract the zip to `/opt/wso2-workflow-runtime` and create the user:
+1. Extract the zip so that `bin/`, `conf/` and `systemd/` are directly under `/opt/wso2-workflow-runtime`, and
+   create the user:
 
    ```bash
+   sudo unzip wso2-workflow-runtime-<version>-linux-amd64.zip -d /opt
+   sudo mv /opt/wso2-workflow-runtime-<version>-linux-amd64 /opt/wso2-workflow-runtime
    sudo useradd --system --home /opt/wso2-workflow-runtime workflow
    sudo chown -R workflow:workflow /opt/wso2-workflow-runtime
    ```

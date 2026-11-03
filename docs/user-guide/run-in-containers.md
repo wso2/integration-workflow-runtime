@@ -37,7 +37,9 @@ docker run -d --name workflow-runtime -p 7233:7233 \
   <image>:<version>
 ```
 
-Arguments after the image are passed to the engine, for example `--allow-no-auth` when trying it out.
+Arguments after the image are passed to `workflow-runtime`, for example `--allow-no-auth` when trying it out. An
+engine without authentication must not be reachable from other machines, so publish its port on loopback only:
+`-p 127.0.0.1:7233:7233`.
 
 ## Try it with Docker Compose
 

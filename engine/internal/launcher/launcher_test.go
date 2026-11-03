@@ -108,6 +108,19 @@ func TestLauncherTakesAnotherConfiguration(t *testing.T) {
 	}
 }
 
+func TestLauncherResolvesARelativeConfigurationFirst(t *testing.T) {
+	caller := t.TempDir()
+	t.Chdir(caller)
+	want, err := filepath.Abs("custom.toml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _, _ := runLauncher(t, map[string]string{ConfigEnv: "custom.toml"})
+	if !slices.Equal(got.args, []string{"start", "--runtime-config", want}) {
+		t.Fatalf("engine arguments = %q, want the caller's %s", got.args, want)
+	}
+}
+
 func TestLauncherVersionAndHelp(t *testing.T) {
 	got, _, out := runLauncher(t, nil, "version")
 	if !strings.Contains(out, "workflow-runtime 9.9.9") || !slices.Equal(got.args, []string{"version"}) {

@@ -20,7 +20,8 @@ services:
     volumes:
       - ./try-out.toml:/opt/wso2-workflow-runtime/conf/runtime.toml:ro
     ports:
-      - "${WORKFLOW_RUNTIME_PORT:-7233}:7233"
+      # Loopback only: this try-out has no authentication.
+      - "127.0.0.1:${WORKFLOW_RUNTIME_PORT:-7233}:7233"
     depends_on:
       postgres:
         condition: service_healthy

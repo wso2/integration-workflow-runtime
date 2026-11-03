@@ -25,6 +25,7 @@ keywords: [wso2 integrator, workflow runtime, aws, amazon rds, aurora, ecs, eks,
 ## Several nodes
 
 Follow [Run across several nodes](scale-across-nodes.md): the same `runtime.toml` on every node, each with its own
-`profiles` and address (`broadcastAddress = "auto"` on ECS and EKS). Allow the nodes to reach each other on the
+`profiles` and address (`broadcastAddress = "auto"` on ECS and EKS), and `[engine.tls.internode]` on, which the
+engine requires with `[engine.auth]`. Allow the nodes to reach each other on the
 service ports (7233 to 7239) and membership ports (6933 to 6939), and place the Network Load Balancer in front of the
 frontend nodes only.

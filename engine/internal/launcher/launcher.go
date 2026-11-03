@@ -63,6 +63,9 @@ func run(version string, args []string, executable func() (string, error), geten
 	config := getenv(ConfigEnv)
 	if config == "" {
 		config = filepath.Join(home, "conf", "runtime.toml")
+	} else if abs, err := filepath.Abs(config); err == nil {
+		// Relative to where the caller ran the command, not to the home it changes to.
+		config = abs
 	}
 	var engineArgs []string
 	switch command {
