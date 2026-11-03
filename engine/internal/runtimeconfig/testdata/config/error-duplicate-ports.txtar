@@ -1,0 +1,8 @@
+-- runtime.toml --
+[engine.ports]
+history = 7233
+[database]
+type = "sqlite"
+inMemory = true
+-- error --
+invalid runtime configuration: engine.ports: frontend and history both use port 7233; engine.ports: frontend membership and history membership both use port 6933

@@ -1,0 +1,8 @@
+-- runtime.toml --
+[engine]
+bindAddress = "host"
+[database]
+type = "sqlite"
+inMemory = true
+-- error --
+invalid runtime configuration: engine.bindAddress "host" must be an IP address

@@ -1,0 +1,7 @@
+-- runtime.toml --
+[database]
+type = "sqlite"
+inMemory = true
+hots = "x"
+-- error --
+unknown runtime configuration keys: database.hots

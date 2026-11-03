@@ -1,0 +1,5 @@
+-- runtime.toml --
+[database]
+type = "postgresql"
+-- error --
+invalid runtime configuration: database.host is required

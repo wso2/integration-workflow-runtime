@@ -1,0 +1,8 @@
+-- runtime.toml --
+[engine.ports]
+worker = 6933
+[database]
+type = "sqlite"
+inMemory = true
+-- error --
+invalid runtime configuration: engine.ports: frontend membership and worker both use port 6933

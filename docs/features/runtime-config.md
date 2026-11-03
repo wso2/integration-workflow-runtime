@@ -30,8 +30,9 @@ other, not both.
 | `visibilityName` | `temporal_visibility` | Database for Temporal's visibility (instance lists and search); must differ from `name` |
 | `path` | | SQLite only: the database file. Both stores share it, and its schema is created on first start |
 | `inMemory` | false | SQLite only: keep everything in memory (tests and trying out); use instead of `path` |
-| `maxConns` | 20 (1 for SQLite) | Connections per store |
-| `[database.tls]` `enabled`, `caFile`, `certFile`, `keyFile`, `serverName`, `enableHostVerification` | off | TLS to the database |
+| `maxConns` | 20 (1 for SQLite) | Connections per store; must be 1 for an in-memory SQLite database, where each connection would get its own empty database |
+| `[database.tls]` `enabled`, `caFile`, `certFile` and `keyFile` (both or neither), `serverName` | off | TLS to the database |
+| `[database.tls]` `enableHostVerification` | `true` | Verify the server's certificate and host name; `false` turns verification off, which lets anyone between the engine and the database impersonate it |
 
 ### `[engine]`
 
@@ -53,8 +54,10 @@ Other tables (`[runtime]`, `[users]`, the portals) belong to other components an
   working once an authorizer is on. The internal frontend is for in-process calls only; integrations use `frontend`.
 - Unknown keys in `[engine]` or `[database]` are rejected, so a typo fails at start instead of being ignored.
 - The engine refuses to start on invalid settings: an unknown database type, a missing host, invalid or duplicate
-  ports (membership ports included), a SQLite database with both or neither of `path` and `inMemory`, the same
-  name for both databases, TLS files without TLS enabled, or a `$env{NAME}` whose variable is not set.
+  ports (membership ports included), a SQLite database with both or neither of `path` and `inMemory`, an
+  in-memory SQLite database with more than one connection, the same name for both databases, TLS files without
+  TLS enabled, half a client certificate pair, or a `$env{NAME}` whose variable is not set.
+- With `[database.tls]` enabled, the server's certificate is verified unless `enableHostVerification = false`.
 - The generated configuration is then checked with Temporal's own validation.
 - `$secret{...}` references are rejected with a clear message until secure-vault support exists.
 - For PostgreSQL and MySQL, the databases and their schemas must exist; for now create them with
@@ -76,6 +79,7 @@ upgrade on first start, Cassandra, and secure-vault secrets.
 
 | Test | Covers |
 |---|---|
-| `engine/internal/runtimeconfig/runtimeconfig_test.go` | Mapping per database type, defaults, overrides, TLS, environment passwords, every validation rule, Temporal validation, rendering |
+| `engine/internal/runtimeconfig/testdata/config/*.txtar` (`fixtures_test.go`) | One file per case: the input `runtime.toml` and the whole rendered Temporal configuration, or the exact error. Add a case as a file; `go test ./internal/runtimeconfig -update` writes the expected output to review |
+| `engine/internal/runtimeconfig/runtimeconfig_test.go` | What a redacted rendering cannot show: resolved environment passwords, redaction without changing the configuration, reading the file |
 | `engine/internal/cli/cli_test.go` | `start --runtime-config`, the authorizer check, one configuration only, `render-config` |
 | `tests/ballerina/smoke` and `full`, with `--database sqlite\|postgresql\|mysql` | A real engine started from `runtime.toml` runs workflows on each database |

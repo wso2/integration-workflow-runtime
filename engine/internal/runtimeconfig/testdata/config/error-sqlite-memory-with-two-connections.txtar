@@ -1,0 +1,7 @@
+-- runtime.toml --
+[database]
+type = "sqlite"
+inMemory = true
+maxConns = 2
+-- error --
+invalid runtime configuration: database.maxConns must be 1 for an in-memory sqlite database

@@ -21,7 +21,7 @@ visibilityName = "temporal_visibility"
 
 # [database.tls]
 # enabled = true
-# caFile = "conf/certs/db-ca.pem"
+# caFile = "conf/certs/db-ca.pem"   # the server's certificate is verified (enableHostVerification = true)
 
 [users]
 store = "local"             # "local" (try-out and demos) or "sso" (production); never both

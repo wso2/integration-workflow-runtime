@@ -1,0 +1,9 @@
+-- runtime.toml --
+[database]
+type = "postgresql"
+host = "db"
+[database.tls]
+enabled = true
+certFile = "client.crt"
+-- error --
+invalid runtime configuration: database.tls needs both certFile and keyFile, or neither

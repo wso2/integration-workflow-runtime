@@ -42,10 +42,6 @@ import (
 )
 
 const (
-	typePostgreSQL = "postgresql"
-	typeMySQL      = "mysql"
-	typeSQLite     = "sqlite"
-
 	defaultStore    = "default"
 	visibilityStore = "visibility"
 	clusterName     = "active"
@@ -57,9 +53,18 @@ const (
 	defaultHistoryShards = 512
 )
 
+// databaseType is a database.type value; parsing keeps unknown values, which validate rejects.
+type databaseType string
+
+const (
+	typePostgreSQL databaseType = "postgresql"
+	typeMySQL      databaseType = "mysql"
+	typeSQLite     databaseType = "sqlite"
+)
+
 var (
-	pluginNames    = map[string]string{typePostgreSQL: "postgres12", typeMySQL: "mysql8", typeSQLite: "sqlite"}
-	defaultDBPorts = map[string]int{typePostgreSQL: 5432, typeMySQL: 3306}
+	pluginNames    = map[databaseType]string{typePostgreSQL: "postgres12", typeMySQL: "mysql8", typeSQLite: "sqlite"}
+	defaultDBPorts = map[databaseType]int{typePostgreSQL: 5432, typeMySQL: 3306}
 	logLevels      = []string{"debug", "info", "warn", "error"}
 )
 
@@ -86,17 +91,17 @@ type portsSettings struct {
 }
 
 type databaseSettings struct {
-	Type           string      `toml:"type"`
-	Host           string      `toml:"host"`
-	Port           int         `toml:"port"`
-	User           string      `toml:"user"`
-	Password       string      `toml:"password"`
-	Name           string      `toml:"name"`
-	VisibilityName string      `toml:"visibilityName"`
-	Path           string      `toml:"path"`
-	InMemory       bool        `toml:"inMemory"`
-	MaxConns       int         `toml:"maxConns"`
-	TLS            tlsSettings `toml:"tls"`
+	Type           databaseType `toml:"type"`
+	Host           string       `toml:"host"`
+	Port           int          `toml:"port"`
+	User           string       `toml:"user"`
+	Password       string       `toml:"password"`
+	Name           string       `toml:"name"`
+	VisibilityName string       `toml:"visibilityName"`
+	Path           string       `toml:"path"`
+	InMemory       bool         `toml:"inMemory"`
+	MaxConns       int          `toml:"maxConns"`
+	TLS            tlsSettings  `toml:"tls"`
 }
 
 type tlsSettings struct {
@@ -105,7 +110,7 @@ type tlsSettings struct {
 	CertFile               string `toml:"certFile"`
 	KeyFile                string `toml:"keyFile"`
 	ServerName             string `toml:"serverName"`
-	EnableHostVerification bool   `toml:"enableHostVerification"`
+	EnableHostVerification *bool  `toml:"enableHostVerification"`
 }
 
 // Load reads a runtime.toml file and returns the validated Temporal server configuration it describes.
@@ -212,7 +217,7 @@ func (s *settings) validate() error {
 	var problems []string
 	e, d := s.Engine, s.Database
 	if _, ok := pluginNames[d.Type]; !ok {
-		problems = append(problems, fmt.Sprintf("database.type %q must be one of postgresql, mysql, sqlite", d.Type))
+		problems = append(problems, fmt.Sprintf("database.type %q must be one of postgresql, mysql, sqlite", string(d.Type)))
 	}
 	if !slices.Contains(logLevels, e.LogLevel) {
 		problems = append(problems, fmt.Sprintf("engine.logLevel %q must be one of %s", e.LogLevel, strings.Join(logLevels, ", ")))
@@ -232,8 +237,15 @@ func (s *settings) validate() error {
 	}
 	switch d.Type {
 	case typeSQLite:
-		if (d.Path == "") == !d.InMemory {
-			problems = append(problems, "a sqlite database needs exactly one of database.path and database.inMemory = true")
+		switch {
+		case d.Path != "" && d.InMemory:
+			problems = append(problems, "database.path and database.inMemory = true are both set; a sqlite database is a file or in memory")
+		case d.Path == "" && !d.InMemory:
+			problems = append(problems, "a sqlite database needs database.path (a file) or database.inMemory = true")
+		}
+		// Each connection to a private in-memory database gets its own empty database.
+		if d.InMemory && d.MaxConns > 1 {
+			problems = append(problems, "database.maxConns must be 1 for an in-memory sqlite database")
 		}
 	case typePostgreSQL, typeMySQL:
 		if d.Host == "" {
@@ -245,6 +257,9 @@ func (s *settings) validate() error {
 		if d.Name == d.VisibilityName {
 			problems = append(problems, "database.name and database.visibilityName must differ")
 		}
+	}
+	if (d.TLS.CertFile == "") != (d.TLS.KeyFile == "") {
+		problems = append(problems, "database.tls needs both certFile and keyFile, or neither")
 	}
 	if !d.TLS.Enabled && (d.TLS.CAFile != "" || d.TLS.CertFile != "" || d.TLS.KeyFile != "") {
 		problems = append(problems, "database.tls files are set but database.tls.enabled is false")
@@ -392,12 +407,13 @@ func (t tlsSettings) temporalTLS() *auth.TLS {
 		return nil
 	}
 	return &auth.TLS{
-		Enabled:                true,
-		CaFile:                 t.CAFile,
-		CertFile:               t.CertFile,
-		KeyFile:                t.KeyFile,
-		ServerName:             t.ServerName,
-		EnableHostVerification: t.EnableHostVerification,
+		Enabled:    true,
+		CaFile:     t.CAFile,
+		CertFile:   t.CertFile,
+		KeyFile:    t.KeyFile,
+		ServerName: t.ServerName,
+		// The server's certificate is verified unless explicitly turned off.
+		EnableHostVerification: t.EnableHostVerification == nil || *t.EnableHostVerification,
 	}
 }
 

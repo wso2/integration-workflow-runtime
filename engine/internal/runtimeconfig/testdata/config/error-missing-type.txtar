@@ -1,0 +1,5 @@
+-- runtime.toml --
+[engine]
+logLevel = "info"
+-- error --
+invalid runtime configuration: database.type "" must be one of postgresql, mysql, sqlite

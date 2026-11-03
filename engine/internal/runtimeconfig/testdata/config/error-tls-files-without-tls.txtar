@@ -1,0 +1,8 @@
+-- runtime.toml --
+[database]
+type = "mysql"
+host = "db"
+[database.tls]
+caFile = "ca.pem"
+-- error --
+invalid runtime configuration: database.tls files are set but database.tls.enabled is false

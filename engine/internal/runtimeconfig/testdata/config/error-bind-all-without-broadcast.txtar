@@ -1,0 +1,8 @@
+-- runtime.toml --
+[engine]
+bindAddress = "0.0.0.0"
+[database]
+type = "sqlite"
+inMemory = true
+-- error --
+invalid runtime configuration: engine.broadcastAddress is required when engine.bindAddress is 0.0.0.0

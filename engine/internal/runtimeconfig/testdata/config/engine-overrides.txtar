@@ -1,0 +1,245 @@
+-- runtime.toml --
+[engine]
+bindAddress = "0.0.0.0"
+broadcastAddress = "10.0.0.5"
+historyShards = 1024
+logLevel = "warn"
+
+[engine.ports]
+frontend = 17233
+frontendHttp = 17243
+internalFrontend = 17236
+history = 17234
+matching = 17235
+worker = 17239
+
+[database]
+type = "postgresql"
+host = "db"
+-- temporal.yaml --
+global:
+    membership:
+        maxJoinDuration: 30s
+        broadcastAddress: 10.0.0.5
+    pprof:
+        port: 0
+        host: ""
+    tls:
+        internode:
+            client:
+                serverName: ""
+                disableHostVerification: false
+                rootCaFiles: []
+                rootCaData: []
+                forceTLS: false
+            server:
+                certFile: ""
+                keyFile: ""
+                clientCaFiles: []
+                certData: ""
+                keyData: ""
+                clientCaData: []
+                requireClientAuth: false
+            hostOverrides: {}
+        frontend:
+            client:
+                serverName: ""
+                disableHostVerification: false
+                rootCaFiles: []
+                rootCaData: []
+                forceTLS: false
+            server:
+                certFile: ""
+                keyFile: ""
+                clientCaFiles: []
+                certData: ""
+                keyData: ""
+                clientCaData: []
+                requireClientAuth: false
+            hostOverrides: {}
+        systemWorker:
+            certFile: ""
+            keyFile: ""
+            certData: ""
+            keyData: ""
+            client:
+                serverName: ""
+                disableHostVerification: false
+                rootCaFiles: []
+                rootCaData: []
+                forceTLS: false
+        remoteClusters: {}
+        expirationChecks:
+            warningWindow: 0s
+            errorWindow: 0s
+            checkInterval: 0s
+        refreshInterval: 0s
+    metrics: null
+    authorization:
+        jwtKeyProvider:
+            keySourceURIs: []
+            refreshInterval: 0s
+        permissionsClaimName: ""
+        permissionsRegex: ""
+        authorizer: ""
+        claimMapper: ""
+        authHeaderName: ""
+        authExtraHeaderName: ""
+        audience: ""
+        remoteClusterAuth:
+            require: false
+persistence:
+    defaultStore: default
+    visibilityStore: visibility
+    secondaryVisibilityStore: ""
+    numHistoryShards: 1024
+    datastores:
+        default:
+            faultInjection: null
+            cassandra: null
+            sql:
+                user: ""
+                password: ""
+                passwordCommand: null
+                pluginName: postgres12
+                databaseName: temporal
+                connectAddr: db:5432
+                connectProtocol: tcp
+                connectAttributes: {}
+                maxConns: 20
+                maxIdleConns: 20
+                maxConnLifetime: 1h0m0s
+                taskScanPartitions: 1
+                tls: null
+            customDatastore: null
+            elasticsearch: null
+        visibility:
+            faultInjection: null
+            cassandra: null
+            sql:
+                user: ""
+                password: ""
+                passwordCommand: null
+                pluginName: postgres12
+                databaseName: temporal_visibility
+                connectAddr: db:5432
+                connectProtocol: tcp
+                connectAttributes: {}
+                maxConns: 20
+                maxIdleConns: 20
+                maxConnLifetime: 1h0m0s
+                taskScanPartitions: 1
+                tls: null
+            customDatastore: null
+            elasticsearch: null
+log:
+    stdout: true
+    level: warn
+    outputFile: ""
+    format: ""
+    development: false
+clusterMetadata:
+    enableGlobalNamespace: false
+    failoverVersionIncrement: 10
+    masterClusterName: active
+    currentClusterName: active
+    clusterInformation:
+        active:
+            enabled: true
+            initialFailoverVersion: 1
+            rpcAddress: 10.0.0.5:17233
+            httpAddress: 10.0.0.5:17243
+    tags: {}
+dcRedirectionPolicy:
+    policy: noop
+services:
+    frontend:
+        rpc:
+            grpcPort: 17233
+            membershipPort: 16933
+            bindOnLocalHost: false
+            bindOnIP: 0.0.0.0
+            httpPort: 17243
+            httpAdditionalForwardedHeaders: []
+            keepAliveServerConfig:
+                keepAliveServerParameters: null
+                keepAliveEnforcementPolicy: null
+            clientConnectionConfig:
+                keepAliveClientParameters: null
+    history:
+        rpc:
+            grpcPort: 17234
+            membershipPort: 16934
+            bindOnLocalHost: false
+            bindOnIP: 0.0.0.0
+            httpPort: 0
+            httpAdditionalForwardedHeaders: []
+            keepAliveServerConfig:
+                keepAliveServerParameters: null
+                keepAliveEnforcementPolicy: null
+            clientConnectionConfig:
+                keepAliveClientParameters: null
+    internal-frontend:
+        rpc:
+            grpcPort: 17236
+            membershipPort: 16936
+            bindOnLocalHost: false
+            bindOnIP: 0.0.0.0
+            httpPort: 0
+            httpAdditionalForwardedHeaders: []
+            keepAliveServerConfig:
+                keepAliveServerParameters: null
+                keepAliveEnforcementPolicy: null
+            clientConnectionConfig:
+                keepAliveClientParameters: null
+    matching:
+        rpc:
+            grpcPort: 17235
+            membershipPort: 16935
+            bindOnLocalHost: false
+            bindOnIP: 0.0.0.0
+            httpPort: 0
+            httpAdditionalForwardedHeaders: []
+            keepAliveServerConfig:
+                keepAliveServerParameters: null
+                keepAliveEnforcementPolicy: null
+            clientConnectionConfig:
+                keepAliveClientParameters: null
+    worker:
+        rpc:
+            grpcPort: 17239
+            membershipPort: 16939
+            bindOnLocalHost: false
+            bindOnIP: 0.0.0.0
+            httpPort: 0
+            httpAdditionalForwardedHeaders: []
+            keepAliveServerConfig:
+                keepAliveServerParameters: null
+                keepAliveEnforcementPolicy: null
+            clientConnectionConfig:
+                keepAliveClientParameters: null
+archival:
+    history:
+        state: ""
+        enableRead: false
+        provider: null
+    visibility:
+        state: ""
+        enableRead: false
+        provider: null
+publicClient:
+    hostPort: ""
+    httpHostPort: ""
+    forceTLSConfig: ""
+dynamicConfigClient: null
+namespaceDefaults:
+    archival:
+        history:
+            state: ""
+            URI: ""
+        visibility:
+            state: ""
+            URI: ""
+otel: {}
+visibility:
+    persistenceCustomSearchAttributes: {}
