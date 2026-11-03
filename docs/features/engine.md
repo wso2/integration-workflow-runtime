@@ -15,7 +15,7 @@ the configuration defines one) in one binary built from the pinned Temporal serv
 | `workflow-engine start --runtime-config <file>` | one of the two | Generate Temporal's configuration from `conf/runtime.toml` ([runtime configuration](runtime-config.md)) |
 | `workflow-engine start --config-file <file>` | one of the two | Use a Temporal server configuration (YAML) as is |
 | `workflow-engine render-config --runtime-config <file>` | | Print the configuration generated from `runtime.toml`, password hidden |
-| `workflow-engine start-dev` | | Development engine: every service on SQLite (in memory, or `--db-file`), no authorization, listening on `--ip` (127.0.0.1) and `--port` (7233); creates `default` and each `--namespace`, with the `WorkflowKind` search attribute |
+| `workflow-engine start-dev` | | Development engine: every service on SQLite (in memory, or `--db-file`, whose missing directories it creates), no authorization, listening on `--ip` (127.0.0.1) and `--port` (7233); creates `default` and each `--namespace`, with the `WorkflowKind` search attribute |
 | `--service <name>` (repeatable) | From `runtime.toml`'s `[runtime] profiles`; with `--config-file`, `frontend`, `history`, `matching`, `worker`, plus `internal-frontend` when configured | `frontend`, `internal-frontend`, `history`, `matching`, `worker`; overrides the profiles |
 | `--allow-no-auth` | off | Start without an authorizer; development and tests only |
 
@@ -53,6 +53,7 @@ tokens and profiles are covered by [engine security](engine-security.md) and
 
 | Test | Covers |
 |---|---|
-| `engine/internal/cli/cli_test.go` | Usage, version, flags, configuration errors, the authorizer, claim mapper and internal frontend refusals, the default services, the start path |
+| `engine/internal/cli/cli_test.go` | Usage, version, flags, configuration errors, the authorizer, claim mapper and internal frontend refusals, the default services, the start path, `start-dev`'s namespaces (read back from SQLite) and `--db-file` directory |
+| `tools/internal/enginetest/dev_test.go` | A real `start-dev` with no outside setup: `default` and `--namespace` with `WorkflowKind`, a first workflow found by `WorkflowKind`, and both kept across a restart on the same `--db-file` |
 | `tests/ballerina/smoke` | A real engine runs workflows, activities, data events and failures |
 | `tests/ballerina/full` | Retries, timers, child workflows, human tasks, execution history |

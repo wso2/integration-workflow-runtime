@@ -8,7 +8,7 @@
 | Launcher tests on Windows | `engine/internal/launcher` (the engine runs as a child process there) | The `windows-latest` job of every pull request | All pass |
 | Tool and script tests | `tools/internal/...` (the coverage gate, the suite runner, the shell scripts run for real) | `make test`, every pull request | All pass |
 | Engine tests | `tools/internal/enginetest`: the real engine binary driven by the Temporal CLI | `WORKFLOW_ENGINE=build/workflow-engine go test ./internal/enginetest` in `tools/`; the SQLite smoke job of every pull request | All pass |
-| Ballerina smoke suite | `tests/ballerina/smoke` | `make test-smoke`, every pull request | All pass |
+| Ballerina smoke suite | `tests/ballerina/smoke` | `make test-smoke`, every pull request (SQLite, PostgreSQL, MySQL and `start-dev`) | All pass |
 | Ballerina full suite | `tests/ballerina/full` | `make test-full`, on `main`, nightly, on demand | All pass |
 | Upgrade run | `tests/ballerina/upgrade`, `balsuite upgrade` | The PostgreSQL and MySQL smoke jobs of every pull request | The workflow finishes |
 | License and vulnerability checks | `make license-check`, `make vulncheck` | Every pull request and daily | No findings |
@@ -26,9 +26,9 @@
 ## Engine tests
 
 `tools/internal/enginetest` starts the built `workflow-engine` on free ports and drives it with the Temporal CLI, for
-behavior a configuration test cannot show, such as a SQLite file surviving a restart. A lock file in the temporary
-directory keeps concurrent runs on one Unix host from picking the same ports; on Windows, run one at a time. The tests
-skip unless `WORKFLOW_ENGINE` names the engine binary and `temporal` is on `PATH`:
+behavior a configuration test cannot show, such as a SQLite file surviving a restart or `start-dev` needing no setup.
+A lock file in the temporary directory keeps concurrent runs on one Unix host from picking the same ports; on Windows,
+run one at a time. The tests skip unless `WORKFLOW_ENGINE` names the engine binary and `temporal` is on `PATH`:
 
 ```sh
 make engine
@@ -45,9 +45,11 @@ are what proves the runtime runs `ballerina/workflow` integrations.
 1. Starts `workflow-engine` from `tests/engine/runtime-<database>.toml` with `--allow-no-auth` (`--database`, default
    `sqlite`). For `postgresql` and `mysql` the engine creates both databases and their schemas on start; the
    database must be running on 15432 or 13306, user `workflow` (PostgreSQL) or `root` (MySQL), password in
-   `WORKFLOW_TEST_DB_PASSWORD`.
+   `WORKFLOW_TEST_DB_PASSWORD`. `--database dev` runs `start-dev --port 17233` instead: in memory, with no
+   configuration file.
 2. Waits until `temporal operator cluster health` reports `SERVING` on `localhost:17233`.
-3. Creates the `default` namespace and the `WorkflowKind` search attribute `ballerina/workflow` uses.
+3. Creates the `default` namespace and the `WorkflowKind` search attribute `ballerina/workflow` uses; with `dev` it
+   creates nothing, so the run proves that `start-dev` needs no setup.
 4. Runs `bal test` in the suite directory.
 5. Stops the engine and, if anything failed, prints the end of the engine log. The log is written to a temporary
    directory that is removed after the run; set `ENGINE_LOG_DIR` to keep it.

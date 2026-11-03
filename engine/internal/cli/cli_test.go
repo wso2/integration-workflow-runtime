@@ -18,6 +18,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -31,6 +32,12 @@ import (
 
 	"go.temporal.io/server/common/config"
 	"go.temporal.io/server/common/log"
+	"go.temporal.io/server/common/metrics"
+	"go.temporal.io/server/common/persistence"
+	"go.temporal.io/server/common/persistence/serialization"
+	"go.temporal.io/server/common/persistence/sql"
+	"go.temporal.io/server/common/persistence/sql/sqlplugin"
+	"go.temporal.io/server/common/resolver"
 	"go.temporal.io/server/temporal"
 
 	"github.com/wso2/integration-workflow-runtime/engine/internal/runtimeconfig"
@@ -525,6 +532,26 @@ func TestStartDev(t *testing.T) {
 	}
 }
 
+func TestStartDevCreatesTheDatabaseDirectory(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "data", "nested")
+	c, _, stderr := newTestCommand(&fakeServer{}, nil)
+	if code := c.run([]string{"start-dev", "--db-file", filepath.Join(dir, "dev.db")}); code != 0 {
+		t.Fatalf("exit code = %d, stderr = %s", code, stderr.String())
+	}
+	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+		t.Fatalf("the --db-file directory was not created: %v", err)
+	}
+	blocker := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(blocker, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c, _, stderr = newTestCommand(&fakeServer{}, nil)
+	if code := c.run([]string{"start-dev", "--db-file", filepath.Join(blocker, "dev.db")}); code != 1 ||
+		!strings.Contains(stderr.String(), "unable to create the directory of --db-file") {
+		t.Fatalf("a file as the directory: exit code = %d, stderr = %q", code, stderr.String())
+	}
+}
+
 func TestStartDevErrors(t *testing.T) {
 	c, _, stderr := newTestCommand(&fakeServer{}, nil)
 	c.devNamespaces = func(config.Persistence, []string) error { return errors.New("disk full") }
@@ -558,5 +585,30 @@ func TestCreateDevNamespacesOnSQLite(t *testing.T) {
 				t.Fatalf("%s: %v", name, err)
 			}
 		}
+		for _, ns := range []string{"default", "orders"} {
+			aliases := namespaceAliases(t, rt.Temporal.Persistence, ns)
+			if aliases["Keyword01"] != "WorkflowKind" {
+				t.Errorf("%s: namespace %s aliases = %v, want Keyword01 as WorkflowKind", name, ns, aliases)
+			}
+		}
 	}
+}
+
+// namespaceAliases reads a namespace from the development store, failing the test when it is missing.
+func namespaceAliases(t *testing.T, p config.Persistence, name string) map[string]string {
+	t.Helper()
+	db, err := sql.NewSQLDB(sqlplugin.DbKindMain, p.DataStores[p.DefaultStore].SQL, resolver.NewNoopResolver(),
+		log.NewNoopLogger(), metrics.NoopMetricsHandler)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows, err := db.SelectFromNamespace(context.Background(), sqlplugin.NamespaceFilter{Name: &name})
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("namespace %s: rows = %d, %v", name, len(rows), err)
+	}
+	detail, err := serialization.NewSerializer().NamespaceDetailFromBlob(persistence.NewDataBlob(rows[0].Data, rows[0].DataEncoding))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return detail.GetConfig().GetCustomSearchAttributeAliases()
 }

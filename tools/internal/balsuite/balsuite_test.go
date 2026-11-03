@@ -56,7 +56,7 @@ func options(t *testing.T, temporal, engine, bal string) Options {
 		Database:       "sqlite",
 		Root:           root,
 		Engine:         script(t, root, "engine", engine),
-		EngineArgs:     []string{"--allow-no-auth"},
+		EngineArgs:     []string{"start", "--allow-no-auth"},
 		Bal:            script(t, root, "bal", bal),
 		Temporal:       script(t, root, "temporal", temporal),
 		LogDir:         filepath.Join(root, "logs"),
@@ -80,6 +80,31 @@ func TestRunPassesWhenTheSuitePasses(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(o.LogDir, "engine-smoke-sqlite.log")); err != nil {
 		t.Fatalf("engine log: %v", err)
+	}
+}
+
+func TestRunLeavesTheNamespaceToADevEngine(t *testing.T) {
+	// Both fakes record their arguments next to themselves, so each mode shows what it ran.
+	temporal := "#!/bin/sh\necho \"$@\" >> \"$(dirname \"$0\")/temporal-calls\"\n" + strings.TrimPrefix(servingTemporal, "#!/bin/sh\n")
+	engine := "#!/bin/sh\necho \"$@\" > \"$(dirname \"$0\")/engine-args\"\n" + strings.TrimPrefix(idleEngine, "#!/bin/sh\n")
+	for _, dev := range []bool{false, true} {
+		o := options(t, temporal, engine, "#!/bin/sh\nexit 0\n")
+		if dev {
+			o.EngineArgs, o.DevMode = []string{"start-dev"}, true
+		}
+		var stderr bytes.Buffer
+		if code := Run(context.Background(), o, &bytes.Buffer{}, &stderr); code != 0 {
+			t.Fatalf("dev = %v: Run = %d; stderr: %s", dev, code, stderr.String())
+		}
+		args, _ := os.ReadFile(filepath.Join(o.Root, "engine-args"))
+		calls, _ := os.ReadFile(filepath.Join(o.Root, "temporal-calls"))
+		if got := strings.TrimSpace(string(args)); got != strings.Join(o.EngineArgs, " ") {
+			t.Errorf("dev = %v: engine args = %q, want %q", dev, got, o.EngineArgs)
+		}
+		created := strings.Contains(string(calls), "namespace create") || strings.Contains(string(calls), "search-attribute create")
+		if created == dev {
+			t.Errorf("dev = %v: temporal calls:\n%s", dev, calls)
+		}
 	}
 }
 

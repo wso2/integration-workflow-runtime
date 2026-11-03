@@ -55,7 +55,8 @@ type Options struct {
 	Database       string   // sqlite, postgresql or mysql: names the log file and the SERVING message
 	Root           string   // repository root; the suite is tests/ballerina/<Suite>
 	Engine         string   // workflow-engine binary
-	EngineArgs     []string // arguments after `start`
+	EngineArgs     []string // the engine's command and its arguments
+	DevMode        bool     // the engine runs start-dev, which creates the namespace and its search attributes itself
 	Bal            string   // bal command
 	Temporal       string   // temporal CLI
 	LogDir         string   // engine log directory; a temporary one, removed after the run, when empty
@@ -124,7 +125,7 @@ type engineProcess struct {
 }
 
 func startEngine(engine string, args []string, log io.Writer, stopTimeout time.Duration) (*engineProcess, error) {
-	cmd := exec.Command(engine, append([]string{"start"}, args...)...)
+	cmd := exec.Command(engine, args...) //nolint:gosec // the engine under test
 	cmd.Stdout, cmd.Stderr = log, log
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("unable to start %s: %w", engine, err)
@@ -279,9 +280,11 @@ func Run(ctx context.Context, o Options, stdout, stderr io.Writer) int {
 			_, _ = fmt.Fprintf(stderr, "error: %v\n", err)
 			return 1
 		}
-		if err := ensureNamespace(ctx, o.Temporal, namespaceTimeout); err != nil {
-			_, _ = fmt.Fprintf(stderr, "error: %v\n", err)
-			return 1
+		if !o.DevMode {
+			if err := ensureNamespace(ctx, o.Temporal, namespaceTimeout); err != nil {
+				_, _ = fmt.Fprintf(stderr, "error: %v\n", err)
+				return 1
+			}
 		}
 		_, _ = fmt.Fprintf(stdout, "workflow-engine SERVING on %s (%s); running the %s suite\n", Address, o.Database, o.Suite)
 		return runBalTest(o.Bal, suiteDir, o.TestTimeout, stderr)

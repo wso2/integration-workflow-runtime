@@ -198,7 +198,7 @@ func (r *upgradeRun) run(ctx context.Context, work, logDir string, stdout io.Wri
 		return 1, err
 	}
 	defer func() { _ = logFile.Close() }()
-	engine, err := startEngine(o.Engine, []string{"--runtime-config", config, "--allow-no-auth"}, logFile, stopTimeout)
+	engine, err := startEngine(o.Engine, []string{"start", "--runtime-config", config, "--allow-no-auth"}, logFile, stopTimeout)
 	if err != nil {
 		return 1, err
 	}
