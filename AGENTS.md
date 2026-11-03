@@ -98,6 +98,10 @@ These are requirements, not suggestions. A change that misses one is not done.
   `go run ./tools/cmd/<tool>`); no Python or JavaScript scripts. A shell script with logic gets its tests in
   `tools/internal/scripts/`, which runs the script for real.
 - Binary and product names never use "Temporal" (`workflow-engine`, not `temporal-server`).
+- SQL stays in `engine/internal/sqlschema`: it alone opens database connections and runs statements, to create the
+  databases and manage Temporal's schema. Everything else delegates: Temporal's persistence plugins (the blank
+  `sqlplugin/...` imports), the DBA tool `cmd/workflow-engine-sql`, and test fixtures. The `depguard` rule in
+  `.golangci.yml` enforces this; widen it only with a reason in the PR.
 
 ## Tests
 
