@@ -143,7 +143,7 @@ test-full: engine
 COMPOSE := docker compose -f tests/docker/compose.yml
 test-docker:
 	@mkdir -p $(OUT)/docker
-	@$(COMPOSE) run --rm --build runner $(or $(DOCKER_TARGET),all) "$(or $(DATABASES),sqlite postgresql mysql)"; \
+	@GIT_COMMON_DIR="$$(cd "$$(git rev-parse --git-common-dir)" && pwd)" $(COMPOSE) run --rm --build runner $(or $(DOCKER_TARGET),all) "$(or $(DATABASES),sqlite postgresql mysql)"; \
 		status=$$?; $(COMPOSE) down --volumes=false --remove-orphans >/dev/null 2>&1; exit $$status
 
 install-hooks:

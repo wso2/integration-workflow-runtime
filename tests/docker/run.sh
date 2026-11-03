@@ -17,20 +17,36 @@
 
 # Runs inside the tests/docker runner: `run-tests [all|gates|smoke|full] ["sqlite postgresql mysql"]`.
 # Works on a fresh copy of /src (tracked and untracked, not ignored files), so the host tree and build/ stay untouched.
+# RUNNER_SRC, RUNNER_WORK and RUNNER_OUT move /src, /work and /out (the script tests use them).
 
 set -euo pipefail
 
 target="${1:-all}"
 databases="${2:-sqlite postgresql mysql}"
 case "$target" in all|gates|smoke|full) ;; *) echo "unknown target: $target (all, gates, smoke, full)" >&2; exit 2;; esac
+src="${RUNNER_SRC:-/src}"
+work="${RUNNER_WORK:-/work}"
+out="${RUNNER_OUT:-/out}"
 
-rm -rf /work && mkdir -p /work /out
-git config --global --add safe.directory /src
-git config --global --add safe.directory /work
-cp -a /src/.git /work/.git
-(cd /src && git ls-files -z --cached --others --exclude-standard \
-    | tar --null --ignore-failed-read -T - -cf - 2>/dev/null) | tar -xf - -C /work
-cd /work
+# A throwaway runner reading read-only mounts: trust them, including a worktree's Git directory owned by the host user.
+git config --global --add safe.directory '*'
+# A linked worktree's .git is a pointer to the repository's Git directory, which make test-docker mounts.
+if ! git -C "$src" rev-parse --git-dir >/dev/null 2>&1; then
+    echo "cannot read the Git metadata of $src; run the tests with make test-docker" >&2
+    exit 1
+fi
+rm -rf "$work" && mkdir -p "$work" "$out"
+# Self-contained metadata at the checked-out commit; the copied files below carry any local changes.
+git init -q "$work"
+git -C "$work" fetch -q "$src" HEAD
+git -C "$work" update-ref HEAD FETCH_HEAD
+git -C "$work" read-tree HEAD
+# GNU tar (the runner image) skips files deleted after the listing; other tars do not know the option.
+tar_opts=()
+if tar --version 2>/dev/null | grep -q 'GNU tar'; then tar_opts+=(--ignore-failed-read); fi
+(cd "$src" && git ls-files -z --cached --others --exclude-standard \
+    | tar --null ${tar_opts[@]+"${tar_opts[@]}"} -T - -cf -) | tar -xf - -C "$work"
+cd "$work"
 # The pinned Go tools live on a volume, so they are installed once, not on every run.
 export TOOL_BIN=/opt/tools
 
@@ -44,7 +60,7 @@ run_suites() {
     make build
     for db in $databases; do
         echo "=== $1 suite on $db"
-        ENGINE_LOG_DIR=/out go run ./tools/cmd/balsuite "$1" --database "$db" --engine build/workflow-engine
+        ENGINE_LOG_DIR="$out" go run ./tools/cmd/balsuite "$1" --database "$db" --engine build/workflow-engine
     done
 }
 

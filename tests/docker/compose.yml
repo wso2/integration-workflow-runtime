@@ -62,6 +62,8 @@ services:
     volumes:
       - ../..:/src:ro
       - ../../build/docker:/out
+      # The repository's Git directory at its host path: a linked worktree's .git points there.
+      - ${GIT_COMMON_DIR:-../../.git}:${GIT_COMMON_DIR:-/src/.git}:ro
       - go-mod:/go/pkg/mod
       - go-build:/root/.cache/go-build
       - golangci:/root/.cache/golangci-lint
