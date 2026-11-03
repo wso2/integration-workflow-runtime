@@ -68,8 +68,9 @@ func CreateSQLSchemas(ctx context.Context, database, engine string) error {
 		for _, step := range steps {
 			args := append(append(append([]string{}, common...), "--db", db.name), step...)
 			r := runQuietEnv(ctx, schemaToolTimeout, env, tool, args...)
-			// Only an object that already exists is fine; "does not exist" and every other failure is reported.
-			if r.code != 0 && !strings.Contains(r.output(), "already exists") {
+			// Only creating an existing database or schema is fine; update-schema logs skipped duplicates, then may fail.
+			existing := step[0] != "update-schema" && strings.Contains(r.output(), "already exists")
+			if r.code != 0 && !existing {
 				return fmt.Errorf("%s failed for %s: %s", strings.Join(step, " "), db.name, r.message())
 			}
 		}

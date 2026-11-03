@@ -102,7 +102,7 @@ persistence:
                     mode: memory
                 maxConns: 1
                 maxIdleConns: 1
-                maxConnLifetime: 1h0m0s
+                maxConnLifetime: 0s
                 taskScanPartitions: 1
                 tls: null
             customDatastore: null
@@ -123,7 +123,7 @@ persistence:
                     mode: memory
                 maxConns: 1
                 maxIdleConns: 1
-                maxConnLifetime: 1h0m0s
+                maxConnLifetime: 0s
                 taskScanPartitions: 1
                 tls: null
             customDatastore: null

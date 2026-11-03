@@ -30,8 +30,8 @@ other, not both.
 | `visibilityName` | `temporal_visibility` | Database for Temporal's visibility (instance lists and search); must differ from `name` |
 | `path` | | SQLite only: the database file. Both stores share it, and its schema is created on first start |
 | `inMemory` | false | SQLite only: keep everything in memory (tests and trying out); use instead of `path` |
-| `maxConns` | 20 (1 for SQLite) | Connections per store; must be 1 for an in-memory SQLite database, where each connection would get its own empty database |
-| `[database.tls]` `enabled`, `caFile`, `certFile` and `keyFile` (both or neither), `serverName` | off | TLS to the database |
+| `maxConns` | 20 (1 for SQLite) | Connections per store; must be 1 for an in-memory SQLite database, where each connection would get its own empty database; that one connection is never retired |
+| `[database.tls]` `enabled`, `caFile`, `certFile` and `keyFile` (both or neither), `serverName` | off | TLS to the database (PostgreSQL and MySQL; refused for SQLite) |
 | `[database.tls]` `enableHostVerification` | `true` | Verify the server's certificate and host name; `false` turns verification off, which lets anyone between the engine and the database impersonate it |
 
 ### `[engine]`
@@ -56,7 +56,7 @@ Other tables (`[runtime]`, `[users]`, the portals) belong to other components an
 - The engine refuses to start on invalid settings: an unknown database type, a missing host, invalid or duplicate
   ports (membership ports included), a SQLite database with both or neither of `path` and `inMemory`, an
   in-memory SQLite database with more than one connection, the same name for both databases, TLS files without
-  TLS enabled, half a client certificate pair, or a `$env{NAME}` whose variable is not set.
+  TLS enabled, half a client certificate pair, TLS for a SQLite database, or a `$env{NAME}` whose variable is not set.
 - With `[database.tls]` enabled, the server's certificate is verified unless `enableHostVerification = false`.
 - The generated configuration is then checked with Temporal's own validation.
 - `$secret{...}` references are rejected with a clear message until secure-vault support exists.

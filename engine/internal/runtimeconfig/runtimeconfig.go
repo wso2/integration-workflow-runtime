@@ -247,6 +247,9 @@ func (s *settings) validate() error {
 		if d.InMemory && d.MaxConns > 1 {
 			problems = append(problems, "database.maxConns must be 1 for an in-memory sqlite database")
 		}
+		if d.TLS.Enabled {
+			problems = append(problems, "database.tls is not supported for a sqlite database")
+		}
 	case typePostgreSQL, typeMySQL:
 		if d.Host == "" {
 			problems = append(problems, "database.host is required")
@@ -385,9 +388,11 @@ func (d databaseSettings) sqlStore(name, password string) *config.SQL {
 // sqliteStore keeps both stores in one database: a file that creates its own schema, or memory for tests.
 func (d databaseSettings) sqliteStore() *config.SQL {
 	name := d.Path
+	lifetime := time.Hour
 	attributes := map[string]string{"cache": "private", "setup": "true", "journal_mode": "wal", "synchronous": "2"}
 	if d.InMemory {
-		name = "default"
+		// The database lives only as long as its one connection, so that connection is never retired.
+		name, lifetime = "default", 0
 		attributes = map[string]string{"mode": "memory", "cache": "private"}
 	}
 	return &config.SQL{
@@ -398,7 +403,7 @@ func (d databaseSettings) sqliteStore() *config.SQL {
 		ConnectAttributes: attributes,
 		MaxConns:          d.MaxConns,
 		MaxIdleConns:      d.MaxConns,
-		MaxConnLifetime:   time.Hour,
+		MaxConnLifetime:   lifetime,
 	}
 }
 

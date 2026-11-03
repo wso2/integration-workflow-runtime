@@ -20,6 +20,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -36,31 +37,48 @@ func fakeEngineDir(t *testing.T) string {
 }
 
 func TestCreateSQLSchemasRunsEveryStepForBothDatabases(t *testing.T) {
+	for database, common := range map[string]string{
+		"postgresql": "--plugin postgres12 --ep 127.0.0.1 -p 15432 -u workflow",
+		"mysql":      "--plugin mysql8 --ep 127.0.0.1 -p 13306 -u root",
+	} {
+		t.Run(database, func(t *testing.T) {
+			dir := fakeEngineDir(t)
+			t.Setenv(DBPasswordEnv, "secret")
+			if err := CreateSQLSchemas(context.Background(), database, filepath.Join(dir, "workflow-engine")); err != nil {
+				t.Fatal(err)
+			}
+			calls, err := os.ReadFile(filepath.Join(dir, "calls.log"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			schemas := SQLDatabases[database].schemas
+			var want []string
+			for _, db := range []struct{ name, schema string }{{"temporal", "temporal"}, {"temporal_visibility", "visibility"}} {
+				prefix := "pw=secret " + common + " --db " + db.name + " "
+				want = append(want, prefix+"create-database", prefix+"setup-schema -v 0.0",
+					prefix+"update-schema --schema-name "+schemas+"/"+db.schema)
+			}
+			lines := strings.Split(strings.TrimSpace(string(calls)), "\n")
+			if !slices.Equal(lines, want) {
+				t.Fatalf("calls:\n%s\nwant:\n%s", calls, strings.Join(want, "\n"))
+			}
+			for _, line := range lines {
+				if args := strings.TrimPrefix(line, "pw=secret "); strings.Contains(args, "secret") {
+					t.Errorf("the password is in the arguments: %s", line)
+				}
+			}
+		})
+	}
+}
+
+func TestCreateSQLSchemasReportsAFailedUpdateDespiteSkippedDuplicates(t *testing.T) {
 	dir := fakeEngineDir(t)
 	t.Setenv(DBPasswordEnv, "secret")
-	if err := CreateSQLSchemas(context.Background(), "postgresql", filepath.Join(dir, "workflow-engine")); err != nil {
-		t.Fatal(err)
-	}
-	calls, err := os.ReadFile(filepath.Join(dir, "calls.log"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	lines := strings.Split(strings.TrimSpace(string(calls)), "\n")
-	if len(lines) != 6 {
-		t.Fatalf("got %d calls, want 6:\n%s", len(lines), calls)
-	}
-	for _, want := range []string{
-		"pw=secret --plugin postgres12 --ep 127.0.0.1 -p 15432 -u workflow --db temporal create-database",
-		"--db temporal setup-schema -v 0.0",
-		"--db temporal update-schema --schema-name postgresql/v12/temporal",
-		"--db temporal_visibility update-schema --schema-name postgresql/v12/visibility",
-	} {
-		if !strings.Contains(string(calls), want) {
-			t.Errorf("calls lack %q:\n%s", want, calls)
-		}
-	}
-	if strings.Contains(string(calls), "--pw") {
-		t.Errorf("the password is in the arguments:\n%s", calls)
+	t.Setenv("FAIL_STEP", "update-schema")
+	t.Setenv("FAIL_MESSAGE", "index already exists, skipping; then: syntax error")
+	err := CreateSQLSchemas(context.Background(), "postgresql", filepath.Join(dir, "workflow-engine"))
+	if err == nil || !strings.Contains(err.Error(), "update-schema") {
+		t.Fatalf("CreateSQLSchemas = %v, want the failed update-schema", err)
 	}
 }
 

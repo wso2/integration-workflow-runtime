@@ -111,6 +111,9 @@ func (d *dockerRunner) run(src string, args ...string) (code int, output, tools 
 
 func TestDockerRunnerWorksFromALinkedWorktree(t *testing.T) {
 	d := newDockerRunner(t)
+	if err := os.WriteFile(filepath.Join(d.worktree, "tracked.txt"), []byte("edited\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	code, out, tools := d.run(d.worktree, "gates")
 	if code != 0 {
 		t.Fatalf("exit code = %d\n%s", code, out)
@@ -124,8 +127,8 @@ func TestDockerRunnerWorksFromALinkedWorktree(t *testing.T) {
 	if got, want := d.git(d.work, "rev-parse", "HEAD"), d.git(d.worktree, "rev-parse", "HEAD"); got != want {
 		t.Errorf("work HEAD = %s, want the worktree's %s", got, want)
 	}
-	if status := d.git(d.work, "status", "--porcelain", "tracked.txt"); status != "" {
-		t.Errorf("tracked file differs from HEAD in the work copy: %q", status)
+	if got, err := os.ReadFile(filepath.Join(d.work, "tracked.txt")); err != nil || string(got) != "edited\n" {
+		t.Errorf("tracked file in the work copy = %q, %v; want the local edit", got, err)
 	}
 	if _, err := os.Stat(filepath.Join(d.work, "untracked.txt")); err != nil {
 		t.Errorf("the untracked file was not copied: %v", err)
@@ -146,6 +149,9 @@ func TestDockerRunnerTargets(t *testing.T) {
 	}
 	if strings.Contains(tools, "make check") || strings.Contains(tools, "balsuite full") {
 		t.Errorf("smoke ran more than the smoke suite:\n%s", tools)
+	}
+	if strings.Contains(tools, "--database postgresql") {
+		t.Errorf("smoke ran a database that was not requested:\n%s", tools)
 	}
 }
 

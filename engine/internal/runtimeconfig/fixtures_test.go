@@ -108,7 +108,7 @@ func TestConfigFixtures(t *testing.T) {
 			rt, err := parse([]byte(toml), f.env())
 			_, wantsError := f.sections["error"]
 			switch {
-			case wantsError || (err != nil && *update):
+			case wantsError:
 				got := ""
 				if err != nil {
 					got = err.Error() + "\n"
