@@ -86,10 +86,18 @@ func firstNonEmpty(values ...string) string {
 
 // runQuiet runs a short CLI call with a timeout; a call that hangs counts as a failed call.
 func runQuiet(ctx context.Context, timeout time.Duration, name string, args ...string) result {
+	return runQuietEnv(ctx, timeout, nil, name, args...)
+}
+
+// runQuietEnv is runQuiet with extra environment variables, which keep secrets out of the visible arguments.
+func runQuietEnv(ctx context.Context, timeout time.Duration, env []string, name string, args ...string) result {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	var stdout, stderr strings.Builder
 	cmd := exec.CommandContext(ctx, name, args...)
+	if env != nil {
+		cmd.Env = append(os.Environ(), env...)
+	}
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	err := cmd.Run()
 	r := result{stdout: stdout.String(), stderr: stderr.String()}

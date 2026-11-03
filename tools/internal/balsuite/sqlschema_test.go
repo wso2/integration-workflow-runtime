@@ -25,7 +25,7 @@ import (
 )
 
 // fakeSQLTool records every call in calls.log and fails the steps named in FAIL_STEP with the given message.
-const fakeSQLTool = "#!/bin/sh\necho \"$@\" >> \"$(dirname \"$0\")/calls.log\"\n" +
+const fakeSQLTool = "#!/bin/sh\necho \"pw=$SQL_PASSWORD $@\" >> \"$(dirname \"$0\")/calls.log\"\n" +
 	"case \" $* \" in *\" $FAIL_STEP \"*) echo \"$FAIL_MESSAGE\" >&2; exit 1;; esac\nexit 0\n"
 
 func fakeEngineDir(t *testing.T) string {
@@ -50,7 +50,7 @@ func TestCreateSQLSchemasRunsEveryStepForBothDatabases(t *testing.T) {
 		t.Fatalf("got %d calls, want 6:\n%s", len(lines), calls)
 	}
 	for _, want := range []string{
-		"--plugin postgres12 --ep 127.0.0.1 -p 15432 -u workflow --pw secret --db temporal create-database",
+		"pw=secret --plugin postgres12 --ep 127.0.0.1 -p 15432 -u workflow --db temporal create-database",
 		"--db temporal setup-schema -v 0.0",
 		"--db temporal update-schema --schema-name postgresql/v12/temporal",
 		"--db temporal_visibility update-schema --schema-name postgresql/v12/visibility",
@@ -58,6 +58,9 @@ func TestCreateSQLSchemasRunsEveryStepForBothDatabases(t *testing.T) {
 		if !strings.Contains(string(calls), want) {
 			t.Errorf("calls lack %q:\n%s", want, calls)
 		}
+	}
+	if strings.Contains(string(calls), "--pw") {
+		t.Errorf("the password is in the arguments:\n%s", calls)
 	}
 }
 
@@ -68,6 +71,17 @@ func TestCreateSQLSchemasAcceptsExistingObjects(t *testing.T) {
 	t.Setenv("FAIL_MESSAGE", "database temporal already exists")
 	if err := CreateSQLSchemas(context.Background(), "mysql", filepath.Join(dir, "workflow-engine")); err != nil {
 		t.Fatalf("CreateSQLSchemas = %v, want nil for an existing database", err)
+	}
+}
+
+func TestCreateSQLSchemasReportsAMissingDatabase(t *testing.T) {
+	dir := fakeEngineDir(t)
+	t.Setenv(DBPasswordEnv, "secret")
+	t.Setenv("FAIL_STEP", "create-database")
+	t.Setenv("FAIL_MESSAGE", `database "postgres" does not exist`)
+	err := CreateSQLSchemas(context.Background(), "postgresql", filepath.Join(dir, "workflow-engine"))
+	if err == nil || !strings.Contains(err.Error(), "does not exist") {
+		t.Fatalf("CreateSQLSchemas = %v, want the missing database reported", err)
 	}
 }
 

@@ -56,8 +56,9 @@ func CreateSQLSchemas(ctx context.Context, database, engine string) error {
 		return fmt.Errorf("%s must be set for the %s database", DBPasswordEnv, database)
 	}
 	tool := filepath.Join(filepath.Dir(engine), "workflow-engine-sql"+filepath.Ext(engine))
-	common := []string{"--plugin", settings.plugin, "--ep", "127.0.0.1", "-p", settings.port,
-		"-u", settings.user, "--pw", password}
+	common := []string{"--plugin", settings.plugin, "--ep", "127.0.0.1", "-p", settings.port, "-u", settings.user}
+	// The schema tool reads SQL_PASSWORD, so the password never appears in the process arguments.
+	env := []string{"SQL_PASSWORD=" + password}
 	for _, db := range []struct{ name, schema string }{{"temporal", "temporal"}, {"temporal_visibility", "visibility"}} {
 		steps := [][]string{
 			{"create-database"},
@@ -66,8 +67,9 @@ func CreateSQLSchemas(ctx context.Context, database, engine string) error {
 		}
 		for _, step := range steps {
 			args := append(append(append([]string{}, common...), "--db", db.name), step...)
-			r := runQuiet(ctx, schemaToolTimeout, tool, args...)
-			if r.code != 0 && !strings.Contains(r.output(), "exist") {
+			r := runQuietEnv(ctx, schemaToolTimeout, env, tool, args...)
+			// Only an object that already exists is fine; "does not exist" and every other failure is reported.
+			if r.code != 0 && !strings.Contains(r.output(), "already exists") {
 				return fmt.Errorf("%s failed for %s: %s", strings.Join(step, " "), db.name, r.message())
 			}
 		}
