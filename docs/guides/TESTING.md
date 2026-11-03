@@ -6,6 +6,7 @@
 |---|---|---|---|
 | Go unit tests | Next to the code in each module | `make test`, `make test-coverage`, every pull request | 75% statement coverage outside `cmd/` wrappers |
 | Tool and script tests | `tools/internal/...` (the coverage gate, the suite runner, the shell scripts run for real) | `make test`, every pull request | All pass |
+| Engine tests | `tools/internal/enginetest`: the real engine binary driven by the Temporal CLI | `WORKFLOW_ENGINE=build/workflow-engine go test ./internal/enginetest` in `tools/`; the SQLite smoke job of every pull request | All pass |
 | Ballerina smoke suite | `tests/ballerina/smoke` | `make test-smoke`, every pull request | All pass |
 | Ballerina full suite | `tests/ballerina/full` | `make test-full`, on `main`, nightly, on demand | All pass |
 | License and vulnerability checks | `make license-check`, `make vulncheck` | Every pull request and daily | No findings |
@@ -19,6 +20,17 @@
 - `make test-coverage` writes profiles to `build/coverage/` and fails below 75%. `cmd/` packages are thin `main`
   wrappers and are excluded; the Ballerina suites exercise the real binaries.
 - `make test-race` runs the unit tests with the race detector; CI runs it on every pull request.
+
+## Engine tests
+
+`tools/internal/enginetest` starts the built `workflow-engine` on free ports and drives it with the Temporal CLI, for
+behavior a configuration test cannot show, such as a SQLite file surviving a restart. The tests skip unless
+`WORKFLOW_ENGINE` names the engine binary and `temporal` is on `PATH`:
+
+```sh
+make engine
+cd tools && WORKFLOW_ENGINE=$PWD/../build/workflow-engine go test -count=1 -v ./internal/enginetest
+```
 
 ## Ballerina suites
 

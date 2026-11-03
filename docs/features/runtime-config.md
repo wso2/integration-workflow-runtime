@@ -80,6 +80,7 @@ upgrade on first start, Cassandra, and secure-vault secrets.
 | Test | Covers |
 |---|---|
 | `engine/internal/runtimeconfig/testdata/config/*.txtar` (`fixtures_test.go`) | One file per case: the input `runtime.toml` and the whole rendered Temporal configuration, or the exact error. Add a case as a file; `go test ./internal/runtimeconfig -update` writes the expected output to review |
+| `tools/internal/enginetest/sqlite_test.go` | A real engine on a new SQLite file creates the schema, keeps a namespace and a waiting workflow across a restart, and closes the workflow after it |
 | `engine/internal/runtimeconfig/runtimeconfig_test.go` | What a redacted rendering cannot show: resolved environment passwords, redaction without changing the configuration, reading the file |
 | `engine/internal/cli/cli_test.go` | `start --runtime-config`, the authorizer check, one configuration only, `render-config` |
 | `tests/ballerina/smoke` and `full`, with `--database sqlite\|postgresql\|mysql` | A real engine started from `runtime.toml` runs workflows on each database |

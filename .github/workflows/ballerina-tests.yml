@@ -97,6 +97,13 @@ jobs:
           tar -xzf "$archive" temporal
           sudo mv temporal /usr/local/bin/temporal
           temporal --version
+      # Real-engine tests driven by the Temporal CLI; one job is enough.
+      - name: Engine tests (restart persistence)
+        if: matrix.database == 'sqlite' && matrix.suite == 'smoke'
+        working-directory: tools
+        env:
+          WORKFLOW_ENGINE: ${{ github.workspace }}/build/workflow-engine
+        run: go test -count=1 -v ./internal/enginetest
       - name: Run the ${{ matrix.suite }} suite on ${{ matrix.database }}
         env:
           ENGINE_LOG_DIR: build/logs
