@@ -18,6 +18,7 @@ package enginetest
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -114,12 +115,12 @@ inMemory = true
 		"a plaintext client": {[]string{"--tls=false", "--api-key", idp.token(map[string]any{"sub": "ops", "groups": []any{"workflow-admins"}}, nil)}, list},
 	}
 	for name, tt := range refused {
-		want := "Request unauthorized"
+		want := []string{"Request unauthorized"}
 		if name == "a plaintext client" {
-			want = "connection error"
+			want = tlsRefusals
 		}
-		if out, err := e.temporalAt(e.address, tt.flags, tt.args...); err == nil || !strings.Contains(out, want) {
-			t.Errorf("%s: %v, want a refusal with %q:\n%s", name, err, want, out)
+		if out, err := e.temporalAt(e.address, tt.flags, tt.args...); err == nil || !containsAny(out, want) {
+			t.Errorf("%s: %v, want a refusal with one of %q:\n%s", name, err, want, out)
 		}
 	}
 
@@ -132,7 +133,7 @@ inMemory = true
 		"with a frontend token only":   append(append([]string{}, internalCA...), admin[len(admin)-2:]...),
 	} {
 		if out, err := e.temporalAt(internal, flags, "operator", "namespace", "list"); err == nil ||
-			!strings.Contains(out, "connection error") {
+			!containsAny(out, tlsRefusals) {
 			t.Errorf("the internal frontend did not refuse the connection of a caller %s: %v\n%s", name, err, out)
 		}
 	}
@@ -140,4 +141,12 @@ inMemory = true
 	if out, err := e.temporalAt(internal, withCert, "operator", "cluster", "health"); err != nil || !strings.Contains(out, "SERVING") {
 		t.Errorf("the internal frontend refused a node certificate: %v\n%s", err, out)
 	}
+}
+
+// tlsRefusals are how the Temporal CLI reports a refused TLS connection: before 1.9 as a connection error, from 1.9
+// with the reason.
+var tlsRefusals = []string{"connection error", "requires TLS", "requires client certificate"}
+
+func containsAny(s string, subs []string) bool {
+	return slices.ContainsFunc(subs, func(sub string) bool { return strings.Contains(s, sub) })
 }
