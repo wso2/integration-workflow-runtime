@@ -19,6 +19,7 @@
 package sqlschema
 
 import (
+	"database/sql"
 	"errors"
 	"fmt"
 	"path"
@@ -34,8 +35,9 @@ import (
 const (
 	// lockName serializes schema changes between nodes that start together against the same database server.
 	lockName = "workflow-engine-schema"
-	// versionTable exists once Temporal's schema versioning is set up in a database.
+	// versionTable and historyTable exist once Temporal's schema versioning is set up in a database.
 	versionTable = "schema_version"
+	historyTable = "schema_update_history"
 	// initialVersion is where Temporal's versioned schema starts, as with `setup-schema -v 0.0`.
 	initialVersion = "0.0"
 )
@@ -83,31 +85,61 @@ func prepare(p config.Persistence, open opener, logger log.Logger) (err error) {
 	if len(stores) == 0 {
 		return nil
 	}
-	dir := schemaDirs[stores[0].sql.PluginName]
-	// One connection to the server's default database: it holds the lock and creates the databases.
+	createErrs := createDatabases(stores, open, logger)
+	// The lock lives in the workflow database, which every node can open, so the runtime needs no other database.
+	first := *stores[0].sql
+	first.MaxConns, first.MaxIdleConns, first.MaxConnLifetime = 1, 1, 0
+	db, err := open(&first, logger)
+	if err != nil {
+		return errors.Join(fmt.Errorf("unable to connect to database %s: %w", first.DatabaseName, err), createErrs[0])
+	}
+	defer db.Close()
+	statements := lockStatements[schemaDirs[first.PluginName]]
+	if err := db.Exec(statements[0], lockName); err != nil {
+		return fmt.Errorf("unable to take the schema lock in database %s: %w", first.DatabaseName, err)
+	}
+	defer func() {
+		if unlockErr := db.Exec(statements[1], lockName); unlockErr != nil {
+			logger.Warn("Unable to release the schema lock; it is released when the connection closes", tag.Error(unlockErr))
+		}
+	}()
+	if err := prepareStore(db, stores[0], createErrs[0], logger); err != nil {
+		return err
+	}
+	for i, s := range stores[1:] {
+		other, err := open(s.sql, logger)
+		if err != nil {
+			return errors.Join(fmt.Errorf("unable to connect to database %s: %w", s.sql.DatabaseName, err), createErrs[i+1])
+		}
+		err = prepareStore(other, s, createErrs[i+1], logger)
+		other.Close()
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// createDatabases creates the stores' databases through the server's maintenance database and returns each one's
+// error. A runtime role that cannot reach that database or create databases still uses databases a DBA created.
+func createDatabases(stores []store, open opener, logger log.Logger) []error {
+	errs := make([]error, len(stores))
 	server := *stores[0].sql
 	server.DatabaseName = ""
 	server.MaxConns, server.MaxIdleConns, server.MaxConnLifetime = 1, 1, 0
 	admin, err := open(&server, logger)
 	if err != nil {
-		return fmt.Errorf("unable to connect to the database server: %w", err)
+		logger.Info("Unable to reach the database server's maintenance database; using existing databases", tag.Error(err))
+		for i := range errs {
+			errs[i] = fmt.Errorf("unable to connect to the database server to create databases: %w", err)
+		}
+		return errs
 	}
 	defer admin.Close()
-	statements := lockStatements[dir]
-	if err := admin.Exec(statements[0], lockName); err != nil {
-		return fmt.Errorf("unable to take the schema lock on the database server: %w", err)
+	for i, s := range stores {
+		errs[i] = admin.CreateDatabase(s.sql.DatabaseName)
 	}
-	defer func() {
-		if unlockErr := admin.Exec(statements[1], lockName); unlockErr != nil {
-			logger.Warn("Unable to release the schema lock; it is released when the connection closes", tag.Error(unlockErr))
-		}
-	}()
-	for _, s := range stores {
-		if err := prepareStore(admin, s, open, logger); err != nil {
-			return err
-		}
-	}
-	return nil
+	return errs
 }
 
 // sqlStores returns the workflow store and then the visibility store, when their plugins have a schema here.
@@ -125,15 +157,8 @@ func sqlStores(p config.Persistence) []store {
 	return stores
 }
 
-func prepareStore(admin conn, s store, open opener, logger log.Logger) error {
+func prepareStore(db conn, s store, createErr error, logger log.Logger) error {
 	name := s.sql.DatabaseName
-	// A user without the right to create databases still works with databases a DBA created.
-	createErr := admin.CreateDatabase(name)
-	db, err := open(s.sql, logger)
-	if err != nil {
-		return errors.Join(fmt.Errorf("unable to connect to database %s: %w", name, err), createErr)
-	}
-	defer db.Close()
 	tables, err := db.ListTables()
 	if err != nil {
 		if createErr != nil {
@@ -141,7 +166,12 @@ func prepareStore(admin conn, s store, open opener, logger log.Logger) error {
 		}
 		return fmt.Errorf("unable to read the tables of database %s: %w", name, err)
 	}
-	if !slices.Contains(tables, versionTable) {
+	versioned, err := hasVersion(db, tables)
+	if err != nil {
+		return fmt.Errorf("unable to read the schema version of database %s: %w", name, err)
+	}
+	if !versioned {
+		// Also resumes a setup that stopped after creating the version tables but before recording 0.0.
 		logger.Info("Setting up Temporal's schema versioning", tag.NewStringTag("database", name))
 		setup := &schema.SetupConfig{InitialVersion: initialVersion}
 		if err := schema.NewSetupSchemaTask(db, setup, logger).Run(); err != nil {
@@ -153,4 +183,19 @@ func prepareStore(admin conn, s store, open opener, logger log.Logger) error {
 		return fmt.Errorf("unable to update the schema of database %s: %w", name, err)
 	}
 	return nil
+}
+
+// hasVersion reports whether both version tables exist and hold this database's version row. Any other read error
+// is returned, so a failed read never reaches setup, which would record 0.0 over a valid version.
+func hasVersion(db conn, tables []string) (bool, error) {
+	if !slices.Contains(tables, versionTable) || !slices.Contains(tables, historyTable) {
+		return false, nil
+	}
+	if _, err := db.ReadSchemaVersion(); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
 }

@@ -309,6 +309,10 @@ func (s *settings) validate() error {
 				problems = append(problems, fmt.Sprintf("database.%s %q must be letters, digits and underscores, "+
 					"starting with a letter or underscore, when the engine manages the schema", n.key, n.value))
 			}
+			if _, reserved := mysqlReservedWords[strings.ToLower(n.value)]; *d.ManageSchema && d.Type == typeMySQL && reserved {
+				problems = append(problems, fmt.Sprintf("database.%s %q is a MySQL reserved word; choose another name, "+
+					"or create the databases yourself and set manageSchema = false", n.key, n.value))
+			}
 		}
 	}
 	if (d.TLS.CertFile == "") != (d.TLS.KeyFile == "") {

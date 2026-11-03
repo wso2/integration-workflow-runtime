@@ -22,22 +22,37 @@ upgrades their schemas, so a new installation and an upgrade need no separate st
 ## Prepare the server
 
 1. Create a user for the runtime.
-2. Either let the runtime create the databases (give the user the right to create databases), or create
-   `temporal` and `temporal_visibility` yourself and give the user full rights on both.
+2. Either let the runtime create the databases, or create `temporal` and `temporal_visibility` yourself and give
+   the user full rights on both.
+
+   - **The runtime creates them:** the user needs the right to create databases, and on PostgreSQL the right to
+     connect to the `postgres` maintenance database, where the engine runs `CREATE DATABASE`.
+   - **You create them:** the user needs nothing outside the two databases. On PostgreSQL make it their owner (or
+     grant `CONNECT` and `CREATE` on them and on their `public` schema); the engine skips creation when it cannot
+     reach the maintenance database.
 
    ```sql
-   -- PostgreSQL
+   -- PostgreSQL: the runtime creates the databases
    CREATE USER workflow WITH PASSWORD '<password>' CREATEDB;
-   -- MySQL
+   -- PostgreSQL: you create them
+   CREATE USER workflow WITH PASSWORD '<password>';
+   CREATE DATABASE temporal OWNER workflow;
+   CREATE DATABASE temporal_visibility OWNER workflow;
+   -- MySQL (either way; with these grants alone, create the databases yourself)
    CREATE USER 'workflow'@'%' IDENTIFIED BY '<password>';
    GRANT ALL PRIVILEGES ON temporal.* TO 'workflow'@'%';
    GRANT ALL PRIVILEGES ON temporal_visibility.* TO 'workflow'@'%';
    ```
 
+   On MySQL, database names cannot be reserved words such as `order` when the engine manages the schema, because
+   Temporal's schema tool writes them unquoted.
+
 3. Configure `[database]` in `conf/runtime.toml` ([Configure the runtime](configure.md)).
 
 On the first start the engine logs `Setting up Temporal's schema versioning` for each database. Later starts leave
-current databases alone and apply only the schema versions a newer engine brings.
+current databases alone and apply only the schema versions a newer engine brings. A start interrupted while
+setting up versioning is finished on the next start; nodes that start together take turns through a lock held
+in the workflow database.
 
 ## Amazon RDS and Aurora
 

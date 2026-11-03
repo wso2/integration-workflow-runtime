@@ -17,6 +17,7 @@
 package sqlschema
 
 import (
+	"database/sql"
 	"errors"
 	"slices"
 	"strings"
@@ -37,6 +38,7 @@ type fakeConn struct {
 	closed    bool
 	createErr error
 	listErr   error
+	readErr   error
 	execErr   map[string]error
 }
 
@@ -53,15 +55,29 @@ func (f *fakeConn) Exec(stmt string, _ ...any) error {
 func (f *fakeConn) DropAllTables() error { return nil }
 
 func (f *fakeConn) CreateSchemaVersionTables() error {
-	f.tables = append(f.tables, versionTable)
+	for _, table := range []string{versionTable, historyTable} {
+		if !slices.Contains(f.tables, table) {
+			f.tables = append(f.tables, table)
+		}
+	}
 	return nil
 }
 
 func (f *fakeConn) ReadSchemaVersion() (string, error) {
+	if f.readErr != nil {
+		return "", f.readErr
+	}
 	if f.version == "" {
-		return "", errors.New("no schema version")
+		return "", sql.ErrNoRows
 	}
 	return f.version, nil
+}
+
+// schemaExecs leaves out the lock statements, which run on the workflow database's connection.
+func (f *fakeConn) schemaExecs() []string {
+	return slices.DeleteFunc(slices.Clone(f.execs), func(stmt string) bool {
+		return strings.Contains(stmt, "_LOCK(") || strings.Contains(stmt, "advisory_")
+	})
 }
 
 func (f *fakeConn) UpdateSchemaVersion(newVersion string, _ string) error {
@@ -131,14 +147,15 @@ func TestPrepareSetsUpEmptyDatabases(t *testing.T) {
 			if !slices.Equal(server.created, []string{"temporal", "temporal_visibility"}) {
 				t.Errorf("created = %v, want both databases", server.created)
 			}
-			if len(server.execs) != 2 || !strings.HasPrefix(server.execs[0], want.lock) ||
-				!strings.HasPrefix(server.execs[1], want.unlock) {
-				t.Errorf("server statements = %v, want the lock and then the unlock", server.execs)
+			if len(server.execs) != 0 || len(main.execs) < 3 || !strings.HasPrefix(main.execs[0], want.lock) ||
+				!strings.HasPrefix(main.execs[len(main.execs)-1], want.unlock) {
+				t.Errorf("statements = %v on the server, %d on the workflow database; want the lock around the schema "+
+					"work in the workflow database", server.execs, len(main.execs))
 			}
 			if main.version != want.version || vis.version != want.visibility {
 				t.Errorf("versions = %s, %s, want %s, %s", main.version, vis.version, want.version, want.visibility)
 			}
-			if len(main.execs) == 0 || len(vis.execs) == 0 {
+			if len(main.schemaExecs()) == 0 || len(vis.execs) == 0 {
 				t.Error("no schema statements ran")
 			}
 			if !server.closed || !main.closed || !vis.closed {
@@ -147,21 +164,24 @@ func TestPrepareSetsUpEmptyDatabases(t *testing.T) {
 			if c := s.opened[0]; c.DatabaseName != "" || c.MaxConns != 1 || c.MaxIdleConns != 1 || c.MaxConnLifetime != 0 {
 				t.Errorf("server connection = %+v, want one connection to the default database", c)
 			}
+			if c := s.opened[1]; c.DatabaseName != "temporal" || c.MaxConns != 1 || c.MaxConnLifetime != 0 {
+				t.Errorf("lock connection = %+v, want one connection to the workflow database", c)
+			}
 		})
 	}
 }
 
 func TestPrepareLeavesCurrentDatabasesAlone(t *testing.T) {
 	s := newFakeServer()
-	s.conns["temporal"].tables = []string{versionTable, "executions"}
+	s.conns["temporal"].tables = []string{versionTable, historyTable, "executions"}
 	s.conns["temporal"].version = pgschema.Version
-	s.conns["temporal_visibility"].tables = []string{versionTable}
+	s.conns["temporal_visibility"].tables = []string{versionTable, historyTable}
 	s.conns["temporal_visibility"].version = pgschema.VisibilityVersion
 	if err := prepare(persistence("postgres12"), s.open, log.NewNoopLogger()); err != nil {
 		t.Fatalf("prepare = %v", err)
 	}
 	for _, name := range []string{"temporal", "temporal_visibility"} {
-		if execs := s.conns[name].execs; len(execs) != 0 {
+		if execs := s.conns[name].schemaExecs(); len(execs) != 0 {
 			t.Errorf("%s ran %d statements, want none", name, len(execs))
 		}
 	}
@@ -169,9 +189,9 @@ func TestPrepareLeavesCurrentDatabasesAlone(t *testing.T) {
 
 func TestPrepareAppliesOnlyNewerVersions(t *testing.T) {
 	s := newFakeServer()
-	s.conns["temporal"].tables = []string{versionTable}
+	s.conns["temporal"].tables = []string{versionTable, historyTable}
 	s.conns["temporal"].version = "1.18"
-	s.conns["temporal_visibility"].tables = []string{versionTable}
+	s.conns["temporal_visibility"].tables = []string{versionTable, historyTable}
 	s.conns["temporal_visibility"].version = pgschema.VisibilityVersion
 	if err := prepare(persistence("postgres12"), s.open, log.NewNoopLogger()); err != nil {
 		t.Fatalf("prepare = %v", err)
@@ -179,7 +199,7 @@ func TestPrepareAppliesOnlyNewerVersions(t *testing.T) {
 	if got := s.conns["temporal"].version; got != pgschema.Version {
 		t.Fatalf("version = %s, want %s", got, pgschema.Version)
 	}
-	if n := len(s.conns["temporal"].execs); n == 0 || n > 20 {
+	if n := len(s.conns["temporal"].schemaExecs()); n == 0 || n > 20 {
 		t.Fatalf("ran %d statements, want only the last version's", n)
 	}
 }
@@ -192,6 +212,36 @@ func TestPrepareUsesDatabasesItCannotCreate(t *testing.T) {
 	}
 	if s.conns["temporal"].version != pgschema.Version {
 		t.Fatal("the schema was not installed")
+	}
+}
+
+func TestPrepareWorksWithoutTheMaintenanceDatabase(t *testing.T) {
+	s := newFakeServer()
+	s.openErr[""] = errors.New(`permission denied for database "postgres"`)
+	if err := prepare(persistence("postgres12"), s.open, log.NewNoopLogger()); err != nil {
+		t.Fatalf("prepare = %v, want the DBA-created databases used", err)
+	}
+	if s.conns["temporal"].version != pgschema.Version || s.conns["temporal_visibility"].version != pgschema.VisibilityVersion {
+		t.Fatal("the schemas were not installed")
+	}
+}
+
+func TestPrepareResumesAnInterruptedSetup(t *testing.T) {
+	for name, tables := range map[string][]string{
+		"version table without its row": {versionTable, historyTable},
+		"no update history table":       {versionTable},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := newFakeServer()
+			s.conns["temporal"].tables = slices.Clone(tables)
+			if err := prepare(persistence("postgres12"), s.open, log.NewNoopLogger()); err != nil {
+				t.Fatalf("prepare = %v", err)
+			}
+			main := s.conns["temporal"]
+			if main.version != pgschema.Version || !slices.Contains(main.tables, historyTable) {
+				t.Fatalf("version = %q, tables = %v; want the setup finished and the schema current", main.version, main.tables)
+			}
+		})
 	}
 }
 
@@ -214,10 +264,17 @@ func TestPrepareErrors(t *testing.T) {
 		breakIt func(*fakeServer)
 		want    string
 	}{
-		{"server unreachable", func(s *fakeServer) { s.openErr[""] = boom }, "unable to connect to the database server: boom"},
-		{"lock refused", func(s *fakeServer) { s.conns[""].execErr = map[string]error{"SELECT pg_advisory_lock": boom} },
-			"unable to take the schema lock on the database server: boom"},
+		{"server and database unreachable", func(s *fakeServer) { s.openErr[""], s.openErr["temporal"] = boom, boom },
+			"unable to connect to the database server to create databases: boom"},
+		{"lock refused", func(s *fakeServer) { s.conns["temporal"].execErr = map[string]error{"SELECT pg_advisory_lock": boom} },
+			"unable to take the schema lock in database temporal: boom"},
 		{"database unreachable", func(s *fakeServer) { s.openErr["temporal"] = boom }, "unable to connect to database temporal: boom"},
+		{"visibility unreachable", func(s *fakeServer) { s.openErr["temporal_visibility"] = boom },
+			"unable to connect to database temporal_visibility: boom"},
+		{"version unreadable", func(s *fakeServer) {
+			s.conns["temporal"].tables = []string{versionTable, historyTable}
+			s.conns["temporal"].readErr = boom
+		}, "unable to read the schema version of database temporal: boom"},
 		{"cannot create or read", func(s *fakeServer) {
 			s.conns[""].createErr = errors.New("permission denied")
 			s.conns["temporal"].listErr = boom
@@ -241,7 +298,7 @@ func TestPrepareErrors(t *testing.T) {
 
 func TestPrepareKeepsGoingWhenTheUnlockFails(t *testing.T) {
 	s := newFakeServer()
-	s.conns[""].execErr = map[string]error{"SELECT pg_advisory_unlock": errors.New("connection reset")}
+	s.conns["temporal"].execErr = map[string]error{"SELECT pg_advisory_unlock": errors.New("connection reset")}
 	if err := prepare(persistence("postgres12"), s.open, log.NewNoopLogger()); err != nil {
 		t.Fatalf("prepare = %v, want nil: the lock goes with the connection", err)
 	}
