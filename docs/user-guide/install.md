@@ -40,6 +40,9 @@ The engine is a single static binary: no Java or other runtime is needed.
 
    The engine creates its databases on the first start, then listens on port 7233.
 
+5. Create the namespace your integrations use, with the `WorkflowKind` search attribute
+   ([Connect an integration](connect-an-integration.md#before-you-start)). The engine does not create it.
+
 | Command | Does |
 |---|---|
 | `bin/workflow-runtime` or `bin/workflow-runtime start` | Starts the engine from `conf/runtime.toml` |

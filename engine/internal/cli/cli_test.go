@@ -24,6 +24,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -453,6 +454,47 @@ func TestStartLeavesTheSchemaAloneWhenAsked(t *testing.T) {
 		}
 		if code := c.run(args); code != 0 || !server.started {
 			t.Fatalf("%v: exit code = %d, started = %v, want 0 and started", args, code, server.started)
+		}
+	}
+}
+
+func startWithLogFile(t *testing.T, logFile string) error {
+	t.Helper()
+	toml := filepath.Join(t.TempDir(), "runtime.toml")
+	content := fmt.Sprintf("[engine]\nlogFile = %q\n\n[database]\ntype = \"sqlite\"\ninMemory = true\n", logFile)
+	if err := os.WriteFile(toml, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c, _, _ := newTestCommand(&fakeServer{}, nil)
+	return c.start([]string{"--runtime-config", toml, "--allow-no-auth"})
+}
+
+func TestStartCreatesTheLogDirectory(t *testing.T) {
+	logFile := filepath.Join(t.TempDir(), "logs", "engine.log")
+	if err := startWithLogFile(t, logFile); err != nil {
+		t.Fatalf("start = %v", err)
+	}
+	if _, err := os.Stat(logFile); err != nil {
+		t.Fatalf("the log file was not created: %v", err)
+	}
+}
+
+func TestStartNamesALogFileItCannotOpen(t *testing.T) {
+	parent := filepath.Join(t.TempDir(), "not-a-directory")
+	if err := os.WriteFile(parent, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cases := map[string]string{"a parent that is a file": filepath.Join(parent, "engine.log")}
+	if runtime.GOOS != "windows" && os.Geteuid() != 0 {
+		readOnly := filepath.Join(t.TempDir(), "read-only")
+		if err := os.Mkdir(readOnly, 0o500); err != nil {
+			t.Fatal(err)
+		}
+		cases["an unwritable directory"] = filepath.Join(readOnly, "engine.log")
+	}
+	for name, logFile := range cases {
+		if err := startWithLogFile(t, logFile); err == nil || !strings.Contains(err.Error(), "engine.logFile "+logFile) {
+			t.Errorf("%s: start = %v, want an error naming engine.logFile", name, err)
 		}
 	}
 }

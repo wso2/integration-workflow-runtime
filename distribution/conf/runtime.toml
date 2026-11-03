@@ -10,7 +10,7 @@ profiles = ["all"]          # or split across nodes: ["frontend"], ["history", "
 # broadcastAddress = "10.0.0.5"
 # historyShards = 512        # fixed after the first start
 logLevel = "info"
-# logFile = "logs/engine.log"  # the directory must exist; standard output when not set
+# logFile = "logs/engine.log"  # created if missing; standard output when not set
 
 # TLS on port 7233 and tokens from your identity provider (docs/features/engine-security.md).
 # [engine.tls]

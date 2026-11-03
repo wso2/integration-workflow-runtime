@@ -23,7 +23,7 @@ components and are ignored by the engine.
 | `broadcastAddress` | `bindAddress` | IP address other nodes and clients use; required when `bindAddress` is `0.0.0.0`. `auto` picks this host's first non-loopback address |
 | `historyShards` | `512` (`1` for SQLite) | History shards; cannot change after the first start |
 | `logLevel` | `info` | `debug`, `info`, `warn` or `error` |
-| `logFile` | standard output | Write the log to this file instead; the directory must exist |
+| `logFile` | standard output | Write the log to this file instead; a missing directory is created, and a file the engine cannot write stops the start |
 
 ### `[engine.ports]`
 

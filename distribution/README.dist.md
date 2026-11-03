@@ -11,6 +11,14 @@ Temporal server.
 3. Put the database password in the environment variable the file names (`WORKFLOW_DB_PASSWORD`).
 4. Run `bin/workflow-runtime` (`bin\workflow-runtime.exe` on Windows). The engine creates the databases and their
    schemas, then listens on port 7233.
+5. Create the namespace the integrations use, with the `WorkflowKind` search attribute `ballerina/workflow` needs,
+   using the [Temporal CLI](https://docs.temporal.io/cli) and a token with the `admin` role:
+
+   ```bash
+   OPTS="--address workflow-runtime.example.com:7233 --tls-ca-path certs/engine-ca.pem --api-key $ADMIN_TOKEN"
+   temporal operator namespace create --namespace default --retention 720h $OPTS
+   temporal operator search-attribute create --namespace default --name WorkflowKind --type Keyword $OPTS
+   ```
 
 Without `[engine.auth]` the engine refuses to start; `bin/workflow-runtime start --allow-no-auth` is for trying out
 only. `bin/workflow-runtime render-config` prints the generated configuration, password hidden.

@@ -10,6 +10,7 @@ keywords: [wso2 integrator, workflow runtime, troubleshooting, errors]
 |---|---|---|
 | `no authorizer configured; set one or pass --allow-no-auth for development` | No `[engine.auth]` | Configure your identity provider ([Secure the engine](secure-the-engine.md)), or use `--allow-no-auth` on your own machine only |
 | `unknown runtime configuration keys: engine.logLvl` | A typo in `runtime.toml` | Correct the key; see the [reference](reference/runtime-toml.md) |
+| `engine.logFile logs/engine.log: open logs/engine.log: permission denied` | The engine's user cannot create or write the log file | Give that user write access to the directory, or change `logFile` |
 | `database.password refers to environment variable WORKFLOW_DB_PASSWORD, which is not set` | The variable is missing in the engine's environment | Export it, or set it in the service's environment file |
 | `engine.broadcastAddress is required when engine.bindAddress is 0.0.0.0` | Listening on every interface without saying which address others use | Set `broadcastAddress` to this node's IP |
 | `database.tls is not supported for a sqlite database` | `[database.tls]` with `type = "sqlite"` | Remove `[database.tls]`; SQLite is a local file |
