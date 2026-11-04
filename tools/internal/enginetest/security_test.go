@@ -24,10 +24,19 @@ import (
 	"time"
 )
 
-// TestSecuredEngine runs the engine with TLS, internode mutual TLS and tokens from an OpenID Connect provider, and
-// checks who may do what: callers through the frontend with tokens, and callers of the internal frontend.
-func TestSecuredEngine(t *testing.T) {
-	binary := engineBinary(t)
+// securedEngine is an engine configuration with frontend TLS, internode TLS and tokens from a test identity provider:
+// workflow-admins administer every namespace, orders-app writes and auditors read in orders.
+type securedEngine struct {
+	config            string
+	base              int
+	frontend          *pki
+	internode         *pki
+	nodeCert, nodeKey string
+	idp               *identityProvider
+}
+
+func newSecuredEngine(t *testing.T) securedEngine {
+	t.Helper()
 	dir := t.TempDir()
 	frontend := newPKI(t, dir, "frontend-ca")
 	engineCert, engineKey := frontend.issue("engine")
@@ -71,6 +80,17 @@ type = "sqlite"
 inMemory = true
 `, tomlString(engineCert), tomlString(engineKey), tomlString(nodeCert), tomlString(nodeKey),
 		tomlString(internode.caFile("internode-ca")), tomlString(idp.issuer)))
+	return securedEngine{config: config, base: base, frontend: frontend, internode: internode, nodeCert: nodeCert,
+		nodeKey: nodeKey, idp: idp}
+}
+
+// TestSecuredEngine runs the engine with TLS, internode mutual TLS and tokens from an OpenID Connect provider, and
+// checks who may do what: callers through the frontend with tokens, and callers of the internal frontend.
+func TestSecuredEngine(t *testing.T) {
+	binary := engineBinary(t)
+	se := newSecuredEngine(t)
+	frontend, internode, idp, base, config := se.frontend, se.internode, se.idp, se.base, se.config
+	nodeCert, nodeKey := se.nodeCert, se.nodeKey
 
 	tls := []string{"--tls-ca-path", frontend.caFile("frontend-ca")}
 	token := func(claims map[string]any) []string {
