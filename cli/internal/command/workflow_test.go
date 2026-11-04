@@ -305,14 +305,15 @@ func TestTaskQueueDescribe(t *testing.T) {
 }
 
 func TestEnumName(t *testing.T) {
-	for in, want := range map[string]string{"EVENT_TYPE_TIMER_STARTED": "TimerStarted", "EVENT_TYPE_": "",
-		"WORKFLOW_EXECUTION_STATUS_CONTINUED_AS_NEW": "ContinuedAsNew", "ContinuedAsNew": "ContinuedAsNew"} {
-		prefix := "EVENT_TYPE_"
-		if strings.HasPrefix(in, "WORKFLOW") {
-			prefix = "WORKFLOW_EXECUTION_STATUS_"
-		}
-		if got := enumName(in, prefix); got != want {
-			t.Errorf("enumName(%s) = %q, want %q", in, got, want)
+	for _, tt := range []struct{ in, prefix, want string }{
+		{"EVENT_TYPE_TIMER_STARTED", "EVENT_TYPE_", "TimerStarted"},
+		{"EVENT_TYPE_", "EVENT_TYPE_", ""},
+		{"WORKFLOW_EXECUTION_STATUS_CONTINUED_AS_NEW", "WORKFLOW_EXECUTION_STATUS_", "ContinuedAsNew"},
+		{"ContinuedAsNew", "WORKFLOW_EXECUTION_STATUS_", "ContinuedAsNew"},
+		{"DlqOperationTypeMerge", "DLQ_OPERATION_TYPE_", "Merge"},
+	} {
+		if got := enumName(tt.in, tt.prefix); got != tt.want {
+			t.Errorf("enumName(%s, %s) = %q, want %q", tt.in, tt.prefix, got, tt.want)
 		}
 	}
 	if timestamp(nil) != "" {

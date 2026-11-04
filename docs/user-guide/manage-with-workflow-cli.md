@@ -193,6 +193,36 @@ workflow-cli task-queue describe --namespace orders --task-queue orders
 lists the workers that polled the task queue recently, for workflow and for activity tasks. Workflows that stay
 `Running` without progress while this lists no worker are waiting for their integration to start.
 
+## Repair the engine
+
+The `admin` commands are for incidents. They call the engine's admin API, so they need a token with the `admin`
+role in every namespace (`namespace = "*"`).
+
+**Dead-letter queues.** A history task that keeps failing (for example, while the database was unreachable) is moved
+to a dead-letter queue so it stops blocking others. On a healthy engine there are none:
+
+```bash
+workflow-cli admin dlq list
+workflow-cli admin dlq read --dlq-type transfer
+workflow-cli admin dlq merge --dlq-type transfer --yes    # run them again once the cause is fixed
+workflow-cli admin dlq purge --dlq-type transfer --yes    # or drop them
+workflow-cli admin dlq job describe --job-token <token>
+```
+
+`merge` and `purge` work up to the queue's last task, or `--last-message-id`, as a job on the engine; tasks that fail
+again during a merge return to the queue.
+
+**Shards.** Workflow state is spread over the history shards (`historyShards` in `runtime.toml`), each owned by one
+history node at a time:
+
+```bash
+workflow-cli admin shard describe --shard-id 42
+workflow-cli admin shard close --shard-id 42
+```
+
+`describe` names the node that owns the shard. `close` makes that node load the shard again from the database, for
+a shard whose workflows stopped making progress, for example after a database failover.
+
 ## Use it in scripts
 
 Every command takes `-o json` for the Temporal API's JSON form, and exits with 1 on any error, the message on

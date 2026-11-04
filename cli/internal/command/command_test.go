@@ -61,6 +61,7 @@ type fakeEngine struct {
 	health      *health.Server
 	workflows   *workflowState
 	ops         *opsState
+	admin       *adminState
 }
 
 // One type per service: the generated Unimplemented servers share method names.
@@ -86,6 +87,7 @@ func newFakeEngine() *fakeEngine {
 		health:     health.NewServer(),
 		workflows:  newWorkflowState(),
 		ops:        &opsState{schedules: map[string]*schedulepb.Schedule{}},
+		admin:      &adminState{},
 	}
 	f.health.SetServingStatus(healthServices["frontend"], healthpb.HealthCheckResponse_SERVING)
 	f.health.SetServingStatus(healthServices["history"], healthpb.HealthCheckResponse_NOT_SERVING)

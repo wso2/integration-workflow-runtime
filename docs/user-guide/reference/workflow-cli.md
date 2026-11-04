@@ -31,6 +31,12 @@ keywords: [wso2 integrator, workflow runtime, workflow-cli, reference, flags, pr
 | `schedule list` / `schedule describe -s <id>` | Schedules with their type, state and next run; one with its spec and recent runs |
 | `schedule toggle -s <id> (--pause \| --unpause) [--reason <text>]` / `schedule trigger -s <id>` / `schedule delete -s <id>` | Pause or unpause, start once now, delete |
 | `task-queue describe -t <task queue>` | The workers that polled it recently, for workflow and activity tasks |
+| `admin dlq list` | The history-task dead-letter queues: type, clusters, task count and last message ID |
+| `admin dlq read --dlq-type <type> [--limit <n>]` | A queue's tasks; `--dlq-type` is `transfer`, `timer`, `visibility`, `replication`, `archival` or `outbound` |
+| `admin dlq merge --dlq-type <type> [--last-message-id <id>] [--batch-size <n>] -y` | Runs the tasks again, as a job; prints its token |
+| `admin dlq purge --dlq-type <type> [--last-message-id <id>] -y` | Deletes the tasks, as a job; prints its token |
+| `admin dlq job describe --job-token <token>` / `admin dlq job cancel --job-token <token> --reason <text>` | A merge or purge job's progress; stop it |
+| `admin shard describe --shard-id <n>` / `admin shard close --shard-id <n>` | The node that owns a shard; make it load the shard again |
 | `config set --prop <property> --value <value>` | Sets a property of the profile, creating the profile |
 | `config get [--prop <property>]` | Shows the profile (an API key as `(set)`), or one property |
 | `config delete --prop <property>` | Removes a property |
@@ -39,6 +45,9 @@ keywords: [wso2 integrator, workflow runtime, workflow-cli, reference, flags, pr
 | `version` | The version |
 
 Durations are Go durations: `720h`, `90m`, `36h30m`.
+
+The `admin` commands take `--source-cluster` and `--target-cluster` for a dead-letter queue (both default to this
+cluster) and need a token with the `admin` role in every namespace.
 
 ## Flags for every command
 
