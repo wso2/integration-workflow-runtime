@@ -14,7 +14,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package cli
+package sqlschema
 
 import (
 	"maps"
@@ -26,17 +26,15 @@ import (
 	"go.temporal.io/server/common/persistence/sql/sqlplugin"
 	"go.temporal.io/server/common/resolver"
 	sqliteschema "go.temporal.io/server/schema/sqlite"
-
-	"github.com/wso2/integration-workflow-runtime/engine/internal/runtimeconfig"
 )
 
 // devSearchAttributes holds WorkflowKind, the search attribute ballerina/workflow registers at start; pre-registering it in a keyword column
 // avoids a first start whose workflow is refused before the engine's namespace cache sees the new attribute.
 var devSearchAttributes = map[string]string{"Keyword01": "WorkflowKind"}
 
-// createDevNamespaces opens the development database (the SQLite plugin creates its schema) and registers the
-// namespaces in it before the server starts; an existing namespace is left as it is.
-func createDevNamespaces(p config.Persistence, names []string) error {
+// CreateDevNamespaces opens the development database (the SQLite plugin creates its schema) and registers the
+// namespaces of the cluster in it before the server starts; an existing namespace is left as it is.
+func CreateDevNamespaces(p config.Persistence, cluster string, names []string) error {
 	cfg := p.DataStores[p.DefaultStore].SQL
 	db, err := sql.NewSQLAdminDB(sqlplugin.DbKindUnknown, cfg, resolver.NewNoopResolver(), log.NewNoopLogger(),
 		metrics.NoopMetricsHandler)
@@ -47,7 +45,7 @@ func createDevNamespaces(p config.Persistence, names []string) error {
 	_ = db
 	namespaces := make([]*sqliteschema.NamespaceConfig, 0, len(names))
 	for _, name := range names {
-		ns, err := sqliteschema.NewNamespaceConfig(runtimeconfig.ClusterName, name, false, nil)
+		ns, err := sqliteschema.NewNamespaceConfig(cluster, name, false, nil)
 		if err != nil {
 			return err
 		}

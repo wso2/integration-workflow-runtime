@@ -354,3 +354,7 @@ func newLogger(cfg log.Config, key string) (log.Logger, error) {
 	}
 	return log.NewZapLogger(zl), nil
 }
+
+func createDevNamespaces(p config.Persistence, names []string) error {
+	return sqlschema.CreateDevNamespaces(p, runtimeconfig.ClusterName, names)
+}
