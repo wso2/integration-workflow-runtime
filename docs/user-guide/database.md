@@ -52,7 +52,8 @@ upgrades their schemas, so a new installation and an upgrade need no separate st
 On the first start the engine logs `Setting up Temporal's schema versioning` for each database. Later starts leave
 current databases alone and apply only the schema versions a newer engine brings. A start interrupted while
 setting up versioning is finished on the next start; nodes that start together take turns through a lock held
-in the workflow database.
+in the workflow database. Workflows that are running when you upgrade continue on the new engine; every pull
+request checks this with a workflow started on Temporal 1.30.9, the release before the engine's schema change.
 
 ## Amazon RDS and Aurora
 

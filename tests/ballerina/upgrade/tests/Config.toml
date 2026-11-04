@@ -1,0 +1,6 @@
+# Points ballerina/workflow at the engine the upgrade runner starts (go run ./tools/cmd/balsuite upgrade).
+[ballerina.workflow]
+mode = "LOCAL"
+url = "localhost:17233"
+namespace = "default"
+taskQueue = "WORKFLOW_RUNTIME_UPGRADE"

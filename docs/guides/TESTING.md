@@ -9,6 +9,7 @@
 | Engine tests | `tools/internal/enginetest`: the real engine binary driven by the Temporal CLI | `WORKFLOW_ENGINE=build/workflow-engine go test ./internal/enginetest` in `tools/`; the SQLite smoke job of every pull request | All pass |
 | Ballerina smoke suite | `tests/ballerina/smoke` | `make test-smoke`, every pull request | All pass |
 | Ballerina full suite | `tests/ballerina/full` | `make test-full`, on `main`, nightly, on demand | All pass |
+| Upgrade run | `tests/ballerina/upgrade`, `balsuite upgrade` | The PostgreSQL and MySQL smoke jobs of every pull request | The workflow finishes |
 | License and vulnerability checks | `make license-check`, `make vulncheck` | Every pull request and daily | No findings |
 | SBOM | `make sbom` | Every pull request, daily, and in every distribution | Builds for both binaries |
 
@@ -58,6 +59,22 @@ still stopped.
 |---|---|
 | Smoke | A workflow runs activities and returns; a data event resumes a waiting workflow; a failing activity fails the workflow and its status says so; concurrent instances stay independent |
 | Full | Activity retries; workflow errors; durable timers; child workflows (start and wait, call); data events in either order; human tasks (approve, reject); execution info and activity history |
+
+### Upgrade run
+
+`go run ./tools/cmd/balsuite upgrade --engine build/workflow-engine --database postgresql|mysql` proves that a
+workflow started on the previous Temporal release continues on this engine. It needs Docker and the same database
+as the suites, and starts from Temporal 1.30.9 (`--old-temporal`), the newest release whose schema is older than the
+engine's (1.31 already ships the engine's schema versions):
+
+1. Creates two databases and installs 1.30.9's schemas with `temporalio/admin-tools:1.30.9`.
+2. Runs `temporalio/server:1.30.9` on `localhost:17233` against them, with the engine's cluster name and shard count,
+   and creates `default` with `WorkflowKind`.
+3. Runs the `before` group of `tests/ballerina/upgrade`: an order workflow runs its first activity and waits for a
+   decision. The runner checks that the history holds the completed activity, then stops the old server.
+4. Starts `workflow-engine` on the same databases, which upgrades their schemas, and checks that both versions moved.
+5. Runs the `after` group: the decision is sent, the workflow runs its second activity on the engine and completes.
+6. Drops both databases. With `ENGINE_LOG_DIR` set, the old server's and the engine's logs are kept there.
 
 ### Everything in Docker
 

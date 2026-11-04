@@ -201,8 +201,8 @@ func ensureNamespace(ctx context.Context, temporal string, timeout time.Duration
 }
 
 // runBalTest runs `bal test`; on timeout the whole process group dies, since `bal` leaves its JVM running otherwise.
-func runBalTest(bal string, suiteDir string, timeout time.Duration, stderr io.Writer) int {
-	cmd := exec.Command(bal, "test")
+func runBalTest(bal string, suiteDir string, timeout time.Duration, stderr io.Writer, args ...string) int {
+	cmd := exec.Command(bal, append([]string{"test"}, args...)...)
 	cmd.Dir = suiteDir
 	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 	setProcessGroup(cmd)

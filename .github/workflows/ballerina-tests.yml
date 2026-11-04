@@ -115,6 +115,14 @@ jobs:
         run: >-
           go run ./tools/cmd/balsuite ${{ matrix.suite }} --database ${{ matrix.database }}
           --engine build/workflow-engine
+      # A workflow started on the previous Temporal release, with its older schema, finishes on this engine.
+      - name: Upgrade from Temporal 1.30.9 on ${{ matrix.database }}
+        if: matrix.suite == 'smoke' && matrix.database != 'sqlite'
+        env:
+          ENGINE_LOG_DIR: build/logs
+        run: >-
+          go run ./tools/cmd/balsuite upgrade --database ${{ matrix.database }}
+          --engine build/workflow-engine --old-temporal 1.30.9
       - name: Upload engine and test logs
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -123,4 +131,5 @@ jobs:
           path: |
             build/logs/
             tests/ballerina/${{ matrix.suite }}/target/report/
+            tests/ballerina/upgrade/target/report/
           if-no-files-found: ignore
