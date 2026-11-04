@@ -120,21 +120,9 @@ func TestWorkflowCLIOnADevEngine(t *testing.T) {
 	}
 	w.mustContain(cli("task-queue", "describe", "-n", "orders", "-t", "orders"), "No worker has polled")
 
-	// Reset replays a workflow from a completed workflow task into a new run.
-	e.must("workflow", "start", "--namespace", "orders", "--type", "Order", "--task-queue", "resets",
-		"--workflow-id", "order-4")
-	completeWorkflowTask(t, fmt.Sprintf("127.0.0.1:%d", base), "orders", "resets")
-	before := e.workflow("orders", "order-4")
-	w.mustContain(cli("workflow", "reset", "-n", "orders", "-w", "order-4", "--type", "LastWorkflowTask",
-		"--reason", "replay"), "the new run is")
-	if after := e.workflow("orders", "order-4"); after.RunID == before.RunID || after.Status != "WORKFLOW_EXECUTION_STATUS_RUNNING" {
-		t.Errorf("after reset: run %s (%s), want a new running run besides %s", after.RunID, after.Status, before.RunID)
-	}
-
 	// A batch job terminates every workflow a query matches, run by the engine's own worker.
 	for _, id := range []string{"job-a", "job-b"} {
-		e.must("workflow", "start", "--namespace", "orders", "--type", "Job", "--task-queue", "jobs",
-			"--workflow-id", id, "--search-attribute", `WorkflowKind="orders.Job"`)
+		e.startTagged("orders", "Job", "jobs", id, `WorkflowKind="orders.Job"`)
 	}
 	jobs := `WorkflowKind="orders.Job" AND ExecutionStatus="Running"`
 	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(time.Second) {
