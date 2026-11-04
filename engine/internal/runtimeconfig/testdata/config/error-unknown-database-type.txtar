@@ -1,0 +1,5 @@
+-- runtime.toml --
+[database]
+type = "oracle"
+-- error --
+invalid runtime configuration: database.type "oracle" must be one of postgresql, mysql, sqlite

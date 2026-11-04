@@ -1,0 +1,10 @@
+-- runtime.toml --
+[engine]
+bindAddress = "0.0.0.0"
+broadcastAddress = "::"
+
+[database]
+type = "sqlite"
+inMemory = true
+-- error --
+invalid runtime configuration: engine.broadcastAddress "::" must be an address other nodes can reach

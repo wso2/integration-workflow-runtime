@@ -1,0 +1,9 @@
+-- runtime.toml --
+[database]
+type = "sqlite"
+path = "workflow.db"
+
+[database.tls]
+enabled = true
+-- error --
+invalid runtime configuration: database.tls is not supported for a sqlite database

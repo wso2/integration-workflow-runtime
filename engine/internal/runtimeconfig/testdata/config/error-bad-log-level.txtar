@@ -1,0 +1,8 @@
+-- runtime.toml --
+[engine]
+logLevel = "loud"
+[database]
+type = "sqlite"
+inMemory = true
+-- error --
+invalid runtime configuration: engine.logLevel "loud" must be one of debug, info, warn, error

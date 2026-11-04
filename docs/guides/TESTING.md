@@ -6,6 +6,7 @@
 |---|---|---|---|
 | Go unit tests | Next to the code in each module | `make test`, `make test-coverage`, every pull request | 75% statement coverage outside `cmd/` wrappers |
 | Tool and script tests | `tools/internal/...` (the coverage gate, the suite runner, the shell scripts run for real) | `make test`, every pull request | All pass |
+| Engine tests | `tools/internal/enginetest`: the real engine binary driven by the Temporal CLI | `WORKFLOW_ENGINE=build/workflow-engine go test ./internal/enginetest` in `tools/`; the SQLite smoke job of every pull request | All pass |
 | Ballerina smoke suite | `tests/ballerina/smoke` | `make test-smoke`, every pull request | All pass |
 | Ballerina full suite | `tests/ballerina/full` | `make test-full`, on `main`, nightly, on demand | All pass |
 | License and vulnerability checks | `make license-check`, `make vulncheck` | Every pull request and daily | No findings |
@@ -20,6 +21,18 @@
   wrappers and are excluded; the Ballerina suites exercise the real binaries.
 - `make test-race` runs the unit tests with the race detector; CI runs it on every pull request.
 
+## Engine tests
+
+`tools/internal/enginetest` starts the built `workflow-engine` on free ports and drives it with the Temporal CLI, for
+behavior a configuration test cannot show, such as a SQLite file surviving a restart. A lock file in the temporary
+directory keeps concurrent runs on one Unix host from picking the same ports; on Windows, run one at a time. The tests
+skip unless `WORKFLOW_ENGINE` names the engine binary and `temporal` is on `PATH`:
+
+```sh
+make engine
+cd tools && WORKFLOW_ENGINE=$PWD/../build/workflow-engine go test -count=1 -v ./internal/enginetest
+```
+
 ## Ballerina suites
 
 The suites run real Ballerina programs on jBallerina against the engine binary built from the same commit. They
@@ -27,7 +40,10 @@ are what proves the runtime runs `ballerina/workflow` integrations.
 
 `go run ./tools/cmd/balsuite <smoke|full> --engine build/workflow-engine` (what `make test-smoke` and `make test-full` run):
 
-1. Starts `workflow-engine` on `tests/engine/temporal-test.yaml` with `--allow-no-auth`.
+1. Starts `workflow-engine` from `tests/engine/runtime-<database>.toml` with `--allow-no-auth` (`--database`, default
+   `sqlite`). For `postgresql` and `mysql` it first creates both databases and installs Temporal's schemas with
+   `workflow-engine-sql`; the database must be running on 15432 or 13306, user `workflow` (PostgreSQL) or `root` (MySQL), password in
+   `WORKFLOW_TEST_DB_PASSWORD`.
 2. Waits until `temporal operator cluster health` reports `SERVING` on `localhost:17233`.
 3. Creates the `default` namespace and the `WorkflowKind` search attribute `ballerina/workflow` uses.
 4. Runs `bal test` in the suite directory.
@@ -42,6 +58,28 @@ still stopped.
 |---|---|
 | Smoke | A workflow runs activities and returns; a data event resumes a waiting workflow; a failing activity fails the workflow and its status says so; concurrent instances stay independent |
 | Full | Activity retries; workflow errors; durable timers; child workflows (start and wait, call); data events in either order; human tasks (approve, reject); execution info and activity history |
+
+### Everything in Docker
+
+`make test-docker` runs what GitHub Actions runs, on any machine with Docker and nothing else installed (Compose
+v2.20.2 or later, for optional `depends_on`):
+`make check` and `make sbom`, then the smoke and full suites on SQLite, PostgreSQL 16 and MySQL 8.4.
+
+```sh
+make test-docker                                              # gates, then both suites on all three databases
+make test-docker DOCKER_TARGET=smoke DATABASES=postgresql     # one suite on one database
+make test-docker DOCKER_TARGET=gates                          # make check and make sbom only
+```
+
+`tests/docker/compose.yml` starts the selected databases (PostgreSQL on 15432, MySQL on 13306; neither for
+`DOCKER_TARGET=gates` or SQLite only) in one network namespace with the runner, so `tests/engine/runtime-*.toml`
+work unchanged. Each checkout runs as its own Compose project, so runs in different worktrees do not stop each
+other's containers; runs in the same checkout share `build/docker/`, so run them one at a time. The runner image (`tests/docker/Dockerfile`) has the Go toolchain,
+the Temporal CLI and Ballerina on Java 25; the pinned Go tools are installed into a volume on first use. Each run works on a fresh copy of the source tree,
+uncommitted changes included, with empty databases; engine logs land in `build/docker/`. Go, tool and
+Ballerina caches are kept in Docker volumes (`workflow-runtime-tests-*`) shared by every checkout. If a run reports
+a damaged module cache (for example after the Docker disk filled up), remove them with
+`docker volume rm $(docker volume ls -q --filter name=workflow-runtime-tests-)`.
 
 ### Adding a Ballerina test
 

@@ -83,6 +83,7 @@ github.com/go-openapi/swag/stringutils,https://github.com/go-openapi/swag/blob/s
 github.com/go-openapi/swag/typeutils,https://github.com/go-openapi/swag/blob/typeutils/v0.26.0/typeutils/LICENSE,Apache-2.0
 github.com/go-openapi/swag/yamlutils,https://github.com/go-openapi/swag/blob/yamlutils/v0.26.0/yamlutils/LICENSE,Apache-2.0
 github.com/go-sql-driver/mysql,https://github.com/go-sql-driver/mysql/blob/v1.9.3/LICENSE,MPL-2.0
+github.com/go-viper/mapstructure/v2,https://github.com/go-viper/mapstructure/blob/v2.5.0/LICENSE,MIT
 github.com/gocql/gocql,https://github.com/gocql/gocql/blob/v1.7.0/LICENSE,Apache-2.0
 github.com/gogo/protobuf,https://github.com/gogo/protobuf/blob/v1.3.2/LICENSE,BSD-3-Clause
 github.com/golang-jwt/jwt/v4,https://github.com/golang-jwt/jwt/blob/v4.5.2/LICENSE,MIT
@@ -111,6 +112,10 @@ github.com/klauspost/compress,https://github.com/klauspost/compress/blob/v1.18.7
 github.com/klauspost/compress,https://github.com/klauspost/compress/blob/v1.18.7/LICENSE,MIT
 github.com/klauspost/compress/internal/snapref,https://github.com/klauspost/compress/blob/v1.18.7/internal/snapref/LICENSE,BSD-3-Clause
 github.com/klauspost/compress/zstd/internal/xxhash,https://github.com/klauspost/compress/blob/v1.18.7/zstd/internal/xxhash/LICENSE.txt,MIT
+github.com/knadh/koanf/maps,https://github.com/knadh/koanf/blob/maps/v0.1.2/maps/LICENSE,MIT
+github.com/knadh/koanf/parsers/toml/v2,https://github.com/knadh/koanf/blob/parsers/toml/v2.2.2/parsers/toml/LICENSE,MIT
+github.com/knadh/koanf/providers/confmap,https://github.com/knadh/koanf/blob/providers/confmap/v1.0.1/providers/confmap/LICENSE,MIT
+github.com/knadh/koanf/v2,https://github.com/knadh/koanf/blob/v2.3.8/LICENSE,MIT
 github.com/lib/pq,https://github.com/lib/pq/blob/v1.12.3/LICENSE,MIT
 github.com/mailru/easyjson,https://github.com/mailru/easyjson/blob/v0.9.2/LICENSE,MIT
 github.com/mattn/go-isatty,https://github.com/mattn/go-isatty/blob/v0.0.21/LICENSE,MIT
@@ -126,6 +131,7 @@ github.com/nexus-rpc/sdk-go/nexus,https://github.com/nexus-rpc/sdk-go/blob/v0.6.
 github.com/olivere/elastic/v7,https://github.com/olivere/elastic/blob/v7.0.32/LICENSE,MIT
 github.com/olivere/elastic/v7/uritemplates,https://github.com/olivere/elastic/blob/v7.0.32/uritemplates/LICENSE,MIT
 github.com/opentracing/opentracing-go,https://github.com/opentracing/opentracing-go/blob/v1.2.0/LICENSE,Apache-2.0
+github.com/pelletier/go-toml/v2,https://github.com/pelletier/go-toml/blob/v2.4.3/LICENSE,MIT
 github.com/pkg/errors,https://github.com/pkg/errors/blob/v0.9.1/LICENSE,BSD-2-Clause
 github.com/pmezard/go-difflib/difflib,https://github.com/pmezard/go-difflib/blob/5d4384ee4fb2/LICENSE,BSD-3-Clause
 github.com/prometheus/client_golang/internal/github.com/golang/gddo/httputil,https://github.com/prometheus/client_golang/blob/v1.21.0/internal/github.com/golang/gddo/LICENSE,BSD-3-Clause

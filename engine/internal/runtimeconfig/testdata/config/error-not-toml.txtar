@@ -1,0 +1,4 @@
+-- runtime.toml --
+[database
+-- error --
+invalid runtime configuration: toml: expected ']' to close table name

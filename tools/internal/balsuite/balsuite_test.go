@@ -19,6 +19,7 @@ package balsuite
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -53,6 +54,7 @@ func options(t *testing.T, temporal, engine, bal string) Options {
 	}
 	return Options{
 		Suite:          "smoke",
+		Database:       "sqlite",
 		Root:           root,
 		Engine:         script(t, root, "engine", engine),
 		EngineArgs:     []string{"--allow-no-auth"},
@@ -74,10 +76,10 @@ func TestRunPassesWhenTheSuitePasses(t *testing.T) {
 	if err != nil || strings.TrimSpace(string(ran)) != "test" {
 		t.Fatalf("bal was run with %q (%v), want `test` in the suite directory", ran, err)
 	}
-	if !strings.Contains(stdout.String(), "SERVING on "+Address+"; running the smoke suite") {
+	if !strings.Contains(stdout.String(), "SERVING on "+Address+" (sqlite); running the smoke suite") {
 		t.Fatalf("stdout = %q", stdout.String())
 	}
-	if _, err := os.Stat(filepath.Join(o.LogDir, "engine-smoke.log")); err != nil {
+	if _, err := os.Stat(filepath.Join(o.LogDir, "engine-smoke-sqlite.log")); err != nil {
 		t.Fatalf("engine log: %v", err)
 	}
 }
@@ -120,6 +122,18 @@ func TestRunRemovesTheTemporaryLogDirectory(t *testing.T) {
 				t.Fatalf("temporary log directories left behind: %v (%v)", left, err)
 			}
 		})
+	}
+}
+
+func TestRunRunsPrepareBeforeTheEngine(t *testing.T) {
+	o := options(t, servingTemporal, idleEngine, "#!/bin/sh\nexit 0\n")
+	o.Prepare = func(context.Context) error { return errors.New("schema setup failed") }
+	var stderr bytes.Buffer
+	if code := Run(context.Background(), o, &bytes.Buffer{}, &stderr); code != 1 {
+		t.Fatalf("Run = %d, want 1", code)
+	}
+	if !strings.Contains(stderr.String(), "schema setup failed") {
+		t.Fatalf("stderr = %q", stderr.String())
 	}
 }
 

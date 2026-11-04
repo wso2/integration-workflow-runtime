@@ -35,7 +35,7 @@ TOOLCHAIN_ENV = GOROOT=$$(go env GOROOT) PATH=$$(go env GOROOT)/bin:$$PATH GOTOO
 LICENSE_IGNORES = $(shell grep -v '^\s*\#' third-party/license-exceptions.txt | awk 'NF {print "--ignore " $$1}')
 
 ## Tools: installed once per version into $(TOOL_BIN), as a versioned binary plus an unversioned symlink.
-TOOL_BIN := $(CURDIR)/$(OUT)/tools
+TOOL_BIN ?= $(CURDIR)/$(OUT)/tools
 GOLANGCI_LINT_VERSION ?= v2.13.2
 GO_LICENSES_VERSION ?= v2.0.1
 GOVULNCHECK_VERSION ?= v1.9.0
@@ -46,14 +46,17 @@ GO_LICENSES := $(TOOL_BIN)/go-licenses-$(GO_LICENSES_VERSION)
 GOVULNCHECK := $(TOOL_BIN)/govulncheck-$(GOVULNCHECK_VERSION)
 CYCLONEDX_GOMOD := $(TOOL_BIN)/cyclonedx-gomod-$(CYCLONEDX_GOMOD_VERSION)
 
-# go_install_tool installs $(2)@$(3) as $(1) and points the unversioned name at it.
+# go_install_tool installs $(2)@$(3) as $(1) and points the unversioned name at it. It builds in a directory of its own
+# and renames into place, so runs sharing $(TOOL_BIN) (the Docker tools volume) can install the same tool at once.
 define go_install_tool
-@set -e; mkdir -p "$(TOOL_BIN)"; echo "Installing $(2)@$(3)"; link="$(patsubst %-$(3),%,$(1))"; rm -f "$$link"; \
-GOOS= GOARCH= GOBIN="$(TOOL_BIN)" go install "$(2)@$(3)"; mv "$$link" "$(1)"; ln -sf "$(notdir $(1))" "$$link"
+@set -e; mkdir -p "$(TOOL_BIN)"; echo "Installing $(2)@$(3)"; link="$(patsubst %-$(3),%,$(1))"; \
+tmp="$$(mktemp -d "$(TOOL_BIN)/.install.XXXXXX")"; trap 'rm -rf "$$tmp"' EXIT; \
+GOOS= GOARCH= GOBIN="$$tmp" go install "$(2)@$(3)"; mv -f "$$tmp/$$(basename "$$link")" "$(1)"; \
+ln -s "$(notdir $(1))" "$$tmp/link"; mv -f "$$tmp/link" "$$link"
 endef
 
 .PHONY: build engine dist sbom tools vet lint fmt-check test test-coverage test-race licenses license-check \
-	vulncheck check test-smoke test-full install-hooks release clean
+	vulncheck check test-smoke test-full test-docker install-hooks release clean
 
 build: engine
 
@@ -137,6 +140,18 @@ test-smoke: engine
 
 test-full: engine
 	go run ./tools/cmd/balsuite full --engine $(OUT)/workflow-engine$(EXE)
+
+# The GitHub Actions gates and Ballerina suites in Docker, PostgreSQL and MySQL included; nothing else to install.
+# DOCKER_TARGET: all (default), gates, smoke or full. DATABASES: a subset of "sqlite postgresql mysql".
+# Each checkout gets its own Compose project, so runs in different worktrees never stop each other's containers.
+DOCKER_DATABASES := $(or $(DATABASES),sqlite postgresql mysql)
+DOCKER_PROFILES := $(if $(filter gates,$(DOCKER_TARGET)),,$(foreach db,$(filter postgresql mysql,$(DOCKER_DATABASES)),--profile $(db)))
+COMPOSE := docker compose -f tests/docker/compose.yml \
+	-p workflow-runtime-tests-$(shell printf '%s' '$(CURDIR)' | cksum | cut -d' ' -f1) $(DOCKER_PROFILES)
+test-docker:
+	@mkdir -p $(OUT)/docker
+	@GIT_COMMON_DIR="$$(cd "$$(git rev-parse --git-common-dir)" && pwd)" $(COMPOSE) run --rm --build runner $(or $(DOCKER_TARGET),all) "$(DOCKER_DATABASES)"; \
+		status=$$?; $(COMPOSE) down --volumes=false --remove-orphans >/dev/null 2>&1; exit $$status
 
 install-hooks:
 	@git config --local core.hooksPath .githooks

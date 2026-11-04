@@ -1,0 +1,8 @@
+-- runtime.toml --
+[engine.ports]
+worker = 100
+[database]
+type = "sqlite"
+inMemory = true
+-- error --
+invalid runtime configuration: engine.ports.worker 100 is not a valid port

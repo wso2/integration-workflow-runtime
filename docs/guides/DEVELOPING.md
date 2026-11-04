@@ -25,11 +25,13 @@ of the shell scripts in `.github/scripts`.
 ```sh
 make build                                  # build/workflow-engine, build/workflow-engine-sql
 ./build/workflow-engine version
-./build/workflow-engine start --config-file tests/engine/temporal-test.yaml --allow-no-auth
+./build/workflow-engine render-config --runtime-config tests/engine/runtime-sqlite.toml   # inspect the generated config
+./build/workflow-engine start --runtime-config tests/engine/runtime-sqlite.toml --allow-no-auth
 ```
 
-The test configuration runs every service in one process on in-memory SQLite, on ports 17233 (frontend gRPC),
-17243 (frontend HTTP), 17234, 17235 and 17239. Point the Temporal CLI at `localhost:17233` to inspect it:
+`tests/engine/runtime-sqlite.toml` runs every service in one process on in-memory SQLite, on ports 17233 (frontend
+gRPC), 17243 (frontend HTTP), 17234, 17235 and 17239. The PostgreSQL and MySQL variants expect a database on 15432
+or 13306 and the password in `WORKFLOW_TEST_DB_PASSWORD`; see [TESTING.md](TESTING.md). Point the Temporal CLI at `localhost:17233` to inspect it:
 
 ```sh
 temporal operator cluster health --address localhost:17233
@@ -45,6 +47,7 @@ authorizer is configured.
 make check          # build, vet, lint, gofmt, unit tests with the 75% coverage gate, licenses, vulnerabilities
 make test-smoke     # Ballerina smoke suite against the engine
 make test-full      # Ballerina full suite
+make test-docker    # all of the above and both suites on SQLite, PostgreSQL and MySQL, in Docker
 ```
 
 Set `BAL` or `TEMPORAL_CLI` if those commands are not on `PATH`, for example the `bal` bundled with WSO2

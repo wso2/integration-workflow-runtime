@@ -232,3 +232,58 @@ func TestDefaultServicesAddTheInternalFrontendWhenConfigured(t *testing.T) {
 		t.Fatalf("defaultServices with an internal frontend = %v, want the defaults plus internal-frontend", got)
 	}
 }
+
+func TestStartFromRuntimeConfig(t *testing.T) {
+	server := &fakeServer{}
+	c, _, _ := newTestCommand(server, nil)
+	if err := c.start([]string{"--runtime-config", "testdata/runtime-sqlite.toml", "--allow-no-auth"}); err != nil {
+		t.Fatalf("start = %v, want nil", err)
+	}
+	if !server.started {
+		t.Fatal("the server was not started")
+	}
+}
+
+func TestStartFromRuntimeConfigKeepsTheAuthorizerCheck(t *testing.T) {
+	c, _, _ := newTestCommand(&fakeServer{}, nil)
+	err := c.start([]string{"--runtime-config", "testdata/runtime-sqlite.toml"})
+	if err == nil || !strings.Contains(err.Error(), "no authorizer configured") {
+		t.Fatalf("start = %v, want the no-authorizer refusal", err)
+	}
+}
+
+func TestStartNeedsExactlyOneConfiguration(t *testing.T) {
+	c, _, _ := newTestCommand(&fakeServer{}, nil)
+	both := c.start([]string{"--runtime-config", "testdata/runtime-sqlite.toml", "--config-file", minimalConfig})
+	if both == nil || !strings.Contains(both.Error(), "not both") {
+		t.Fatalf("start with both = %v, want a conflict error", both)
+	}
+	neither := c.start(nil)
+	if neither == nil || !strings.Contains(neither.Error(), "--runtime-config or --config-file is required") {
+		t.Fatalf("start with neither = %v, want the required error", neither)
+	}
+}
+
+func TestRenderConfigHidesThePassword(t *testing.T) {
+	c, stdout, _ := newTestCommand(nil, nil)
+	if code := c.run([]string{"render-config", "--runtime-config", "testdata/runtime-postgresql.toml"}); code != 0 {
+		t.Fatalf("exit code = %d, want 0", code)
+	}
+	out := stdout.String()
+	if strings.Contains(out, "do-not-print") || !strings.Contains(out, "pluginName: postgres12") {
+		t.Fatalf("render-config output leaks the password or lacks the plugin:\n%s", out)
+	}
+}
+
+func TestRenderConfigErrors(t *testing.T) {
+	c, _, stderr := newTestCommand(nil, nil)
+	if code := c.run([]string{"render-config"}); code != 1 || !strings.Contains(stderr.String(), "--runtime-config is required") {
+		t.Fatalf("render-config without a file: code %d, stderr %q", code, stderr.String())
+	}
+	if err := c.renderConfig([]string{"--runtime-config", filepath.Join(t.TempDir(), "absent.toml")}); err == nil {
+		t.Fatal("render-config accepted a missing file")
+	}
+	if err := c.renderConfig([]string{"--no-such-flag"}); err == nil {
+		t.Fatal("render-config accepted an unknown flag")
+	}
+}

@@ -1,0 +1,7 @@
+-- runtime.toml --
+[database]
+type = "sqlite"
+path = "a.db"
+maxConns = -1
+-- error --
+invalid runtime configuration: database.maxConns must be at least 1

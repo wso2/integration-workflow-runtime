@@ -7,3 +7,4 @@ in the same commit ([AGENTS.md](../../AGENTS.md#rules-for-every-change)). Start 
 | Feature | Status |
 |---|---|
 | [Engine](engine.md) | Available |
+| [Runtime configuration](runtime-config.md) | Available |

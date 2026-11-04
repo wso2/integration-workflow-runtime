@@ -35,6 +35,7 @@ Decision records live in `docs/decisions/`; feature documentation in `docs/featu
 | `make tools` | Install the pinned golangci-lint, go-licenses, govulncheck and cyclonedx-gomod into `build/tools` (the targets that need them do this on first use) |
 | `make lint` / `make vet` / `make fmt-check` | golangci-lint v2.13.2, go vet, gofmt |
 | `make test-smoke` / `make test-full` | Ballerina suites against the engine (needs `bal` and the `temporal` CLI on `PATH`, or `BAL` / `TEMPORAL_CLI` set) |
+| `make test-docker` | The CI gates and both suites in Docker, PostgreSQL and MySQL included (`DOCKER_TARGET`, `DATABASES`) |
 | `make license-check` / `make vulncheck` | License gate and `govulncheck` |
 | `make sbom` | CycloneDX SBOM per binary in `build/sbom/` (included by `make dist`) |
 | `make check` | Every gate CI runs, except the Ballerina suites |
@@ -101,9 +102,10 @@ These are requirements, not suggestions. A change that misses one is not done.
 
 ### Ballerina suites
 
-- `go run ./tools/cmd/balsuite <smoke|full> --engine build/workflow-engine` starts the engine on
-  `tests/engine/temporal-test.yaml` (ports 17xxx, in-memory SQLite, `--allow-no-auth`), creates the `default`
-  namespace and the `WorkflowKind` search attribute, runs `bal test` in the suite, and stops the engine.
+- `go run ./tools/cmd/balsuite <smoke|full> --engine build/workflow-engine [--database sqlite|postgresql|mysql]`
+  starts the engine from `tests/engine/runtime-<database>.toml` (ports 17xxx, `--allow-no-auth`), creating the SQL
+  schemas first for PostgreSQL and MySQL; then it creates the `default` namespace and the `WorkflowKind` search
+  attribute, runs `bal test` in the suite, and stops the engine.
 - Each suite is a Ballerina package: workflows and activities in `workflows.bal`, tests in `tests/*_test.bal`
   (one file per feature area), connection settings in `tests/Config.toml`.
 - Tests use the public `ballerina/workflow` API only (`workflow:run`, `workflow:sendData`,

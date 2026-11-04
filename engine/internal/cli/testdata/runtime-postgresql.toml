@@ -1,0 +1,5 @@
+[database]
+type = "postgresql"
+host = "db.example.com"
+user = "workflow"
+password = "do-not-print"

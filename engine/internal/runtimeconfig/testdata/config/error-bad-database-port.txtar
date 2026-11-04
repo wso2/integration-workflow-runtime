@@ -1,0 +1,7 @@
+-- runtime.toml --
+[database]
+type = "mysql"
+host = "db"
+port = 70000
+-- error --
+invalid runtime configuration: database.port 70000 is not a valid port

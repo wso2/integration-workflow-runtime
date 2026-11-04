@@ -1,0 +1,7 @@
+-- runtime.toml --
+[database]
+type = "sqlite"
+path = "a.db"
+inMemory = true
+-- error --
+invalid runtime configuration: database.path and database.inMemory = true are both set; a sqlite database is a file or in memory

@@ -1,0 +1,8 @@
+-- runtime.toml --
+[engine]
+historyShards = -1
+[database]
+type = "sqlite"
+inMemory = true
+-- error --
+invalid runtime configuration: engine.historyShards must be at least 1

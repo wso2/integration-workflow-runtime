@@ -1,0 +1,10 @@
+-- runtime.toml --
+[database]
+type = "postgresql"
+host = "10.0.0.5"
+
+[database.tls]
+enabled = true
+serverName = "db.internal"
+-- error --
+invalid runtime configuration: database.tls.serverName is not supported for a postgresql database; set database.host to the name on the database certificate

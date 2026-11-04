@@ -1,0 +1,8 @@
+-- runtime.toml --
+[engine]
+bindAdress = "0.0.0.0"
+[database]
+type = "sqlite"
+inMemory = true
+-- error --
+unknown runtime configuration keys: engine.bindAdress
