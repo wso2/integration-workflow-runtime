@@ -260,3 +260,33 @@ func TestOversizedKeySetsAreRefused(t *testing.T) {
 		t.Fatalf("Refresh = %v, want an oversized key set refused", err)
 	}
 }
+
+func TestKeySetWithoutKeysKeepsThePreviousKeys(t *testing.T) {
+	ec, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var body atomic.Value
+	body.Store(keySetJSON(t, ec))
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(body.Load().(string)))
+	}))
+	t.Cleanup(srv.Close)
+	k := NewKeySet([]string{srv.URL}, 0, tlsClient(srv), log.NewNoopLogger())
+	t.Cleanup(k.Close)
+
+	body.Store(`{"error":"upstream"}`)
+	if err := k.Refresh(); err == nil || !strings.Contains(err.Error(), "no keys member") {
+		t.Fatalf("Refresh = %v, want a set without keys refused", err)
+	}
+	if _, err := k.RsaKey("RS256", "rsa-1"); err != nil {
+		t.Fatalf("a refused refresh dropped the keys: %v", err)
+	}
+	body.Store(`{"keys":[]}`)
+	if err := k.Refresh(); err != nil {
+		t.Fatalf("an empty key set was refused: %v", err)
+	}
+	if _, err := k.RsaKey("RS256", "rsa-1"); err == nil {
+		t.Fatal("an empty key set kept the old keys")
+	}
+}

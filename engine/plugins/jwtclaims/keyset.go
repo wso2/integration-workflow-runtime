@@ -138,13 +138,17 @@ func (k *KeySet) read(u string, rsaKeys map[string]*rsa.PublicKey, ecKeys map[st
 	if res.StatusCode != http.StatusOK {
 		return fmt.Errorf("unable to read %s: %s", u, res.Status)
 	}
+	// A pointer tells a missing "keys" (an error page served with 200) from an empty set, which is valid.
 	var set struct {
-		Keys []jwk `json:"keys"`
+		Keys *[]jwk `json:"keys"`
 	}
 	if err := json.NewDecoder(io.LimitReader(res.Body, maxDocumentBytes)).Decode(&set); err != nil {
 		return fmt.Errorf("invalid key set at %s: %w", u, err)
 	}
-	for _, key := range set.Keys {
+	if set.Keys == nil {
+		return fmt.Errorf("invalid key set at %s: it has no keys member", u)
+	}
+	for _, key := range *set.Keys {
 		if err := key.store(rsaKeys, ecKeys); err != nil {
 			k.logger.Warn(fmt.Sprintf("ignoring key %q from %s: %v", key.Kid, u, err))
 		}

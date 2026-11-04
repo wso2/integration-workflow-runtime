@@ -58,8 +58,9 @@ A role in namespace `*` applies to every namespace. Roles add up: a caller in tw
 
    Issue the internode certificates with a DNS name every node shares, such as `workflow-nodes.internal`. The nodes
    verify that name in each other's certificates. When the certificate has that one DNS name, the engine uses it; when
-   it also carries the node's own name, or only IP addresses, set `serverName = "workflow-nodes.internal"`. The
-   engine checks that the certificate carries the name you set.
+   it also carries the node's own name, set `serverName = "workflow-nodes.internal"`. The engine checks that the
+   certificate carries the name you set. A certificate with only IP addresses needs reissuing with the shared name:
+   each node's IP differs, so no one address is in every node's certificate.
 
    :::caution
    Only port 7233 is for integrations. The internal frontend (7236 by default) gives the engine's own services

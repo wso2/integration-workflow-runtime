@@ -23,6 +23,7 @@ keywords: [wso2 integrator, workflow runtime, troubleshooting, errors]
 | `engine.auth.type = "jwt" needs engine.tls` | Tokens without TLS | Add `[engine.tls]` ([Secure the engine](secure-the-engine.md)) |
 | `engine.tls.internode.serverName is required: ... has no DNS name` (or `several DNS names`) | The engine cannot tell which name every node's certificate shares | Set `serverName` to the shared name, or reissue the certificates with one DNS name every node shares |
 | `engine.tls.internode.serverName "..." is not a name in ...` | A typo, or a certificate issued without that name | Correct `serverName`, or reissue the certificate with it |
+| With `[engine.auth]` on, every node exits about a minute after start | No node runs the `frontend` profile, which brings the internal frontend Temporal's own services use | Give at least one node `frontend`, `engine` or `all` in `[runtime] profiles` ([Run across several nodes](scale-across-nodes.md)) |
 | `engine.auth needs engine.tls.internode when engine.bindAddress is ...` | Auth on an engine reachable from other machines without mutual TLS between its nodes | Add `[engine.tls.internode]` ([Secure the engine](secure-the-engine.md#turn-on-tls)) |
 | `rule for "...": grant write, not worker` | A rule with `role = "worker"` | Use `write`; it lets an integration's workers poll |
 | Client: `Request unauthorized` | The token maps to no role, or failed a check | Read the engine log: it names the reason (expired, issuer, unknown key, no matching group); check `rolesClaim` and the rules |

@@ -85,7 +85,7 @@ role = "write"
   redirect.
 - Each discovery document and key set read is limited to 1 MiB, and a redirect never goes from https to http. Only
   RS256 and ES256 keys are kept, and only when their `use`, `key_ops` and `alg`, if published, allow verifying that
-  algorithm's signatures; an invalid entry never replaces a valid key with the same `kid`.
+  algorithm's signatures; an invalid entry never replaces a valid key with the same `kid`. A response without a `keys` member (an error page served with status 200) is refused, and the previous keys stay.
 - Every token is checked for its signature, an expiry, the issuer and audience when set, and a subject; one issued in
   the future (`iat` beyond `leewaySeconds`) is refused. A call without a token, or with a token that maps to no role,
   is refused, except Temporal's health checks.
@@ -109,7 +109,7 @@ Roles from client certificate subjects, tokens issued by the Manager, and task-q
 | Test | Covers |
 |---|---|
 | `engine/plugins/jwtclaims/discovery_test.go` | Discovery: the key set URL, another issuer or a trailing slash, no key set, a plain-http issuer or key set, invalid documents, unreachable providers; which URLs `CheckURL` accepts |
-| `engine/plugins/jwtclaims/keyset_test.go` | Reading RS256 and ES256 keys, keeping them when a refresh fails, refreshing on the interval; a redirect to plain http refused for key sets and discovery, from https to loopback http refused, one to https followed; keys for encryption or another algorithm dropped, a bad entry not replacing a good key with the same ID; oversized key sets refused |
+| `engine/plugins/jwtclaims/keyset_test.go` | Reading RS256 and ES256 keys, keeping them when a refresh fails, refreshing on the interval; a redirect to plain http refused for key sets and discovery, from https to loopback http refused, one to https followed; keys for encryption or another algorithm dropped, a bad entry not replacing a good key with the same ID; oversized key sets and sets without `keys` refused |
 | `engine/plugins/jwtclaims/jwtclaims_test.go` | Temporal's format, rules on nested claims, scope strings, regex, issuer, audience, expiry, tokens issued in the future, forged and malformed tokens |
 | `engine/internal/runtimeconfig/security_test.go` | TLS, auth and metrics mapping and every validation rule |
 | `engine/internal/cli/cli_test.go` | A start with identity-provider auth; which claim mapper is built; the services the profiles and `--service` pass to the server, including `--service` with an `api`-only profile |
