@@ -18,6 +18,14 @@ keywords: [wso2 integrator, workflow runtime, workflow-cli, reference, flags, pr
 | `operator namespace update [--retention <duration>] [--description <text>]` | Changes the retention or the description |
 | `operator search-attribute create --name <name> --type <type> ...` | Adds search attributes, each `--name` with the `--type` in the same position; existing ones are left unchanged |
 | `operator search-attribute list` | The namespace's custom and system search attributes |
+| `workflow list [--query <query>] [--limit <n>]` | Workflows, newest first, with status, ID, type and start time; `--limit` 100 by default, 0 for all |
+| `workflow count [--query <query>]` | How many workflows match |
+| `workflow describe -w <id> [-r <run>]` | A workflow's run, type, task queue, status, times, history length, and pending activities and child workflows |
+| `workflow show -w <id> [-r <run>]` | Its event history: ID, time and type of each event |
+| `workflow signal -w <id> --name <signal> [-i <json>]...` | Sends a signal, each `--input` a JSON argument (`json/plain`) |
+| `workflow cancel -w <id> [--reason <text>]` | Requests cancellation; the workflow can clean up |
+| `workflow terminate -w <id> [--reason <text>]` | Ends the workflow at once |
+| `task-queue describe -t <task queue>` | The workers that polled it recently, for workflow and activity tasks |
 | `config set --prop <property> --value <value>` | Sets a property of the profile, creating the profile |
 | `config get [--prop <property>]` | Shows the profile (an API key as `(set)`), or one property |
 | `config delete --prop <property>` | Removes a property |

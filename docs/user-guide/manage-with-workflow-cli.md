@@ -1,13 +1,14 @@
 ---
 title: Manage the engine with workflow-cli
-description: Check the engine's health, see its nodes, and create namespaces and search attributes with workflow-cli.
+description: Check the engine, manage namespaces, and find, inspect and act on workflows with workflow-cli.
 keywords: [wso2 integrator, workflow runtime, workflow-cli, cli, namespace, search attribute, health check, cluster]
 ---
 
 # Manage the engine with workflow-cli
 
 `workflow-cli` is the runtime's command line client. It checks the engine's health, lists the nodes behind each
-service, and manages namespaces and their search attributes. It is a client like an integration: it talks only to
+service, manages namespaces and their search attributes, and finds, inspects and acts on the workflows integrations
+run. It is a client like an integration: it talks only to
 the engine's frontend (or, for health checks, to one service's port), never to the database.
 
 It is in the distribution's `bin/` directory and in the container image. Copy the one file to any machine that can
@@ -108,6 +109,44 @@ workflow-cli operator search-attribute list --namespace orders
 
 Types are `Keyword`, `Text`, `Int`, `Double`, `Bool`, `Datetime` and `KeywordList`. An attribute that exists already
 is left as it is.
+
+## Find and inspect workflows
+
+```bash
+workflow-cli workflow list --namespace orders --query 'ExecutionStatus="Running" AND WorkflowKind="orders.Order"'
+workflow-cli workflow count --namespace orders --query 'ExecutionStatus="Failed"'
+workflow-cli workflow describe --namespace orders --workflow-id order-1042
+workflow-cli workflow show --namespace orders --workflow-id order-1042
+```
+
+`list` shows the newest 100 by default (`--limit 0` for all). The query is Temporal's visibility query language:
+`WorkflowId`, `WorkflowType`, `ExecutionStatus`, `StartTime`, `CloseTime` and any search attribute, such as the
+`WorkflowKind` integrations set. `describe` shows the task queue, status and pending activities; `show` lists the
+events of its history, the place to look when a workflow does not move. Add `--run-id` for a run other than the
+latest.
+
+A token with `read` in the namespace is enough for these.
+
+## Act on a workflow
+
+```bash
+workflow-cli workflow signal -n orders -w order-1042 --name approval --input '{"approved": true}'
+workflow-cli workflow cancel -n orders -w order-1042 --reason "customer withdrew"
+workflow-cli workflow terminate -n orders -w order-1042 --reason "stuck on a retired version"
+```
+
+`signal` delivers the event the workflow waits for, each `--input` a JSON argument. `cancel` asks the workflow to
+stop and lets it clean up; `terminate` ends it at once, running nothing more. Both record the reason in its
+history. These need `write` in the namespace.
+
+## Check an integration's workers
+
+```bash
+workflow-cli task-queue describe --namespace orders --task-queue orders
+```
+
+lists the workers that polled the task queue recently, for workflow and for activity tasks. Workflows that stay
+`Running` without progress while this lists no worker are waiting for their integration to start.
 
 ## Use it in scripts
 

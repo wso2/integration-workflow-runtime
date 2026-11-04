@@ -58,6 +58,7 @@ type fakeEngine struct {
 	notYetSeen  int // AddSearchAttributes answers NotFound this many times, as for a namespace not yet cached
 	adminDenied bool
 	health      *health.Server
+	workflows   *workflowState
 }
 
 // One type per service: the generated Unimplemented servers share method names.
@@ -81,6 +82,7 @@ func newFakeEngine() *fakeEngine {
 		namespaces: map[string]*workflowservice.DescribeNamespaceResponse{},
 		attributes: map[string]map[string]enumspb.IndexedValueType{},
 		health:     health.NewServer(),
+		workflows:  newWorkflowState(),
 	}
 	f.health.SetServingStatus(healthServices["frontend"], healthpb.HealthCheckResponse_SERVING)
 	f.health.SetServingStatus(healthServices["history"], healthpb.HealthCheckResponse_NOT_SERVING)

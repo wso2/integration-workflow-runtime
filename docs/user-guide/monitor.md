@@ -31,6 +31,8 @@ they resolve themselves. After that they are logged as errors again, so a lastin
 ## Workflows
 
 Use the Integration Control Plane (ICP) to see integrations' workflows, their status and history.
+`workflow-cli workflow list`, `describe` and `show` do the same from a terminal, with a token that has `read` in the
+namespace ([Manage the engine with workflow-cli](manage-with-workflow-cli.md#find-and-inspect-workflows)).
 
 ## The engine
 
