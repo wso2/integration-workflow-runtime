@@ -25,7 +25,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -98,7 +97,7 @@ func writeConfig(t *testing.T, dir, toml string) string {
 // start runs the engine with args and waits until its frontend reports SERVING.
 func start(t *testing.T, binary string, base int, args ...string) *engine {
 	t.Helper()
-	lockPorts(t) // a restart on the same range takes the lock again
+	lockPorts(t) // already held when freeBase or a restart took it
 	e := &engine{t: t, log: &bytes.Buffer{}, address: fmt.Sprintf("127.0.0.1:%d", base)}
 	e.cmd = exec.Command(binary, args...) //nolint:gosec // the engine under test
 	e.cmd.Stdout, e.cmd.Stderr = e.log, e.log
@@ -132,7 +131,11 @@ func (e *engine) stop() {
 		return
 	default:
 	}
-	_ = e.cmd.Process.Signal(syscall.SIGTERM)
+	if err := e.cmd.Process.Signal(syscall.SIGTERM); err != nil { // Windows cannot send SIGTERM
+		_ = e.cmd.Process.Kill()
+		<-e.done
+		return
+	}
 	select {
 	case <-e.done:
 	case <-time.After(30 * time.Second):
@@ -186,5 +189,25 @@ func (e *engine) must(args ...string) string {
 
 // tomlString quotes s as a TOML basic string; a Windows path's backslashes would otherwise be escapes.
 func tomlString(s string) string {
-	return strconv.Quote(s)
+	var b strings.Builder
+	b.WriteByte('"')
+	for _, r := range s {
+		switch {
+		case r == '\\' || r == '"':
+			b.WriteByte('\\')
+			b.WriteRune(r)
+		case r < 0x20 || r == 0x7f:
+			fmt.Fprintf(&b, `\u%04X`, r)
+		default:
+			b.WriteRune(r)
+		}
+	}
+	b.WriteByte('"')
+	return b.String()
+}
+
+func TestTOMLString(t *testing.T) {
+	if got, want := tomlString("C:\\tmp\\\"a\"\a\x7fé"), `"C:\\tmp\\\"a\"\u0007\u007Fé"`; got != want {
+		t.Fatalf("tomlString = %s, want %s", got, want)
+	}
 }

@@ -40,6 +40,7 @@ func TestSQLiteFileSurvivesRestart(t *testing.T) {
 	first.must("workflow", "start", "--namespace", "persisted", "--type", "Waiter", "--task-queue", "nobody",
 		"--workflow-id", "waiting-1")
 	before := first.workflow("persisted", "waiting-1")
+	lockPorts(t) // keep the range until the restarted engine reports SERVING
 	first.stop()
 
 	second := start(t, binary, base, "start", "--runtime-config", config, "--allow-no-auth")

@@ -20,7 +20,7 @@ package enginetest
 
 import "testing"
 
-// lockPorts is a no-op on Windows, where no CI job runs these tests.
+// lockPorts is a no-op on Windows, where no CI job runs these tests; run one engine test there at a time.
 func lockPorts(*testing.T) {}
 
 func unlockPorts() {}

@@ -25,8 +25,8 @@
 
 `tools/internal/enginetest` starts the built `workflow-engine` on free ports and drives it with the Temporal CLI, for
 behavior a configuration test cannot show, such as a SQLite file surviving a restart. A lock file in the temporary
-directory keeps concurrent runs on one host from picking the same ports. The tests skip unless
-`WORKFLOW_ENGINE` names the engine binary and `temporal` is on `PATH`:
+directory keeps concurrent runs on one Unix host from picking the same ports; on Windows, run one at a time. The tests
+skip unless `WORKFLOW_ENGINE` names the engine binary and `temporal` is on `PATH`:
 
 ```sh
 make engine
