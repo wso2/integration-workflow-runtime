@@ -76,7 +76,9 @@ role = "write"
 - With `issuer` and no `jwksUrls`, the start command reads the provider's OpenID Connect discovery document and uses
   its `jwks_uri`; the document must name exactly the same issuer, and the engine does not start if it cannot read it.
 - Key sets and discovery documents are fetched only over https (plain http only to a loopback host): a key set
-  replaced on the way would let anyone sign tokens the engine trusts.
+  replaced on the way would let anyone sign tokens the engine trusts. The same rule applies to every redirect, at start
+  and on each refresh, so the engine reads key sets itself (`jwtclaims.KeySet`); Temporal's key provider follows any
+  redirect.
 - Every token is checked for its signature, an expiry, the issuer and audience when set, and a subject. A call
   without a token, or with a token that maps to no role, is refused, except Temporal's health checks.
 - Refusals return Temporal's generic "Request unauthorized"; the reason goes to the engine log.
@@ -86,7 +88,7 @@ role = "write"
 
 ## Limits
 
-- Tokens must be signed with RS256 or ES256, which Temporal's key provider supports.
+- Tokens must be signed with RS256 or ES256, as with Temporal's key provider.
 - Clients present the token themselves; refreshing an expiring token is the client's job.
 - Client certificates authenticate the connection only; roles still come from the token.
 
@@ -99,6 +101,7 @@ Roles from client certificate subjects, tokens issued by the Manager, and task-q
 | Test | Covers |
 |---|---|
 | `engine/plugins/jwtclaims/discovery_test.go` | Discovery: the key set URL, another issuer or a trailing slash, no key set, a plain-http issuer or key set, invalid documents, unreachable providers; which URLs `CheckURL` accepts |
+| `engine/plugins/jwtclaims/keyset_test.go` | Reading RS256 and ES256 keys, keeping them when a refresh fails, refreshing on the interval; a redirect to plain http refused for key sets and discovery, one to https followed |
 | `engine/plugins/jwtclaims/jwtclaims_test.go` | Temporal's format, rules on nested claims, scope strings, regex, issuer, audience, expiry, forged and malformed tokens |
 | `engine/internal/runtimeconfig/security_test.go` | TLS, auth and metrics mapping and every validation rule |
 | `engine/internal/cli/cli_test.go` | A start with identity-provider auth; which claim mapper is built; the services the profiles and `--service` pass to the server |

@@ -26,9 +26,9 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"go.temporal.io/server/common/authorization"
 	"go.temporal.io/server/common/config"
@@ -216,6 +216,9 @@ func loadConfig(runtimeConfig, configFile string) (*config.Config, *runtimeconfi
 	}
 }
 
+// keyFetchTimeout bounds each discovery or key set request.
+const keyFetchTimeout = 15 * time.Second
+
 // newClaimMapper builds the identity-provider mapper that runtime.toml's [engine.auth] asks for, or Temporal's own.
 func newClaimMapper(cfg *config.Config, rt *runtimeconfig.Runtime, logger log.Logger) (authorization.ClaimMapper, error) {
 	if cfg.Global.Authorization.ClaimMapper != runtimeconfig.ClaimMapperName {
@@ -225,8 +228,9 @@ func newClaimMapper(cfg *config.Config, rt *runtimeconfig.Runtime, logger log.Lo
 		return nil, fmt.Errorf("claim mapper %q is configured only through runtime.toml [engine.auth]",
 			runtimeconfig.ClaimMapperName)
 	}
+	client := jwtclaims.Client(keyFetchTimeout)
 	if len(cfg.Global.Authorization.JWTKeyProvider.KeySourceURIs) == 0 {
-		jwks, err := jwtclaims.Discover(context.Background(), http.DefaultClient, rt.Auth.Issuer)
+		jwks, err := jwtclaims.Discover(context.Background(), client, rt.Auth.Issuer)
 		if err != nil {
 			return nil, fmt.Errorf("unable to discover the identity provider's key set: %w", err)
 		}
@@ -236,7 +240,8 @@ func newClaimMapper(cfg *config.Config, rt *runtimeconfig.Runtime, logger log.Lo
 		logger.Warn("engine.auth checks neither issuer nor audience: every unexpired token the key set signs is " +
 			"accepted, including tokens issued for other applications; set issuer or audience")
 	}
-	keys := authorization.NewDefaultTokenKeyProvider(&cfg.Global.Authorization, logger)
+	kp := cfg.Global.Authorization.JWTKeyProvider
+	keys := jwtclaims.NewKeySet(kp.KeySourceURIs, kp.RefreshInterval, client, logger)
 	return jwtclaims.New(keys, *rt.Auth)
 }
 

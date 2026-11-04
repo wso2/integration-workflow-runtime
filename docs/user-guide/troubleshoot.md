@@ -17,6 +17,7 @@ keywords: [wso2 integrator, workflow runtime, troubleshooting, errors]
 | `engine.tls.certFile: ... no such file or directory` | A wrong path | Paths are relative to the directory the engine starts in |
 | `unable to create the claim mapper: unable to discover the identity provider's key set: ...` | The engine cannot read `<issuer>/.well-known/openid-configuration`, or it names another issuer (a trailing slash counts) | Check `issuer` (it must equal the tokens' `iss` exactly) and the network, or set `jwksUrls` |
 | `engine.auth.jwksUrls: "http://..." must use https` (or the issuer, or a discovered `jwks_uri`) | A key set or discovery document over plain http to another host | Use the provider's https URL |
+| `refused a redirect: "http://..." must use https` (at start, or logged as `unable to refresh the token keys`) | The provider's https URL redirects to plain http | Configure the URL the redirect ends at, if it is https, or fix the provider's redirect |
 | `engine.metrics.prometheusAddress "..." has an invalid port` | A port that is not a number from 0 to 65535 | Correct the port |
 | `engine.auth.type = "jwt" needs engine.tls` | Tokens without TLS | Add `[engine.tls]` ([Secure the engine](secure-the-engine.md)) |
 | `engine.auth needs engine.tls.internode when engine.bindAddress is ...` | Auth on an engine reachable from other machines without mutual TLS between its nodes | Add `[engine.tls.internode]` ([Secure the engine](secure-the-engine.md#turn-on-tls)) |

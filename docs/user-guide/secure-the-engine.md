@@ -101,7 +101,8 @@ Keycloak, Auth0 and others.
 
    The key set is fetched over https, and so is the discovery document; the engine refuses a plain `http` issuer,
    `jwksUrls` entry or discovered `jwks_uri` unless it points at the same machine, because keys sent in plain text
-   could be replaced on the way. The issuer must match the discovery document's `issuer` exactly, trailing slash
+   could be replaced on the way. A redirect to plain `http` is refused too, at start and on every key refresh. The
+   issuer must match the discovery document's `issuer` exactly, trailing slash
    included.
 
 3. Restart the engine.
