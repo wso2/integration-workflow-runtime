@@ -117,7 +117,7 @@ jobs:
           --engine build/workflow-engine
       # A workflow started on the previous Temporal release, with its older schema, finishes on this engine.
       - name: Upgrade from Temporal 1.30.9 on ${{ matrix.database }}
-        if: matrix.suite == 'smoke' && matrix.database != 'sqlite'
+        if: matrix.suite == 'smoke' && (matrix.database == 'postgresql' || matrix.database == 'mysql')
         env:
           ENGINE_LOG_DIR: build/logs
         run: >-
