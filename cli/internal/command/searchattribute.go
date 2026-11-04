@@ -70,12 +70,7 @@ func (c *cli) searchAttributeCreateCommand() *cobra.Command {
 			for i, name := range names {
 				t, ok := searchAttributeTypes[types[i]]
 				if !ok {
-					known := make([]string, 0, len(searchAttributeTypes))
-					for k := range searchAttributeTypes {
-						known = append(known, k)
-					}
-					slices.Sort(known)
-					return fmt.Errorf("--type %q must be one of %s", types[i], strings.Join(known, ", "))
+					return fmt.Errorf("--type %q must be one of %s", types[i], choices(searchAttributeTypes))
 				}
 				attrs[name] = t
 			}

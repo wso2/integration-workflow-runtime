@@ -1,6 +1,6 @@
 # workflow-cli
 
-Status: in progress · P0 (cluster, namespaces, search attributes, profiles) and P1 (workflows, task queues) since 0.1.0
+Status: in progress · P0 (cluster, namespaces, search attributes, profiles), P1 (workflows, task queues) and P2 (reset, batch jobs, schedules) since 0.1.0
 
 ## What it does
 
@@ -48,6 +48,14 @@ Precedence, as in the Temporal CLI: flag, environment variable, profile, default
   (100; 0 for all). `show` pages through the whole history. `signal` encodes each `--input` as a `json/plain`
   payload after checking it is JSON; `signal` and `cancel` send a fresh request ID, and every change carries the
   identity `workflow-cli@<host>`, which the workflow's history records.
+- `signal`, `cancel` and `terminate` with `--query` count the matches, and only with `--yes` call
+  `StartBatchOperation` (job ID = a fresh request ID); the engine's system worker runs the job. `cancel` and
+  `terminate` batches need `--reason`, which Temporal requires; a signal batch gets a default one.
+- `workflow reset --type` finds the first or last `WorkflowTaskCompleted` event in the history; `--event-id` is
+  passed as is. The engine re-applies later signals to the new run.
+- `schedule` maps to `CreateSchedule` (cron strings and intervals, a start-workflow action, overlap policy, paused
+  state and notes), `ListSchedules`, `DescribeSchedule`, `PatchSchedule` (pause, unpause, trigger) and
+  `DeleteSchedule`.
 - `task-queue describe` calls `DescribeTaskQueue` once for workflow and once for activity tasks and lists their
   pollers.
 - A token goes only over TLS, or in plain text to a loopback address; otherwise the command refuses before dialing.
@@ -58,13 +66,13 @@ Precedence, as in the Temporal CLI: flag, environment variable, profile, default
 
 ## Limits
 
-- Workflow start, reset, batch, schedule and dead-letter commands come later (P2).
+- No `workflow start` or `schedule update`; dead-letter queue and shard commands come next (P2b).
 - A token is read once per command; refreshing an expiring one is up to the caller (`apiKeyFile` rewritten by a
   token helper works).
 
 ## Not covered yet
 
-P2: `workflow reset`, batch operations, schedules, dead-letter queues and shards (Temporal's `tdbg`). A token command for the API server, once
+P2b: dead-letter queues and shards (Temporal's `tdbg`). A token command for the API server, once
 it exists.
 
 ## Tests
@@ -73,6 +81,7 @@ it exists.
 |---|---|
 | `cli/internal/command/command_test.go` | Every command against an in-memory fake engine (bufconn): health per service and exit codes, describe with and without the admin API, namespace create (cache retry, idempotence), describe, list over pages, update, search attributes, profile/environment/flag precedence and the bearer header, `config` commands and file mode, error messages |
 | `cli/internal/command/workflow_test.go` | `workflow list` over pages with a query and `--limit`, `count`, `describe`, `show` over pages, `signal` payloads, identity and request ID, `cancel` and `terminate` with reasons and run IDs, `task-queue describe` with and without pollers, error messages |
+| `cli/internal/command/operations_test.go` | Reset to the first and last workflow task and to an event ID; batch jobs refused without `--yes`, started for terminate, cancel and signal with their queries, reasons and payloads, listed, described and stopped; schedules created with crons, intervals, input, overlap policy and notes, listed, described with recent runs, paused, unpaused, triggered and deleted; error messages |
 | `cli/internal/command/dial_test.go` | Mutual TLS against a real TLS server, refusal without a client certificate or TLS, token refused in plain text off-loopback, CA, client certificate and key file errors |
 | `cli/internal/clientconfig/clientconfig_test.go` | Profile file parsing, unknown keys, environment variables, TLS on/off rules, writing and deleting properties |
-| `tools/internal/enginetest/workflowcli_test.go` | Against the real engine: every P0 and P1 command on `start-dev` (workflows started on a task queue no worker polls: listed by `WorkflowKind`, described, signalled, cancelled and terminated, their history shown); on a secured engine, profiles with admin and namespace tokens, refusals, a token never sent in plain text, a namespace token listing only its own namespace, and the health of each internal port with a node certificate |
+| `tools/internal/enginetest/workflowcli_test.go` | Against the real engine: every P0 and P1 command on `start-dev` (workflows started on a task queue no worker polls: listed by `WorkflowKind`, described, signalled, cancelled and terminated, their history shown; a workflow reset after a completed workflow task gets a new run; a batch job terminates the two workflows a query matches; a paused schedule is triggered, unpaused and deleted); on a secured engine, profiles with admin and namespace tokens, refusals, a token never sent in plain text, a namespace token listing only its own namespace, and the health of each internal port with a node certificate |

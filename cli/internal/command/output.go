@@ -21,6 +21,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
+	"slices"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -79,4 +81,9 @@ func duration(d *durationpb.Duration) string {
 		return fmt.Sprintf("%dd", v/(24*time.Hour))
 	}
 	return v.String()
+}
+
+// choices lists a map's keys, sorted, for the accepted values in an error message.
+func choices[V any](m map[string]V) string {
+	return strings.Join(slices.Sorted(maps.Keys(m)), ", ")
 }

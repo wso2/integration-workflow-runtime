@@ -57,12 +57,7 @@ func (c *cli) clusterHealthCommand() *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			name, ok := healthServices[service]
 			if !ok {
-				names := make([]string, 0, len(healthServices))
-				for n := range healthServices {
-					names = append(names, n)
-				}
-				slices.Sort(names)
-				return fmt.Errorf("--service %q must be one of %s", service, strings.Join(names, ", "))
+				return fmt.Errorf("--service %q must be one of %s", service, choices(healthServices))
 			}
 			conn, _, ctx, cancel, err := c.connect(cmd)
 			if err != nil {
