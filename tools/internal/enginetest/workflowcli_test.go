@@ -176,6 +176,17 @@ func TestWorkflowCLIOnADevEngine(t *testing.T) {
 	if out, err := w.run(append([]string{"schedule", "describe", "-n", "orders", "-s", "hourly"}, addr...)...); err == nil {
 		t.Errorf("a deleted schedule is still described:\n%s", out)
 	}
+
+	// Shards: the owner is listed, and a closed shard is loaded again by the next call that needs it.
+	w.mustContain(cli("admin", "shard", "describe", "--shard-id", "1"), "Shard          1", "Node")
+	cli("admin", "shard", "close", "--shard-id", "1")
+	w.mustContain(cli("workflow", "describe", "-n", "orders", "-w", "order-1"), "Running")
+	// A healthy engine has no dead-letter tasks.
+	w.mustContain(cli("admin", "dlq", "list"), "No dead-letter queue exists")
+	if out, err := w.run(append([]string{"admin", "dlq", "purge", "--dlq-type", "transfer", "-y"}, addr...)...); err == nil ||
+		!strings.Contains(out, "dead-letter queue is empty") {
+		t.Errorf("purging an empty dead-letter queue: %v\n%s", err, out)
+	}
 }
 
 // TestWorkflowCLIOnASecuredEngine reaches a secured engine through a profile, with tokens of different roles, and
@@ -222,6 +233,7 @@ func TestWorkflowCLIOnASecuredEngine(t *testing.T) {
 		"an app creating a namespace":      {"operator", "namespace", "create", "--profile", "app", "-n", "billing"},
 		"an app changing retention":        {"operator", "namespace", "update", "--profile", "app", "--retention", "1h"},
 		"an app listing another namespace": {"workflow", "list", "--profile", "app", "-n", "billing"},
+		"an app reading a shard":           {"admin", "shard", "describe", "--profile", "app", "--shard-id", "1"},
 		"no token":                         {"operator", "namespace", "list", "--address", fmt.Sprintf("127.0.0.1:%d", se.base), "--tls-ca-path", ca},
 	}
 	for name, args := range refused {
