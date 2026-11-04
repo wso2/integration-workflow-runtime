@@ -21,7 +21,9 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
-	"encoding/json"
+	"encoding/base64"
+	"fmt"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -29,20 +31,25 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-jose/go-jose/v4"
 	"go.temporal.io/server/common/log"
 )
 
+var b64 = base64.RawURLEncoding.EncodeToString
+
 func keySetJSON(t *testing.T, ec *ecdsa.PrivateKey) string {
 	t.Helper()
-	b, err := json.Marshal(jose.JSONWebKeySet{Keys: []jose.JSONWebKey{
-		{Key: &signingKey.PublicKey, KeyID: "rsa-1", Algorithm: "RS256", Use: "sig"},
-		{Key: &ec.PublicKey, KeyID: "ec-1", Algorithm: "ES256", Use: "sig"},
-	}})
+	point, err := ec.PublicKey.Bytes()
 	if err != nil {
 		t.Fatal(err)
 	}
-	return string(b)
+	pub := signingKey.PublicKey
+	return fmt.Sprintf(`{"keys":[
+		{"kty":"RSA","kid":"rsa-1","alg":"RS256","use":"sig","n":%q,"e":%q},
+		{"kty":"EC","kid":"ec-1","alg":"ES256","crv":"P-256","x":%q,"y":%q},
+		{"kty":"oct","kid":"hmac-1","k":"c2VjcmV0"},
+		{"kty":"EC","kid":"off-curve","crv":"P-256","x":%q,"y":%q}]}`,
+		b64(pub.N.Bytes()), b64(big.NewInt(int64(pub.E)).Bytes()), b64(point[1:33]), b64(point[33:]),
+		b64(point[1:33]), b64(point[1:33]))
 }
 
 // tlsClient is Client trusting the test server's certificate.
@@ -80,6 +87,9 @@ func TestKeySetReadsAndRefreshesKeys(t *testing.T) {
 	}
 	if _, err := k.RsaKey("RS256", "unknown"); err == nil {
 		t.Fatal("RsaKey found an unknown key ID")
+	}
+	if _, err := k.EcdsaKey("ES256", "off-curve"); err == nil {
+		t.Fatal("EcdsaKey accepted a point that is not on the curve")
 	}
 
 	down.Store(true)
@@ -158,5 +168,26 @@ func TestKeySetRefreshesOnItsInterval(t *testing.T) {
 	k.Close() // a second Close is harmless
 	if reads.Load() < 3 {
 		t.Fatalf("the key set was read %d times, want a refresh", reads.Load())
+	}
+}
+
+func TestInvalidKeysAreRejected(t *testing.T) {
+	for name, key := range map[string]jwk{
+		"RSA without a modulus": {Kty: "RSA", E: "AQAB"},
+		"RSA with an even e":    {Kty: "RSA", N: "AQAB", E: "Ag"},
+		"RSA with a huge e":     {Kty: "RSA", N: "AQAB", E: "AQIDBAU"},
+		"EC on another curve":   {Kty: "EC", Crv: "P-384", X: "AA", Y: "AA"},
+		"EC with short points":  {Kty: "EC", Crv: "P-256", X: "AA", Y: "AA"},
+		"EC with bad base64url": {Kty: "EC", Crv: "P-256", X: "!", Y: "!"},
+	} {
+		var err error
+		if key.Kty == "RSA" {
+			_, err = key.rsa()
+		} else {
+			_, err = key.ecdsa()
+		}
+		if err == nil {
+			t.Errorf("%s: accepted", name)
+		}
 	}
 }

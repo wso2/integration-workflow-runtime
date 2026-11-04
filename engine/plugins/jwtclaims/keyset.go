@@ -18,15 +18,18 @@ package jwtclaims
 
 import (
 	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rsa"
+	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"math/big"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/go-jose/go-jose/v4"
 	"github.com/golang-jwt/jwt/v5"
 	"go.temporal.io/server/common/authorization"
 	"go.temporal.io/server/common/log"
@@ -127,21 +130,69 @@ func (k *KeySet) read(u string, rsaKeys map[string]*rsa.PublicKey, ecKeys map[st
 	if res.StatusCode != http.StatusOK {
 		return fmt.Errorf("unable to read %s: %s", u, res.Status)
 	}
-	var set jose.JSONWebKeySet
+	var set struct {
+		Keys []jwk `json:"keys"`
+	}
 	if err := json.NewDecoder(res.Body).Decode(&set); err != nil {
 		return fmt.Errorf("invalid key set at %s: %w", u, err)
 	}
 	for _, key := range set.Keys {
-		switch pub := key.Key.(type) {
-		case *rsa.PublicKey:
-			rsaKeys[key.KeyID] = pub
-		case *ecdsa.PublicKey:
-			ecKeys[key.KeyID] = pub
+		var err error
+		switch key.Kty {
+		case "RSA":
+			rsaKeys[key.Kid], err = key.rsa()
+		case "EC":
+			ecKeys[key.Kid], err = key.ecdsa()
 		default:
-			k.logger.Warn(fmt.Sprintf("ignoring key %q of unsupported type %T from %s", key.KeyID, key.Key, u))
+			err = fmt.Errorf("unsupported key type %q", key.Kty)
+		}
+		if err != nil {
+			delete(rsaKeys, key.Kid)
+			delete(ecKeys, key.Kid)
+			k.logger.Warn(fmt.Sprintf("ignoring key %q from %s: %v", key.Kid, u, err))
 		}
 	}
 	return nil
+}
+
+// jwk is the part of a JSON Web Key (RFC 7517, 7518) that RS256 and ES256 need.
+type jwk struct {
+	Kty string `json:"kty"`
+	Kid string `json:"kid"`
+	N   string `json:"n"`
+	E   string `json:"e"`
+	Crv string `json:"crv"`
+	X   string `json:"x"`
+	Y   string `json:"y"`
+}
+
+func (j jwk) rsa() (*rsa.PublicKey, error) {
+	n, err := base64.RawURLEncoding.DecodeString(j.N)
+	if err != nil || len(n) == 0 {
+		return nil, errors.New("invalid RSA modulus")
+	}
+	e, err := base64.RawURLEncoding.DecodeString(j.E)
+	if err != nil || len(e) == 0 || len(e) > 4 {
+		return nil, errors.New("invalid RSA exponent")
+	}
+	exp := int(new(big.Int).SetBytes(e).Int64())
+	if exp < 3 || exp%2 == 0 {
+		return nil, errors.New("invalid RSA exponent")
+	}
+	return &rsa.PublicKey{N: new(big.Int).SetBytes(n), E: exp}, nil
+}
+
+// ecdsa reads a P-256 key, the curve ES256 signs with; the point is checked to be on the curve.
+func (j jwk) ecdsa() (*ecdsa.PublicKey, error) {
+	if j.Crv != "P-256" {
+		return nil, fmt.Errorf("unsupported curve %q", j.Crv)
+	}
+	x, errX := base64.RawURLEncoding.DecodeString(j.X)
+	y, errY := base64.RawURLEncoding.DecodeString(j.Y)
+	if errX != nil || errY != nil || len(x) != 32 || len(y) != 32 {
+		return nil, errors.New("invalid P-256 coordinates")
+	}
+	return ecdsa.ParseUncompressedPublicKey(elliptic.P256(), append(append([]byte{4}, x...), y...))
 }
 
 // RsaKey returns the RS256 key with the key ID kid.
