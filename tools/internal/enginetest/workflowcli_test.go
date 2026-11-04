@@ -95,8 +95,7 @@ func TestWorkflowCLIOnADevEngine(t *testing.T) {
 
 	// Workflows waiting on a task queue no worker polls, as an integration's are while it is down.
 	for _, id := range []string{"order-1", "order-2", "order-3"} {
-		e.must("workflow", "start", "--namespace", "orders", "--type", "Order", "--task-queue", "orders",
-			"--workflow-id", id, "--search-attribute", `WorkflowKind="orders.Order"`)
+		e.startTagged("orders", "Order", "orders", id, `WorkflowKind="orders.Order"`)
 	}
 	kind := []string{"workflow", "list", "-n", "orders", "-q", `WorkflowKind="orders.Order"`}
 	var out string
@@ -266,4 +265,22 @@ func readFile(t *testing.T, path string) string {
 		t.Fatal(err)
 	}
 	return string(b)
+}
+
+// startTagged starts a workflow with a search attribute, retrying while the engine's namespace cache does not yet know
+// an attribute just added to the namespace (refreshed every few seconds).
+func (e *engine) startTagged(namespace, workflowType, taskQueue, id, attribute string) {
+	e.t.Helper()
+	args := []string{"workflow", "start", "--namespace", namespace, "--type", workflowType, "--task-queue", taskQueue,
+		"--workflow-id", id, "--search-attribute", attribute}
+	var out string
+	var err error
+	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(time.Second) {
+		if out, err = e.temporal(args...); err == nil || !strings.Contains(out, "no mapping defined for search attribute") {
+			break
+		}
+	}
+	if err != nil {
+		e.t.Fatalf("temporal %s: %v\n%s", strings.Join(args, " "), err, out)
+	}
 }
