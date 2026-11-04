@@ -61,7 +61,8 @@ still stopped.
 
 ### Everything in Docker
 
-`make test-docker` runs what GitHub Actions runs, on any machine with Docker and nothing else installed:
+`make test-docker` runs what GitHub Actions runs, on any machine with Docker and nothing else installed (Compose
+v2.20.2 or later, for optional `depends_on`):
 `make check` and `make sbom`, then the smoke and full suites on SQLite, PostgreSQL 16 and MySQL 8.4.
 
 ```sh

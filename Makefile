@@ -46,10 +46,13 @@ GO_LICENSES := $(TOOL_BIN)/go-licenses-$(GO_LICENSES_VERSION)
 GOVULNCHECK := $(TOOL_BIN)/govulncheck-$(GOVULNCHECK_VERSION)
 CYCLONEDX_GOMOD := $(TOOL_BIN)/cyclonedx-gomod-$(CYCLONEDX_GOMOD_VERSION)
 
-# go_install_tool installs $(2)@$(3) as $(1) and points the unversioned name at it.
+# go_install_tool installs $(2)@$(3) as $(1) and points the unversioned name at it. It builds in a directory of its own
+# and renames into place, so runs sharing $(TOOL_BIN) (the Docker tools volume) can install the same tool at once.
 define go_install_tool
-@set -e; mkdir -p "$(TOOL_BIN)"; echo "Installing $(2)@$(3)"; link="$(patsubst %-$(3),%,$(1))"; rm -f "$$link"; \
-GOOS= GOARCH= GOBIN="$(TOOL_BIN)" go install "$(2)@$(3)"; mv "$$link" "$(1)"; ln -sf "$(notdir $(1))" "$$link"
+@set -e; mkdir -p "$(TOOL_BIN)"; echo "Installing $(2)@$(3)"; link="$(patsubst %-$(3),%,$(1))"; \
+tmp="$$(mktemp -d "$(TOOL_BIN)/.install.XXXXXX")"; trap 'rm -rf "$$tmp"' EXIT; \
+GOOS= GOARCH= GOBIN="$$tmp" go install "$(2)@$(3)"; mv -f "$$tmp/$$(basename "$$link")" "$(1)"; \
+ln -s "$(notdir $(1))" "$$tmp/link"; mv -f "$$tmp/link" "$$link"
 endef
 
 .PHONY: build engine dist sbom tools vet lint fmt-check test test-coverage test-race licenses license-check \
