@@ -304,6 +304,11 @@ func (s *settings) validate() error {
 		problems = append(problems, "database.tls.serverName is not supported for a postgresql database; "+
 			"set database.host to the name on the database certificate")
 	}
+	if len(problems) == 0 {
+		if err := s.Engine.TLS.defaultInternodeServerName(); err != nil {
+			problems = append(problems, err.Error())
+		}
+	}
 	if len(problems) > 0 {
 		return errors.New("invalid runtime configuration: " + strings.Join(problems, "; "))
 	}

@@ -21,6 +21,7 @@ keywords: [wso2 integrator, workflow runtime, troubleshooting, errors]
 | `runtime.profiles names no engine service; this node runs only other components` | `profiles = ["api"]` and no `--service` | Add an engine profile, or name the services with `--service` |
 | `engine.metrics.prometheusAddress "..." has an invalid port` | A port that is not a number from 0 to 65535 | Correct the port |
 | `engine.auth.type = "jwt" needs engine.tls` | Tokens without TLS | Add `[engine.tls]` ([Secure the engine](secure-the-engine.md)) |
+| `engine.tls.internode.serverName is not set and ... has no DNS name` | The internode certificate carries only IP addresses | Reissue it with a DNS name every node shares, or set `serverName` to a name it carries |
 | `engine.auth needs engine.tls.internode when engine.bindAddress is ...` | Auth on an engine reachable from other machines without mutual TLS between its nodes | Add `[engine.tls.internode]` ([Secure the engine](secure-the-engine.md#turn-on-tls)) |
 | `rule for "...": grant write, not worker` | A rule with `role = "worker"` | Use `write`; it lets an integration's workers poll |
 | Client: `Request unauthorized` | The token maps to no role, or failed a check | Read the engine log: it names the reason (expired, issuer, unknown key, no matching group); check `rolesClaim` and the rules |

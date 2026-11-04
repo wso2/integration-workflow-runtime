@@ -82,6 +82,9 @@ inMemory = true
 	for _, ns := range []string{"orders", "billing"} {
 		e.must("operator", "namespace", "create", "--namespace", ns, "--retention", "24h")
 	}
+	// The frontend adds a search attribute through the internal frontend, over internode TLS with the server name
+	// taken from the internode certificate; without one, that call fails the TLS handshake.
+	e.must("operator", "search-attribute", "create", "--namespace", "orders", "--name", "Customer", "--type", "Keyword")
 	app := token(map[string]any{"sub": "orders-app", "groups": []any{"orders-app"}})
 	auditor := token(map[string]any{"sub": "audit", "groups": []any{"auditors"}})
 	startIn := func(ns string) []string {

@@ -17,6 +17,8 @@
 package runtimeconfig
 
 import (
+	"crypto/x509"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"net"
@@ -110,6 +112,46 @@ func (t engineTLSSettings) problems() []string {
 		}
 	}
 	return problems
+}
+
+// defaultInternodeServerName sets the internode server name to the internode certificate's first DNS name. Temporal
+// reaches the internal frontend through its membership resolver, a target with no host name to verify, so without a
+// server name that connection fails and with it the search attribute, namespace and system worker calls behind it.
+func (t *engineTLSSettings) defaultInternodeServerName() error {
+	in := &t.Internode
+	if !in.Enabled || in.ServerName != "" {
+		return nil
+	}
+	cert := in.CertFile
+	if cert == "" {
+		cert = t.CertFile
+	}
+	name, err := firstDNSName(cert)
+	if err != nil {
+		return fmt.Errorf("engine.tls.internode.serverName is not set and %w", err)
+	}
+	in.ServerName = name
+	return nil
+}
+
+func firstDNSName(certFile string) (string, error) {
+	data, err := os.ReadFile(certFile) //nolint:gosec // the configured certificate
+	if err != nil {
+		return "", fmt.Errorf("the internode certificate cannot be read: %w", err)
+	}
+	block, _ := pem.Decode(data)
+	if block == nil || block.Type != "CERTIFICATE" {
+		return "", fmt.Errorf("%s holds no PEM certificate", certFile)
+	}
+	c, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return "", fmt.Errorf("%s: %w", certFile, err)
+	}
+	if len(c.DNSNames) == 0 {
+		return "", fmt.Errorf("%s has no DNS name; issue the internode certificates with a DNS name every node "+
+			"shares, or set it as serverName", certFile)
+	}
+	return c.DNSNames[0], nil
 }
 
 func (t engineTLSSettings) temporalTLS() config.RootTLS {

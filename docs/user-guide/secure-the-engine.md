@@ -56,6 +56,10 @@ A role in namespace `*` applies to every namespace. Roles add up: a caller in tw
    caFile = "conf/certs/internode-ca.pem"
    ```
 
+   Issue the internode certificates with a DNS name every node shares, such as `workflow-nodes.internal`, along
+   with each node's own address. The nodes verify that name in each other's certificates; the engine reads it from
+   the certificate, or from `serverName` when you set it.
+
    :::caution
    Only port 7233 is for integrations. The internal frontend (7236 by default) gives the engine's own services
    system access without a token, and the other service ports (7234, 7235, 7239) and membership ports (6933 to
