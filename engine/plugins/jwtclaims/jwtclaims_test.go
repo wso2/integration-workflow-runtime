@@ -162,12 +162,18 @@ func TestTokensThatAreRefused(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	future, err := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{"sub": "a",
+		"exp": time.Now().Add(2 * time.Hour).Unix(), "iat": time.Now().Add(time.Hour).Unix()}).SignedString(signingKey)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for name, header := range map[string]string{
-		"basic":     "Basic dXNlcjpwYXNz",
-		"no scheme": "abc",
-		"forged":    "Bearer " + forged,
-		"no expiry": "Bearer " + noExpiry,
-		"garbage":   "Bearer not.a.token",
+		"basic":                "Basic dXNlcjpwYXNz",
+		"no scheme":            "abc",
+		"forged":               "Bearer " + forged,
+		"no expiry":            "Bearer " + noExpiry,
+		"issued in the future": "Bearer " + future,
+		"garbage":              "Bearer not.a.token",
 	} {
 		if _, err := m.GetClaims(&authorization.AuthInfo{AuthToken: header}); err == nil {
 			t.Errorf("%s: accepted", name)

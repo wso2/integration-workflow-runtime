@@ -191,3 +191,72 @@ func TestInvalidKeysAreRejected(t *testing.T) {
 		}
 	}
 }
+
+func TestRedirectsFromHTTPSToLoopbackHTTPAreRefused(t *testing.T) {
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"keys":[]}`))
+	}))
+	t.Cleanup(target.Close)
+	srv := redirectServer(t, target.URL+"/jwks")
+	k := NewKeySet([]string{srv.URL + "/jwks"}, 0, tlsClient(srv), log.NewNoopLogger())
+	t.Cleanup(k.Close)
+	if err := k.Refresh(); err == nil || !strings.Contains(err.Error(), "from https to") {
+		t.Fatalf("Refresh = %v, want the downgrade refused", err)
+	}
+}
+
+func TestOnlySignatureKeysAreKept(t *testing.T) {
+	ec, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	point, err := ec.PublicKey.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	pub := signingKey.PublicKey
+	n, e := b64(pub.N.Bytes()), b64(big.NewInt(int64(pub.E)).Bytes())
+	x, y := b64(point[1:33]), b64(point[33:])
+	set := fmt.Sprintf(`{"keys":[
+		{"kty":"RSA","kid":"dup","n":%[1]q,"e":%[2]q},
+		{"kty":"RSA","kid":"dup","n":%[1]q,"e":"Ag"},
+		{"kty":"RSA","kid":"sig","use":"sig","alg":"RS256","key_ops":["verify"],"n":%[1]q,"e":%[2]q},
+		{"kty":"RSA","kid":"enc","use":"enc","n":%[1]q,"e":%[2]q},
+		{"kty":"RSA","kid":"ops","key_ops":["encrypt"],"n":%[1]q,"e":%[2]q},
+		{"kty":"RSA","kid":"rs512","alg":"RS512","n":%[1]q,"e":%[2]q},
+		{"kty":"EC","kid":"ec-enc","use":"enc","crv":"P-256","x":%[3]q,"y":%[4]q},
+		{"kty":"EC","kid":"ec-alg","alg":"ES384","crv":"P-256","x":%[3]q,"y":%[4]q}]}`, n, e, x, y)
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(set))
+	}))
+	t.Cleanup(srv.Close)
+	k := NewKeySet([]string{srv.URL}, 0, tlsClient(srv), log.NewNoopLogger())
+	t.Cleanup(k.Close)
+	for _, kid := range []string{"dup", "sig"} {
+		if _, err := k.RsaKey("RS256", kid); err != nil {
+			t.Errorf("RSA key %s was dropped: %v", kid, err)
+		}
+	}
+	for _, kid := range []string{"enc", "ops", "rs512"} {
+		if _, err := k.RsaKey("RS256", kid); err == nil {
+			t.Errorf("RSA key %s, not for RS256 signatures, was kept", kid)
+		}
+	}
+	for _, kid := range []string{"ec-enc", "ec-alg"} {
+		if _, err := k.EcdsaKey("ES256", kid); err == nil {
+			t.Errorf("EC key %s, not for ES256 signatures, was kept", kid)
+		}
+	}
+}
+
+func TestOversizedKeySetsAreRefused(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"keys":[{"kty":"RSA","kid":"` + strings.Repeat("a", maxDocumentBytes) + `"}]}`))
+	}))
+	t.Cleanup(srv.Close)
+	k := NewKeySet([]string{srv.URL}, 0, tlsClient(srv), log.NewNoopLogger())
+	t.Cleanup(k.Close)
+	if err := k.Refresh(); err == nil || !strings.Contains(err.Error(), "invalid key set") {
+		t.Fatalf("Refresh = %v, want an oversized key set refused", err)
+	}
+}

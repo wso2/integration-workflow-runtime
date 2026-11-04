@@ -83,8 +83,12 @@ role = "write"
   replaced on the way would let anyone sign tokens the engine trusts. The same rule applies to every redirect, at start
   and on each refresh, so the engine reads key sets itself (`jwtclaims.KeySet`); Temporal's key provider follows any
   redirect.
-- Every token is checked for its signature, an expiry, the issuer and audience when set, and a subject. A call
-  without a token, or with a token that maps to no role, is refused, except Temporal's health checks.
+- Each discovery document and key set read is limited to 1 MiB, and a redirect never goes from https to http. Only
+  RS256 and ES256 keys are kept, and only when their `use`, `key_ops` and `alg`, if published, allow verifying that
+  algorithm's signatures; an invalid entry never replaces a valid key with the same `kid`.
+- Every token is checked for its signature, an expiry, the issuer and audience when set, and a subject; one issued in
+  the future (`iat` beyond `leewaySeconds`) is refused. A call without a token, or with a token that maps to no role,
+  is refused, except Temporal's health checks.
 - Refusals return Temporal's generic "Request unauthorized"; the reason goes to the engine log.
 - Temporal's own services reach the frontend through the internal frontend, which is not exposed to clients.
 - Integrations connect with `mode = "SELF_HOSTED"`, the token in `authApiKey` and the CA in `authCaCert`
@@ -105,8 +109,8 @@ Roles from client certificate subjects, tokens issued by the Manager, and task-q
 | Test | Covers |
 |---|---|
 | `engine/plugins/jwtclaims/discovery_test.go` | Discovery: the key set URL, another issuer or a trailing slash, no key set, a plain-http issuer or key set, invalid documents, unreachable providers; which URLs `CheckURL` accepts |
-| `engine/plugins/jwtclaims/keyset_test.go` | Reading RS256 and ES256 keys, keeping them when a refresh fails, refreshing on the interval; a redirect to plain http refused for key sets and discovery, one to https followed |
-| `engine/plugins/jwtclaims/jwtclaims_test.go` | Temporal's format, rules on nested claims, scope strings, regex, issuer, audience, expiry, forged and malformed tokens |
+| `engine/plugins/jwtclaims/keyset_test.go` | Reading RS256 and ES256 keys, keeping them when a refresh fails, refreshing on the interval; a redirect to plain http refused for key sets and discovery, from https to loopback http refused, one to https followed; keys for encryption or another algorithm dropped, a bad entry not replacing a good key with the same ID; oversized key sets refused |
+| `engine/plugins/jwtclaims/jwtclaims_test.go` | Temporal's format, rules on nested claims, scope strings, regex, issuer, audience, expiry, tokens issued in the future, forged and malformed tokens |
 | `engine/internal/runtimeconfig/security_test.go` | TLS, auth and metrics mapping and every validation rule |
 | `engine/internal/cli/cli_test.go` | A start with identity-provider auth; which claim mapper is built; the services the profiles and `--service` pass to the server, including `--service` with an `api`-only profile |
 | `tools/internal/enginetest/security_test.go` | A real engine with TLS, internode mutual TLS and an OpenID Connect provider: an integration token starts and lists in its namespace; another namespace, a reader writing, no token, expired, forged, other-issuer and unmatched tokens, and plaintext are refused; the internal frontend refuses callers without an internode certificate and answers one with it; adding a search attribute works, which goes through the internal frontend with the derived server name; history, matching, worker and every membership port take TLS with a node certificate and refuse callers without one |

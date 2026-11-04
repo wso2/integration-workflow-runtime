@@ -24,8 +24,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math/big"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -39,6 +41,9 @@ import (
 // maxRedirects is net/http's own limit.
 const maxRedirects = 10
 
+// maxDocumentBytes bounds a discovery document or key set, which are a few kilobytes in practice.
+const maxDocumentBytes = 1 << 20
+
 // Client returns the HTTP client for discovery and key sets. It follows a redirect only to a URL CheckURL accepts, so
 // an https endpoint cannot hand the request to plain http.
 func Client(timeout time.Duration) *http.Client {
@@ -51,6 +56,9 @@ func checkRedirect(req *http.Request, via []*http.Request) error {
 	}
 	if err := CheckURL(req.URL.String()); err != nil {
 		return fmt.Errorf("refused a redirect: %w", err)
+	}
+	if via[0].URL.Scheme == "https" && req.URL.Scheme != "https" {
+		return fmt.Errorf("refused a redirect from https to %s", req.URL.Redacted())
 	}
 	return nil
 }
@@ -133,37 +141,72 @@ func (k *KeySet) read(u string, rsaKeys map[string]*rsa.PublicKey, ecKeys map[st
 	var set struct {
 		Keys []jwk `json:"keys"`
 	}
-	if err := json.NewDecoder(res.Body).Decode(&set); err != nil {
+	if err := json.NewDecoder(io.LimitReader(res.Body, maxDocumentBytes)).Decode(&set); err != nil {
 		return fmt.Errorf("invalid key set at %s: %w", u, err)
 	}
 	for _, key := range set.Keys {
-		var err error
-		switch key.Kty {
-		case "RSA":
-			rsaKeys[key.Kid], err = key.rsa()
-		case "EC":
-			ecKeys[key.Kid], err = key.ecdsa()
-		default:
-			err = fmt.Errorf("unsupported key type %q", key.Kty)
-		}
-		if err != nil {
-			delete(rsaKeys, key.Kid)
-			delete(ecKeys, key.Kid)
+		if err := key.store(rsaKeys, ecKeys); err != nil {
 			k.logger.Warn(fmt.Sprintf("ignoring key %q from %s: %v", key.Kid, u, err))
 		}
 	}
 	return nil
 }
 
+// store adds the key to its map when it is valid and published for verifying signatures with RS256 or ES256; a bad
+// entry never replaces a good key with the same ID.
+func (j jwk) store(rsaKeys map[string]*rsa.PublicKey, ecKeys map[string]*ecdsa.PublicKey) error {
+	switch j.Kty {
+	case "RSA":
+		if err := j.allows(jwt.SigningMethodRS256.Name); err != nil {
+			return err
+		}
+		pub, err := j.rsa()
+		if err != nil {
+			return err
+		}
+		rsaKeys[j.Kid] = pub
+	case "EC":
+		if err := j.allows(jwt.SigningMethodES256.Name); err != nil {
+			return err
+		}
+		pub, err := j.ecdsa()
+		if err != nil {
+			return err
+		}
+		ecKeys[j.Kid] = pub
+	default:
+		return fmt.Errorf("unsupported key type %q", j.Kty)
+	}
+	return nil
+}
+
+// allows refuses a key whose published use, operations or algorithm exclude verifying alg signatures; a key that
+// states none of them is accepted, as most providers publish only kty and kid.
+func (j jwk) allows(alg string) error {
+	if j.Use != "" && j.Use != "sig" {
+		return fmt.Errorf("its use is %q, not sig", j.Use)
+	}
+	if len(j.KeyOps) > 0 && !slices.Contains(j.KeyOps, "verify") {
+		return errors.New("its key_ops do not include verify")
+	}
+	if j.Alg != "" && j.Alg != alg {
+		return fmt.Errorf("its alg is %q, not %s", j.Alg, alg)
+	}
+	return nil
+}
+
 // jwk is the part of a JSON Web Key (RFC 7517, 7518) that RS256 and ES256 need.
 type jwk struct {
-	Kty string `json:"kty"`
-	Kid string `json:"kid"`
-	N   string `json:"n"`
-	E   string `json:"e"`
-	Crv string `json:"crv"`
-	X   string `json:"x"`
-	Y   string `json:"y"`
+	Kty    string   `json:"kty"`
+	Kid    string   `json:"kid"`
+	Use    string   `json:"use"`
+	KeyOps []string `json:"key_ops"`
+	Alg    string   `json:"alg"`
+	N      string   `json:"n"`
+	E      string   `json:"e"`
+	Crv    string   `json:"crv"`
+	X      string   `json:"x"`
+	Y      string   `json:"y"`
 }
 
 func (j jwk) rsa() (*rsa.PublicKey, error) {
