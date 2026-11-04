@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strconv"
 	"time"
 
 	"go.temporal.io/server/common/config"
@@ -172,6 +173,14 @@ func (a authSettings) problems() []string {
 	if len(a.JWKSURLs) == 0 && a.Issuer == "" {
 		problems = append(problems, "engine.auth needs the identity provider's issuer (its key set is discovered) or jwksUrls")
 	}
+	for _, u := range a.JWKSURLs {
+		if err := jwtclaims.CheckURL(u); err != nil {
+			problems = append(problems, "engine.auth.jwksUrls: "+err.Error())
+		}
+	}
+	if err := jwtclaims.CheckURL(a.Issuer); len(a.JWKSURLs) == 0 && a.Issuer != "" && err != nil {
+		problems = append(problems, "engine.auth.issuer (its key set is discovered from it): "+err.Error())
+	}
 	if a.KeyRefresh != "" {
 		if d, err := time.ParseDuration(a.KeyRefresh); err != nil || d < time.Second {
 			problems = append(problems, fmt.Sprintf("engine.auth.keyRefreshInterval %q must be a duration of at least 1s", a.KeyRefresh))
@@ -217,8 +226,12 @@ func (m metricsSettings) problems() []string {
 	if m.PrometheusAddress == "" {
 		return nil
 	}
-	if _, port, err := net.SplitHostPort(m.PrometheusAddress); err != nil || port == "" {
+	_, port, err := net.SplitHostPort(m.PrometheusAddress)
+	if err != nil || port == "" {
 		return []string{fmt.Sprintf("engine.metrics.prometheusAddress %q must be host:port", m.PrometheusAddress)}
+	}
+	if n, err := strconv.Atoi(port); err != nil || n < 0 || n > 65535 {
+		return []string{fmt.Sprintf("engine.metrics.prometheusAddress %q has an invalid port", m.PrometheusAddress)}
 	}
 	return nil
 }

@@ -60,7 +60,7 @@ For MySQL use `--plugin mysql8`, port 3306 and the schema names `mysql/v8/tempor
 3. For production, add `[engine.tls]` and `[engine.auth]` ([Secure the engine](secure-the-engine.md)).
 
 :::caution
-`historyShards` (default 512) cannot change after the first start. Decide it before the first start.
+`historyShards` (default 512; 1 for SQLite) cannot change after the first start. Decide it before the first start.
 :::
 
 ## Check the configuration

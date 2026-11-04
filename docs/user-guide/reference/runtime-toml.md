@@ -60,9 +60,9 @@ Each gRPC service also uses a membership port 300 below its port (6933, 6936, 69
 | Key | Default | Description |
 |---|---|---|
 | `type` | `none` | `jwt` to require tokens; `none` needs `--allow-no-auth` |
-| `jwksUrls` | discovered from `issuer` | Your identity provider's key set URLs; set them when the provider has no OpenID Connect discovery document |
+| `jwksUrls` | discovered from `issuer` | Your identity provider's key set URLs (https; plain http only to a loopback host); set them when the provider has no OpenID Connect discovery document |
 | `keyRefreshInterval` | `1m` | How often the key set is fetched again (a duration, at least `1s`) |
-| `issuer` | | Required `iss`; also where the key set is discovered (`<issuer>/.well-known/openid-configuration`). `issuer` or `jwksUrls` is required for `jwt` |
+| `issuer` | | Required `iss`, exactly as tokens carry it; also where the key set is discovered over https (`<issuer>/.well-known/openid-configuration`). `issuer` or `jwksUrls` is required for `jwt` |
 | `audience` | not checked | Required value in `aud` |
 | `subjectClaim` | `sub` | Claim naming the caller |
 | `rolesClaim` | `permissions` | Claim holding groups, roles or scopes; a dotted path reads a nested claim |

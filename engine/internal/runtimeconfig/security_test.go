@@ -157,11 +157,13 @@ role = "admin"
 
 func TestAuthErrors(t *testing.T) {
 	for toml, want := range map[string]string{
-		"[engine.auth]\ntype = \"oauth\"\n":                                                  `must be "jwt" or "none"`,
-		"[engine.auth]\ntype = \"jwt\"\n":                                                    "needs the identity provider's issuer",
-		"[engine.auth]\njwksUrls = [\"https://idp\"]\n":                                      `type is not "jwt"`,
-		"[engine.auth]\ntype = \"jwt\"\njwksUrls = [\"x\"]\nkeyRefreshInterval = \"soon\"\n": "keyRefreshInterval",
-		"[engine.auth]\ntype = \"jwt\"\njwksUrls = [\"x\"]\nleewaySeconds = -1\n":            "leewaySeconds",
+		"[engine.auth]\ntype = \"oauth\"\n":                                                                                              `must be "jwt" or "none"`,
+		"[engine.auth]\ntype = \"jwt\"\n":                                                                                                "needs the identity provider's issuer",
+		"[engine.auth]\njwksUrls = [\"https://idp\"]\n":                                                                                  `type is not "jwt"`,
+		"[engine.auth]\ntype = \"jwt\"\njwksUrls = [\"x\"]\nkeyRefreshInterval = \"soon\"\n":                                             "keyRefreshInterval",
+		"[engine.auth]\ntype = \"jwt\"\njwksUrls = [\"http://idp.example/jwks\"]\n":                                                      "jwksUrls: \"http://idp.example/jwks\" must use https",
+		"[engine.auth]\ntype = \"jwt\"\nissuer = \"http://idp.example\"\n":                                                               "issuer (its key set is discovered from it)",
+		"[engine.auth]\ntype = \"jwt\"\njwksUrls = [\"x\"]\nleewaySeconds = -1\n":                                                        "leewaySeconds",
 		"[engine.auth]\ntype = \"jwt\"\njwksUrls = [\"x\"]\n[[engine.auth.rules]]\nvalue = \"a\"\nnamespace = \"b\"\nrole = \"owner\"\n": `role "owner"`,
 	} {
 		_, err := parse([]byte(toml+sqliteDB), noEnv)
@@ -179,9 +181,12 @@ func TestMetrics(t *testing.T) {
 	if off := mustParseRuntime(t, sqliteDB).Temporal.Global.Metrics; off != nil {
 		t.Errorf("metrics without settings = %+v", off)
 	}
-	if _, err := parse([]byte("[engine.metrics]\nprometheusAddress = \"9464\"\n"+sqliteDB), noEnv); err == nil ||
-		!strings.Contains(err.Error(), "must be host:port") {
-		t.Errorf("err = %v", err)
+	for address, want := range map[string]string{"9464": "must be host:port", "0.0.0.0:70000": "invalid port",
+		"0.0.0.0:metrics": "invalid port"} {
+		_, err := parse([]byte("[engine.metrics]\nprometheusAddress = \""+address+"\"\n"+sqliteDB), noEnv)
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%s: err = %v, want %q", address, err, want)
+		}
 	}
 }
 

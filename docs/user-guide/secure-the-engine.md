@@ -93,9 +93,16 @@ Keycloak, Auth0 and others.
    `[engine.auth]` needs `[engine.tls]`: the engine refuses to accept tokens in plain text.
 
    :::caution
-   Set `issuer`, and `audience` when your provider sets one for the engine. Without either, the engine accepts any
-   unexpired token the provider signed, including tokens it issued for other applications, and logs a warning.
+   `issuer` alone does not limit tokens to this engine: any unexpired token the provider issued, including tokens
+   for its other applications, passes, and its groups grant the roles your rules map. Set `audience` to the value
+   your provider puts in tokens for the engine (an API or resource identifier), or map rules only from groups that
+   no other application's tokens carry. With neither `issuer` nor `audience`, the engine logs a warning at start.
    :::
+
+   The key set is fetched over https, and so is the discovery document; the engine refuses a plain `http` issuer,
+   `jwksUrls` entry or discovered `jwks_uri` unless it points at the same machine, because keys sent in plain text
+   could be replaced on the way. The issuer must match the discovery document's `issuer` exactly, trailing slash
+   included.
 
 3. Restart the engine.
 

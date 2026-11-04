@@ -25,7 +25,7 @@ connection, and tokens from the customer's own identity provider mapped to Tempo
 | Key | Default | Meaning |
 |---|---|---|
 | `type` | `none` | `jwt` checks a bearer token on every call; `none` needs `--allow-no-auth` |
-| `jwksUrls` | discovered from `issuer` | The identity provider's key set (JWKS) URLs, when it has no OpenID Connect discovery document |
+| `jwksUrls` | discovered from `issuer` | The identity provider's key set (JWKS) URLs, when it has no OpenID Connect discovery document; https, or http to a loopback host |
 | `keyRefreshInterval` | `1m` | How often the key set is fetched again |
 | `issuer` | | Required value of `iss`, and where the key set is discovered at start (`<issuer>/.well-known/openid-configuration`); `issuer` or `jwksUrls` is required |
 | `audience` | not checked | Required value in `aud` |
@@ -74,7 +74,9 @@ role = "write"
 - With neither `issuer` nor `audience`, every unexpired token the key set signs is accepted; the start logs a
   warning.
 - With `issuer` and no `jwksUrls`, the start command reads the provider's OpenID Connect discovery document and uses
-  its `jwks_uri`; the document must name the same issuer, and the engine does not start if it cannot read it.
+  its `jwks_uri`; the document must name exactly the same issuer, and the engine does not start if it cannot read it.
+- Key sets and discovery documents are fetched only over https (plain http only to a loopback host): a key set
+  replaced on the way would let anyone sign tokens the engine trusts.
 - Every token is checked for its signature, an expiry, the issuer and audience when set, and a subject. A call
   without a token, or with a token that maps to no role, is refused, except Temporal's health checks.
 - Refusals return Temporal's generic "Request unauthorized"; the reason goes to the engine log.
@@ -96,7 +98,7 @@ Roles from client certificate subjects, tokens issued by the Manager, and task-q
 
 | Test | Covers |
 |---|---|
-| `engine/plugins/jwtclaims/discovery_test.go` | Discovery: the key set URL, another issuer, no key set, invalid documents, unreachable providers |
+| `engine/plugins/jwtclaims/discovery_test.go` | Discovery: the key set URL, another issuer or a trailing slash, no key set, a plain-http issuer or key set, invalid documents, unreachable providers; which URLs `CheckURL` accepts |
 | `engine/plugins/jwtclaims/jwtclaims_test.go` | Temporal's format, rules on nested claims, scope strings, regex, issuer, audience, expiry, forged and malformed tokens |
 | `engine/internal/runtimeconfig/security_test.go` | TLS, auth and metrics mapping and every validation rule |
 | `engine/internal/cli/cli_test.go` | A start with identity-provider auth; which claim mapper is built; the services the profiles and `--service` pass to the server |

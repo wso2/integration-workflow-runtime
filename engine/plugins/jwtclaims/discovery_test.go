@@ -44,7 +44,7 @@ func TestDiscover(t *testing.T) {
 	srv := discoveryServer(t, func(base string) string {
 		return `{"issuer":"` + base + `/oauth2/token","jwks_uri":"` + base + `/oauth2/jwks"}`
 	}, http.StatusOK)
-	got, err := Discover(context.Background(), srv.Client(), srv.URL+"/oauth2/token/")
+	got, err := Discover(context.Background(), srv.Client(), srv.URL+"/oauth2/token")
 	if err != nil || got != srv.URL+"/oauth2/jwks" {
 		t.Fatalf("Discover = %q, %v", got, err)
 	}
@@ -57,9 +57,15 @@ func TestDiscoverErrors(t *testing.T) {
 		want   string
 	}{
 		"other issuer": {func(string) string { return `{"issuer":"https://evil","jwks_uri":"https://evil/jwks"}` }, 200, "names issuer"},
-		"no jwks":      {func(b string) string { return `{"issuer":"` + b + `/oauth2/token"}` }, 200, "no jwks_uri"},
-		"not json":     {func(string) string { return "<html>" }, 200, "invalid discovery document"},
-		"not found":    {func(string) string { return "" }, 404, "404"},
+		"issuer with a trailing slash": {func(b string) string { return `{"issuer":"` + b + `/oauth2/token/","jwks_uri":"` + b + `/jwks"}` },
+			200, "names issuer"},
+		"plain jwks_uri": {func(b string) string {
+			return `{"issuer":"` + b + `/oauth2/token","jwks_uri":"http://idp.example/jwks"}`
+		},
+			200, "unsafe jwks_uri"},
+		"no jwks":   {func(b string) string { return `{"issuer":"` + b + `/oauth2/token"}` }, 200, "no jwks_uri"},
+		"not json":  {func(string) string { return "<html>" }, 200, "invalid discovery document"},
+		"not found": {func(string) string { return "" }, 404, "404"},
 	}
 	for name, tt := range tests {
 		srv := discoveryServer(t, tt.body, tt.status)
@@ -73,5 +79,27 @@ func TestDiscoverErrors(t *testing.T) {
 	}
 	if _, err := Discover(context.Background(), http.DefaultClient, "://bad"); err == nil {
 		t.Error("an invalid issuer was accepted")
+	}
+	if _, err := Discover(context.Background(), http.DefaultClient, "http://idp.example/oauth2/token"); err == nil ||
+		!strings.Contains(err.Error(), "must use https") {
+		t.Errorf("a plain http issuer: err = %v", err)
+	}
+}
+
+func TestCheckURL(t *testing.T) {
+	for raw, ok := range map[string]bool{
+		"https://idp.example/jwks":   true,
+		"http://127.0.0.1:8080/jwks": true,
+		"http://[::1]:8080/jwks":     true,
+		"http://localhost/jwks":      true,
+		"http://idp.example/jwks":    false,
+		"http://10.0.0.5/jwks":       false,
+		"ftp://idp.example/jwks":     false,
+		"idp.example/jwks":           false,
+		"":                           false,
+	} {
+		if err := CheckURL(raw); (err == nil) != ok {
+			t.Errorf("CheckURL(%q) = %v, want ok = %v", raw, err, ok)
+		}
 	}
 }

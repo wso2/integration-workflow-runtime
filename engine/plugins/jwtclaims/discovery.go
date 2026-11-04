@@ -21,7 +21,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -32,6 +34,9 @@ const discoveryTimeout = 15 * time.Second
 // Discover reads the provider's OpenID Connect discovery document (<issuer>/.well-known/openid-configuration) and
 // returns its key set URL. The document must name the same issuer, as the OpenID Connect specification requires.
 func Discover(ctx context.Context, client *http.Client, issuer string) (string, error) {
+	if err := CheckURL(issuer); err != nil {
+		return "", fmt.Errorf("invalid issuer: %w", err)
+	}
 	url := strings.TrimSuffix(issuer, "/") + "/.well-known/openid-configuration"
 	ctx, cancel := context.WithTimeout(ctx, discoveryTimeout)
 	defer cancel()
@@ -54,11 +59,39 @@ func Discover(ctx context.Context, client *http.Client, issuer string) (string, 
 	if err := json.NewDecoder(res.Body).Decode(&doc); err != nil {
 		return "", fmt.Errorf("invalid discovery document at %s: %w", url, err)
 	}
-	if strings.TrimSuffix(doc.Issuer, "/") != strings.TrimSuffix(issuer, "/") {
+	// Exactly: tokens are checked against the configured issuer as written, trailing slash included.
+	if doc.Issuer != issuer {
 		return "", fmt.Errorf("the discovery document at %s names issuer %q, not %q", url, doc.Issuer, issuer)
 	}
 	if doc.JWKSURI == "" {
 		return "", errors.New("the discovery document at " + url + " has no jwks_uri")
 	}
+	if err := CheckURL(doc.JWKSURI); err != nil {
+		return "", fmt.Errorf("the discovery document at %s names an unsafe jwks_uri: %w", url, err)
+	}
 	return doc.JWKSURI, nil
+}
+
+// CheckURL accepts an https URL, and plain http only to a loopback host: keys and discovery documents fetched over
+// the network in plain text could be replaced on the way, letting anyone sign tokens the engine trusts.
+func CheckURL(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return fmt.Errorf("%q is not an absolute URL", raw)
+	}
+	switch {
+	case u.Scheme == "https":
+		return nil
+	case u.Scheme == "http" && isLoopback(u.Hostname()):
+		return nil
+	case u.Scheme == "http":
+		return fmt.Errorf("%q must use https; plain http is accepted only for a loopback host", raw)
+	default:
+		return fmt.Errorf("%q must be an https URL", raw)
+	}
+}
+
+func isLoopback(host string) bool {
+	ip := net.ParseIP(host)
+	return host == "localhost" || ip != nil && ip.IsLoopback()
 }
