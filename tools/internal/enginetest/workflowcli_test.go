@@ -120,6 +120,62 @@ func TestWorkflowCLIOnADevEngine(t *testing.T) {
 		t.Errorf("a closed workflow was terminated again:\n%s", out)
 	}
 	w.mustContain(cli("task-queue", "describe", "-n", "orders", "-t", "orders"), "No worker has polled")
+
+	// Reset replays a workflow from a completed workflow task into a new run.
+	e.must("workflow", "start", "--namespace", "orders", "--type", "Order", "--task-queue", "resets",
+		"--workflow-id", "order-4")
+	completeWorkflowTask(t, fmt.Sprintf("127.0.0.1:%d", base), "orders", "resets")
+	before := e.workflow("orders", "order-4")
+	w.mustContain(cli("workflow", "reset", "-n", "orders", "-w", "order-4", "--type", "LastWorkflowTask",
+		"--reason", "replay"), "the new run is")
+	if after := e.workflow("orders", "order-4"); after.RunID == before.RunID || after.Status != "WORKFLOW_EXECUTION_STATUS_RUNNING" {
+		t.Errorf("after reset: run %s (%s), want a new running run besides %s", after.RunID, after.Status, before.RunID)
+	}
+
+	// A batch job terminates every workflow a query matches, run by the engine's own worker.
+	for _, id := range []string{"job-a", "job-b"} {
+		e.must("workflow", "start", "--namespace", "orders", "--type", "Job", "--task-queue", "jobs",
+			"--workflow-id", id, "--search-attribute", `WorkflowKind="orders.Job"`)
+	}
+	jobs := `WorkflowKind="orders.Job" AND ExecutionStatus="Running"`
+	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(time.Second) {
+		if strings.Contains(cli("workflow", "count", "-n", "orders", "-q", jobs), "Total: 2") {
+			break
+		}
+	}
+	out = cli("workflow", "terminate", "-n", "orders", "-q", jobs, "--reason", "retired", "--yes")
+	w.mustContain(out, "started to terminate 2 workflows")
+	jobID := strings.Fields(strings.TrimPrefix(out, "Batch job "))[0]
+	for deadline := time.Now().Add(60 * time.Second); time.Now().Before(deadline); time.Sleep(time.Second) {
+		if out = cli("batch", "describe", "-n", "orders", "--job-id", jobID); strings.Contains(out, "Completed") {
+			break
+		}
+	}
+	w.mustContain(out, "Completed", "Done        2")
+	w.mustContain(cli("batch", "list", "-n", "orders"), jobID)
+	for _, id := range []string{"job-a", "job-b"} {
+		if got := e.workflow("orders", id); got.Status != "WORKFLOW_EXECUTION_STATUS_TERMINATED" {
+			t.Errorf("%s after the batch job: %s", id, got.Status)
+		}
+	}
+
+	// A schedule starts its workflow when triggered, and pauses, resumes and goes away on request.
+	cli("schedule", "create", "-n", "orders", "-s", "hourly", "--interval", "1h", "--workflow-id", "hourly-report",
+		"--type", "Report", "-t", "reports", "--paused")
+	w.mustContain(cli("schedule", "list", "-n", "orders"), "hourly", "Report", "true")
+	cli("schedule", "trigger", "-n", "orders", "-s", "hourly")
+	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(time.Second) {
+		if out = cli("schedule", "describe", "-n", "orders", "-s", "hourly"); strings.Contains(out, "Runs           1") {
+			break
+		}
+	}
+	w.mustContain(out, "Runs           1", "Interval       1h0m0s", "Paused         true")
+	cli("schedule", "toggle", "-n", "orders", "-s", "hourly", "--unpause")
+	w.mustContain(cli("schedule", "describe", "-n", "orders", "-s", "hourly"), "Paused         false")
+	cli("schedule", "delete", "-n", "orders", "-s", "hourly")
+	if out, err := w.run(append([]string{"schedule", "describe", "-n", "orders", "-s", "hourly"}, addr...)...); err == nil {
+		t.Errorf("a deleted schedule is still described:\n%s", out)
+	}
 }
 
 // TestWorkflowCLIOnASecuredEngine reaches a secured engine through a profile, with tokens of different roles, and
