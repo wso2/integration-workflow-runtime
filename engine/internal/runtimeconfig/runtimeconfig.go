@@ -227,6 +227,9 @@ func (s *settings) validate() error {
 	}
 	if e.BroadcastAddress == "" {
 		problems = append(problems, "engine.broadcastAddress is required when engine.bindAddress is 0.0.0.0")
+	} else if ip := net.ParseIP(e.BroadcastAddress); ip != nil && ip.IsUnspecified() {
+		problems = append(problems, fmt.Sprintf("engine.broadcastAddress %q must be an address other nodes can reach",
+			e.BroadcastAddress))
 	}
 	if e.HistoryShards < 1 {
 		problems = append(problems, "engine.historyShards must be at least 1")
