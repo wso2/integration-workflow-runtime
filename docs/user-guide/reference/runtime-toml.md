@@ -104,5 +104,5 @@ Each gRPC service also uses a membership port 300 below its port (6933, 6936, 69
 | `enabled` | `false` | TLS to the database server (PostgreSQL and MySQL; refused for SQLite) |
 | `caFile` | system roots | CA that signs the server's certificate (for Amazon RDS, its certificate bundle) |
 | `certFile`, `keyFile` | | Client certificate, when the server requires one |
-| `serverName` | the host | Name to verify in the server's certificate |
+| `serverName` | the host | MySQL only: name to verify in the server's certificate. PostgreSQL always verifies `host`, so set `host` to the name on the certificate |
 | `enableHostVerification` | `true` | Verify the server's certificate and host name; `false` turns verification off |
