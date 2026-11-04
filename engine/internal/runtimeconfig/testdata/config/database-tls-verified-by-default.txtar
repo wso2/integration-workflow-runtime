@@ -6,7 +6,6 @@ host = "db"
 [database.tls]
 enabled = true
 caFile = "/certs/ca.pem"
-serverName = "db.internal"
 -- temporal.yaml --
 global:
     membership:
@@ -107,7 +106,7 @@ persistence:
                     keyFile: ""
                     caFile: /certs/ca.pem
                     enableHostVerification: true
-                    serverName: db.internal
+                    serverName: ""
                     certData: ""
                     keyData: ""
                     caData: ""
@@ -135,7 +134,7 @@ persistence:
                     keyFile: ""
                     caFile: /certs/ca.pem
                     enableHostVerification: true
-                    serverName: db.internal
+                    serverName: ""
                     certData: ""
                     keyData: ""
                     caData: ""

@@ -271,6 +271,11 @@ func (s *settings) validate() error {
 		d.TLS.ServerName != "" || d.TLS.EnableHostVerification != nil) {
 		problems = append(problems, "database.tls settings are set but database.tls.enabled is false")
 	}
+	// Temporal's PostgreSQL DSN has no server name setting, so pgx always verifies the certificate against the host.
+	if d.Type == typePostgreSQL && d.TLS.ServerName != "" {
+		problems = append(problems, "database.tls.serverName is not supported for a postgresql database; "+
+			"set database.host to the name on the database certificate")
+	}
 	if len(problems) > 0 {
 		return errors.New("invalid runtime configuration: " + strings.Join(problems, "; "))
 	}

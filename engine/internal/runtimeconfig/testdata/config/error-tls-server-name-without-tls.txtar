@@ -1,6 +1,6 @@
 -- runtime.toml --
 [database]
-type = "postgresql"
+type = "mysql"
 host = "db"
 
 [database.tls]
