@@ -110,7 +110,9 @@ jobs:
         env:
           WORKFLOW_ENGINE: ${{ github.workspace }}/build/workflow-engine
           WORKFLOW_CLI: ${{ github.workspace }}/build/workflow-cli
-        run: go test -count=1 -v ./internal/enginetest
+        run: |
+          go test -count=1 -v ./internal/enginetest
+          cd ../cli && go test -count=1 -v -run OnARealEngine ./internal/command
       - name: Run the ${{ matrix.suite }} suite on ${{ matrix.database }}
         env:
           ENGINE_LOG_DIR: build/logs

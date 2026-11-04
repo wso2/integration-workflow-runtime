@@ -38,6 +38,9 @@ cd tools && WORKFLOW_ENGINE=$PWD/../build/workflow-engine WORKFLOW_CLI=$PWD/../b
   go test -count=1 -v ./internal/enginetest
 ```
 
+`workflow-cli`'s reset test needs a worker, which takes the Temporal API, so it runs from the CLI module, with the same
+`WORKFLOW_ENGINE`: `cd cli && go test -run OnARealEngine ./internal/command`.
+
 ## Ballerina suites
 
 The suites run real Ballerina programs on jBallerina against the engine binary built from the same commit. They
