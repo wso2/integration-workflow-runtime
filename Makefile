@@ -140,10 +140,14 @@ test-full: engine
 
 # The GitHub Actions gates and Ballerina suites in Docker, PostgreSQL and MySQL included; nothing else to install.
 # DOCKER_TARGET: all (default), gates, smoke or full. DATABASES: a subset of "sqlite postgresql mysql".
-COMPOSE := docker compose -f tests/docker/compose.yml
+# Each checkout gets its own Compose project, so runs in different worktrees never stop each other's containers.
+DOCKER_DATABASES := $(or $(DATABASES),sqlite postgresql mysql)
+DOCKER_PROFILES := $(if $(filter gates,$(DOCKER_TARGET)),,$(foreach db,$(filter postgresql mysql,$(DOCKER_DATABASES)),--profile $(db)))
+COMPOSE := docker compose -f tests/docker/compose.yml \
+	-p workflow-runtime-tests-$(shell printf '%s' '$(CURDIR)' | cksum | cut -d' ' -f1) $(DOCKER_PROFILES)
 test-docker:
 	@mkdir -p $(OUT)/docker
-	@GIT_COMMON_DIR="$$(cd "$$(git rev-parse --git-common-dir)" && pwd)" $(COMPOSE) run --rm --build runner $(or $(DOCKER_TARGET),all) "$(or $(DATABASES),sqlite postgresql mysql)"; \
+	@GIT_COMMON_DIR="$$(cd "$$(git rev-parse --git-common-dir)" && pwd)" $(COMPOSE) run --rm --build runner $(or $(DOCKER_TARGET),all) "$(DOCKER_DATABASES)"; \
 		status=$$?; $(COMPOSE) down --volumes=false --remove-orphans >/dev/null 2>&1; exit $$status
 
 install-hooks:

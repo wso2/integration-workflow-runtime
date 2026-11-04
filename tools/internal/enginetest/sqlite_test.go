@@ -30,7 +30,7 @@ func TestSQLiteFileSurvivesRestart(t *testing.T) {
 	dir := t.TempDir()
 	db := filepath.Join(dir, "engine.db")
 	base := freeBase(t)
-	config := writeConfig(t, dir, ports(base)+"[database]\ntype = \"sqlite\"\npath = \""+db+"\"\n")
+	config := writeConfig(t, dir, ports(base)+"[database]\ntype = \"sqlite\"\npath = "+tomlString(db)+"\n")
 
 	first := start(t, binary, base, "start", "--runtime-config", config, "--allow-no-auth")
 	if _, err := os.Stat(db); err != nil {

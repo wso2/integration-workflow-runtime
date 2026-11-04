@@ -25,6 +25,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -39,6 +40,7 @@ type engine struct {
 	cmd     *exec.Cmd
 	log     *bytes.Buffer
 	address string
+	done    chan struct{} // closed when the process exits
 }
 
 // binaries returns the engine binary and the temporal CLI, or skips the test.
@@ -55,9 +57,11 @@ func binaries(t *testing.T) (string, string) {
 	return path, cli
 }
 
-// freeBase finds a frontend port whose service ports (+1 to +10) and membership ports (-300) are free.
+// freeBase finds a frontend port whose service ports (+1 to +10) and membership ports (-300) are free. It holds the
+// host-wide port lock until an engine on that range reports SERVING, so concurrent runs never pick the same range.
 func freeBase(t *testing.T) int {
 	t.Helper()
+	lockPorts(t)
 	for base := 20000 + os.Getpid()%5000; base < 32000; base += 20 {
 		ok := true
 		for _, offset := range []int{0, 1, 2, 3, 6, 10, -300, -299, -298, -297, -294} {
@@ -94,16 +98,25 @@ func writeConfig(t *testing.T, dir, toml string) string {
 // start runs the engine with args and waits until its frontend reports SERVING.
 func start(t *testing.T, binary string, base int, args ...string) *engine {
 	t.Helper()
+	lockPorts(t) // a restart on the same range takes the lock again
 	e := &engine{t: t, log: &bytes.Buffer{}, address: fmt.Sprintf("127.0.0.1:%d", base)}
 	e.cmd = exec.Command(binary, args...) //nolint:gosec // the engine under test
 	e.cmd.Stdout, e.cmd.Stderr = e.log, e.log
 	if err := e.cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
+	e.done = make(chan struct{})
+	go func() { _ = e.cmd.Wait(); close(e.done) }()
 	t.Cleanup(e.stop)
 	deadline := time.Now().Add(startTimeout)
 	for time.Now().Before(deadline) {
+		select {
+		case <-e.done:
+			t.Fatalf("the engine exited before it reported SERVING:\n%s", e.log)
+		default:
+		}
 		if out, err := e.temporal("operator", "cluster", "health"); err == nil && strings.Contains(out, "SERVING") {
+			unlockPorts()
 			return e
 		}
 		time.Sleep(time.Second)
@@ -114,17 +127,17 @@ func start(t *testing.T, binary string, base int, args ...string) *engine {
 
 // stop ends the engine with SIGTERM, as a service manager does, and waits for it.
 func (e *engine) stop() {
-	if e.cmd.ProcessState != nil {
+	select {
+	case <-e.done:
 		return
+	default:
 	}
 	_ = e.cmd.Process.Signal(syscall.SIGTERM)
-	done := make(chan struct{})
-	go func() { _ = e.cmd.Wait(); close(done) }()
 	select {
-	case <-done:
+	case <-e.done:
 	case <-time.After(30 * time.Second):
 		_ = e.cmd.Process.Kill()
-		<-done
+		<-e.done
 	}
 }
 
@@ -169,4 +182,9 @@ func (e *engine) must(args ...string) string {
 		e.t.Fatalf("temporal %s: %v\n%s\nengine log:\n%s", strings.Join(args, " "), err, out, e.log)
 	}
 	return out
+}
+
+// tomlString quotes s as a TOML basic string; a Windows path's backslashes would otherwise be escapes.
+func tomlString(s string) string {
+	return strconv.Quote(s)
 }

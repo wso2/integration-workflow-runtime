@@ -24,7 +24,8 @@
 ## Engine tests
 
 `tools/internal/enginetest` starts the built `workflow-engine` on free ports and drives it with the Temporal CLI, for
-behavior a configuration test cannot show, such as a SQLite file surviving a restart. The tests skip unless
+behavior a configuration test cannot show, such as a SQLite file surviving a restart. A lock file in the temporary
+directory keeps concurrent runs on one host from picking the same ports. The tests skip unless
 `WORKFLOW_ENGINE` names the engine binary and `temporal` is on `PATH`:
 
 ```sh
@@ -69,12 +70,15 @@ make test-docker DOCKER_TARGET=smoke DATABASES=postgresql     # one suite on one
 make test-docker DOCKER_TARGET=gates                          # make check and make sbom only
 ```
 
-`tests/docker/compose.yml` starts PostgreSQL and MySQL on 15432 and 13306 in one network namespace with the runner,
-so `tests/engine/runtime-*.toml` work unchanged. The runner image (`tests/docker/Dockerfile`) has the Go toolchain,
+`tests/docker/compose.yml` starts the selected databases (PostgreSQL on 15432, MySQL on 13306; neither for
+`DOCKER_TARGET=gates` or SQLite only) in one network namespace with the runner, so `tests/engine/runtime-*.toml`
+work unchanged. Each checkout runs as its own Compose project, so runs in different worktrees do not stop each
+other's containers; runs in the same checkout share `build/docker/`, so run them one at a time. The runner image (`tests/docker/Dockerfile`) has the Go toolchain,
 the Temporal CLI and Ballerina on Java 25; the pinned Go tools are installed into a volume on first use. Each run works on a fresh copy of the source tree,
 uncommitted changes included, with empty databases; engine logs land in `build/docker/`. Go, tool and
-Ballerina caches are kept in Docker volumes between runs. If a run reports a damaged module cache (for example
-after the Docker disk filled up), reset them with `docker compose -f tests/docker/compose.yml down --volumes`.
+Ballerina caches are kept in Docker volumes (`workflow-runtime-tests-*`) shared by every checkout. If a run reports
+a damaged module cache (for example after the Docker disk filled up), remove them with
+`docker volume rm $(docker volume ls -q --filter name=workflow-runtime-tests-)`.
 
 ### Adding a Ballerina test
 

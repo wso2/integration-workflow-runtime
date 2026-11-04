@@ -28,6 +28,7 @@ services:
 
   postgres:
     <<: *shared-network
+    profiles: [postgresql]
     image: postgres:16
     command: ["postgres", "-p", "15432"]
     environment:
@@ -41,6 +42,7 @@ services:
 
   mysql:
     <<: *shared-network
+    profiles: [mysql]
     image: mysql:8.4
     command: ["--port=13306", "--mysqlx=OFF"]
     environment:
@@ -54,9 +56,10 @@ services:
   runner:
     <<: *shared-network
     build: .
+    # Only the databases whose profiles the Makefile enables start; gates and SQLite-only runs need neither.
     depends_on:
-      postgres: {condition: service_healthy}
-      mysql: {condition: service_healthy}
+      postgres: {condition: service_healthy, required: false}
+      mysql: {condition: service_healthy, required: false}
     environment:
       WORKFLOW_TEST_DB_PASSWORD: ${WORKFLOW_TEST_DB_PASSWORD:-workflow-test}
     volumes:
@@ -70,9 +73,10 @@ services:
       - tools:/opt/tools
       - ballerina:/root/.ballerina
 
+# Caches are shared by every checkout's project; Go and Ballerina caches are safe to use concurrently.
 volumes:
-  tools:
-  go-mod:
-  go-build:
-  golangci:
-  ballerina:
+  tools: {name: workflow-runtime-tests-tools}
+  go-mod: {name: workflow-runtime-tests-go-mod}
+  go-build: {name: workflow-runtime-tests-go-build}
+  golangci: {name: workflow-runtime-tests-golangci}
+  ballerina: {name: workflow-runtime-tests-ballerina}
