@@ -101,6 +101,7 @@ github.com/grpc-ecosystem/grpc-gateway/v2,https://github.com/grpc-ecosystem/grpc
 github.com/hailocab/go-hostpool,https://github.com/hailocab/go-hostpool/blob/e80d13ce29ed/LICENSE,MIT
 github.com/huandu/xstrings,https://github.com/huandu/xstrings/blob/v1.5.0/LICENSE,MIT
 github.com/iancoleman/strcase,https://github.com/iancoleman/strcase/blob/v0.3.0/LICENSE,MIT
+github.com/inconshreveable/mousetrap,https://github.com/inconshreveable/mousetrap/blob/v1.1.0/LICENSE,Apache-2.0
 github.com/jackc/pgpassfile,https://github.com/jackc/pgpassfile/blob/v1.0.0/LICENSE,MIT
 github.com/jackc/pgservicefile,https://github.com/jackc/pgservicefile/blob/5a60cdf6a761/LICENSE,MIT
 github.com/jackc/pgx/v5,https://github.com/jackc/pgx/blob/v5.10.0/LICENSE,MIT
@@ -149,6 +150,7 @@ github.com/shopspring/decimal,https://github.com/shopspring/decimal/blob/v1.4.0/
 github.com/sirupsen/logrus,https://github.com/sirupsen/logrus/blob/v1.9.4/LICENSE,MIT
 github.com/sony/gobreaker,https://github.com/sony/gobreaker/blob/v1.0.0/LICENSE,MIT
 github.com/spf13/cast,https://github.com/spf13/cast/blob/v1.10.0/LICENSE,MIT
+github.com/spf13/cobra,https://github.com/spf13/cobra/blob/v1.10.2/LICENSE.txt,Apache-2.0
 github.com/spf13/pflag,https://github.com/spf13/pflag/blob/v1.0.10/LICENSE,BSD-3-Clause
 github.com/spiffe/go-spiffe/v2,https://github.com/spiffe/go-spiffe/blob/v2.7.0/LICENSE,Apache-2.0
 github.com/stretchr/objx,https://github.com/stretchr/objx/blob/v0.5.3/LICENSE,MIT
@@ -161,6 +163,7 @@ github.com/twmb/murmur3,https://github.com/twmb/murmur3/blob/v1.1.8/LICENSE,BSD-
 github.com/uber-common/bark,https://github.com/uber-common/bark/blob/v1.3.0/LICENSE,MIT
 github.com/uber-go/tally/v4,https://github.com/uber-go/tally/blob/v4.1.17/LICENSE,MIT
 github.com/urfave/cli,https://github.com/urfave/cli/blob/v1.22.17/LICENSE,MIT
+github.com/wso2/integration-workflow-runtime/cli,https://github.com/wso2/integration-workflow-runtime/blob/HEAD/cli/LICENSE,Apache-2.0
 github.com/wso2/integration-workflow-runtime/engine,https://github.com/wso2/integration-workflow-runtime/blob/HEAD/engine/LICENSE,Apache-2.0
 github.com/x448/float16,https://github.com/x448/float16/blob/v0.8.4/LICENSE,MIT
 go.opentelemetry.io/auto/sdk,https://github.com/open-telemetry/opentelemetry-go-instrumentation/blob/sdk/v1.2.1/sdk/LICENSE,Apache-2.0
@@ -195,6 +198,7 @@ go.temporal.io/api/internal/protojson,https://github.com/temporalio/api-go/blob/
 go.temporal.io/auto-scaled-workers/wci,https://github.com/temporalio/temporal-auto-scaled-workers/blob/v0.2.0-1.32.0.158.0/LICENSE,MIT
 go.temporal.io/sdk,https://github.com/temporalio/sdk-go/blob/v1.44.0/LICENSE,MIT
 go.temporal.io/server,https://github.com/temporalio/temporal/blob/v1.32.1/LICENSE,MIT
+go.temporal.io/server/api,https://github.com/temporalio/temporal/blob/v1.32.1/LICENSE,MIT
 go.temporal.io/server/common/persistence/sql/sqlplugin/sqlite,https://github.com/temporalio/temporal/blob/v1.32.1/common/persistence/sql/sqlplugin/sqlite/LICENSE,MIT
 go.temporal.io/server/common/persistence/visibility/store/query,https://github.com/temporalio/temporal/blob/v1.32.1/common/persistence/visibility/store/query/LICENSE,MIT
 go.temporal.io/server/schema/sqlite,https://github.com/temporalio/temporal/blob/v1.32.1/schema/sqlite/LICENSE,MIT
@@ -222,6 +226,7 @@ google.golang.org/api/internal/third_party/uritemplates,https://github.com/googl
 google.golang.org/genproto/googleapis,https://github.com/googleapis/go-genproto/blob/e10c466a9529/LICENSE,Apache-2.0
 google.golang.org/genproto/googleapis/api,https://github.com/googleapis/go-genproto/blob/6ac0973c030d/googleapis/api/LICENSE,Apache-2.0
 google.golang.org/genproto/googleapis/rpc,https://github.com/googleapis/go-genproto/blob/6ac0973c030d/googleapis/rpc/LICENSE,Apache-2.0
+google.golang.org/genproto/googleapis/rpc/status,https://github.com/googleapis/go-genproto/blob/6ac0973c030d/googleapis/rpc/LICENSE,Apache-2.0
 google.golang.org/grpc,https://github.com/grpc/grpc-go/blob/v1.83.2/LICENSE,Apache-2.0
 google.golang.org/protobuf,https://github.com/protocolbuffers/protobuf-go/blob/v1.36.11/LICENSE,BSD-3-Clause
 gopkg.in/evanphx/json-patch.v4,https://github.com/evanphx/json-patch/blob/v4.13.0/LICENSE,BSD-3-Clause

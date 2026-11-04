@@ -54,11 +54,17 @@ namespace = "default"
 Run the integration; its workflows run on your development engine. The namespaces come with the `WorkflowKind`
 search attribute `ballerina/workflow` uses, so the first workflow starts without waiting.
 
-## Look at workflows
+## Look at the engine
+
+`bin/workflow-cli` reaches the development engine with no settings:
 
 ```bash
-temporal workflow list --address localhost:7233 --namespace default
+bin/workflow-cli operator cluster health
+bin/workflow-cli operator namespace list
+bin/workflow-cli operator namespace create --namespace orders   # another namespace, with WorkflowKind
 ```
+
+The Integration Control Plane (ICP) shows the workflows themselves ([Monitor the runtime](monitor.md)).
 
 ## Next steps
 

@@ -13,6 +13,7 @@ portals, packaging and updates.
 | Engine | Temporal's four services (frontend, history, matching, worker) in our Go binary, `workflow-engine` | Builds and runs |
 | Engine endpoint | The integrations' one port (7233): gRPC to Temporal's frontend, `/runtime/...` HTTPS to the Manager | Planned |
 | Launcher | `bin/workflow-runtime`: finds the runtime's home and starts the engine from `conf/runtime.toml`, or in development mode | Starts the engine; supervision and restart planned |
+| workflow-cli | `bin/workflow-cli`: the operators' client over the Temporal gRPC API (health, nodes, namespaces, search attributes); its own module, no server code | P0 commands |
 | Manager | Go service: engine administration, the Workflow Management API, SSO sign-in, roles; serves the portals | Planned |
 | Admin Portal | UI for administrators and operators, at `/admin` | Planned |
 | User Portal | Business users' human-task inbox, at `/portal` | Planned |

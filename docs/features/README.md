@@ -11,3 +11,4 @@ in the same commit ([AGENTS.md](../../AGENTS.md#rules-for-every-change)). Start 
 | [Engine security](engine-security.md) | Available |
 | [Database schema](database-schema.md) | Available |
 | [Distribution](distribution.md) | Available |
+| [workflow-cli](workflow-cli.md) | In progress (P0) |

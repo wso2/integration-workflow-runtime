@@ -130,10 +130,10 @@ named by `subjectClaim`).
 
 ## Check it
 
-With the Temporal CLI and a token from your provider:
+With `workflow-cli` and a token from your provider:
 
 ```bash
-temporal operator namespace list --address engine.example.com:7233 \
+workflow-cli operator namespace list --address engine.example.com:7233 \
   --tls-ca-path ca.pem --api-key "$TOKEN"
 ```
 

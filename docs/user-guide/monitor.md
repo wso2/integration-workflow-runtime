@@ -30,10 +30,10 @@ they resolve themselves. After that they are logged as errors again, so a lastin
 
 ## Workflows
 
-Use the Integration Control Plane (ICP) to see integrations' workflows, their status and history. The Temporal CLI
-works too, with a token that has `read` in the namespace:
+Use the Integration Control Plane (ICP) to see integrations' workflows, their status and history.
 
-```bash
-temporal workflow list --namespace orders --address engine.example.com:7233 \
-  --tls-ca-path ca.pem --api-key "$TOKEN"
-```
+## The engine
+
+`workflow-cli operator cluster health` checks the frontend, or one service on a node's own port, and
+`workflow-cli operator cluster describe` lists the nodes behind each service
+([Manage the engine with workflow-cli](manage-with-workflow-cli.md#check-the-engine)).
