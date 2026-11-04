@@ -44,6 +44,7 @@ func TestProfilesChooseServices(t *testing.T) {
 		`profiles = ["frontend"]`:            {"frontend", "internal-frontend"},
 		`profiles = ["matching", "history"]`: {"history", "matching"},
 		`profiles = ["worker"]`:              {"worker"},
+		`profiles = ["api"]`:                 nil,
 	}
 	for profiles, want := range tests {
 		rt := mustParseRuntime(t, "[runtime]\n"+profiles+"\n"+sqliteDB)
@@ -55,7 +56,6 @@ func TestProfilesChooseServices(t *testing.T) {
 
 func TestProfileErrors(t *testing.T) {
 	for profiles, want := range map[string]string{
-		`profiles = ["api"]`:     "names no engine service",
 		`profiles = []`:          "at least one profile",
 		`profiles = ["manager"]`: `unknown profile "manager"`,
 	} {

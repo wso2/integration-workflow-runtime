@@ -129,6 +129,9 @@ func (c command) start(args []string) error {
 	default:
 		services = defaultServices(cfg)
 	}
+	if len(services) == 0 {
+		return runtimeconfig.ErrNoServices
+	}
 	logger := log.NewZapLogger(log.BuildZapLogger(cfg.Log))
 
 	authorizer, err := authorization.GetAuthorizerFromConfig(&cfg.Global.Authorization)

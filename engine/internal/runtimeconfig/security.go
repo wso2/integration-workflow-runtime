@@ -245,4 +245,5 @@ func (m metricsSettings) temporalMetrics() *metrics.Config {
 	}}
 }
 
-var errNoServices = errors.New("runtime.profiles names no engine service; this node runs only other components")
+// ErrNoServices is returned by the CLI when profiles select no engine service and no --service is given.
+var ErrNoServices = errors.New("runtime.profiles names no engine service; this node runs only other components")

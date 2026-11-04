@@ -172,9 +172,6 @@ func parse(data []byte, lookupEnv func(string) (string, bool)) (*Runtime, error)
 	if err != nil {
 		return nil, err
 	}
-	if len(nodeServices) == 0 {
-		return nil, errNoServices
-	}
 	s.applyDefaults()
 	if err := s.validate(); err != nil {
 		return nil, err
