@@ -71,7 +71,8 @@ These are requirements, not suggestions. A change that misses one is not done.
    `third-party/go-licenses.csv` and `go.work.sum`; `make license-check` and `make vulncheck` must pass. A module
    whose license needs a manual decision goes in `third-party/license-exceptions.txt` with the reason. A new
    direct dependency must be in [WSO2's dependency registry](https://github.com/wso2/engineering-governance/blob/main/dependency-registry/go.yaml)
-   for the `integrator` scope; the Dependency validation workflow blocks the PR otherwise.
+   for the `integrator` scope; the Dependency validation workflow blocks the PR otherwise. `go.temporal.io` modules
+   are reported without blocking until the one registry request for all of them is accepted.
 6. **Actions are pinned by commit SHA** with the version in a comment; Dependabot proposes the bumps.
 7. **Every new source file starts with the WSO2 license header** (`Copyright (c) <year>, WSO2 LLC.
    (http://www.wso2.com).`, Apache 2.0). Files that adapt Temporal code also name Temporal's MIT copyright.

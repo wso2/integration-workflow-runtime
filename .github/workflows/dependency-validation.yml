@@ -15,6 +15,8 @@ permissions:
 
 env:
   DEPENDENCY_SCOPE: integrator
+  # Modules reported but not yet enforced: every go.temporal.io module goes to the registry in one request.
+  PENDING_MODULES: '^go\.temporal\.io/'
 
 jobs:
   validate-go-dependencies:
@@ -51,11 +53,21 @@ jobs:
         run: |
           bash engineering-governance/scripts/validate-go-dependencies.sh "$BASE_SHA" "$HEAD_SHA" \
             engineering-governance/dependency-registry/go.yaml "$DEPENDENCY_SCOPE"
+      - name: Separate pending modules
+        id: blocking
+        if: steps.validate.outcome == 'failure'
+        run: |
+          # A failure without the list of unapproved modules is the script's own; it still blocks.
+          if [[ ! -s /tmp/unapproved_deps.txt ]]; then echo "count=unknown" >> "$GITHUB_OUTPUT"; exit 0; fi
+          # The file also holds the script's decorated log lines; count only "<module> <version> - <reason>" lines.
+          blocking=$(grep -E '^[^[:space:]]+ [^[:space:]]+ - ' /tmp/unapproved_deps.txt | grep -cvE "$PENDING_MODULES" || true)
+          echo "count=$blocking" >> "$GITHUB_OUTPUT"
       - name: Report on the pull request
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           OUTCOME: ${{ steps.validate.outcome }}
+          BLOCKING: ${{ steps.blocking.outputs.count }}
         run: |
           {
             echo "## Dependency validation"
@@ -64,12 +76,18 @@ jobs:
               echo "| Status | Module | Version | Note |"
               echo "|---|---|---|---|"
               while IFS='|' read -r status module version reason; do
+                if [[ "$status" == UNAPPROVED && "$module" =~ $PENDING_MODULES ]]; then
+                  status=PENDING reason="$reason; registry request pending for all go.temporal.io modules"
+                fi
                 echo "| $status | \`$module\` | $version | $reason |"
               done < /tmp/all_deps_status.txt
             else
               echo "No direct dependency changed."
             fi
-            if [[ "$OUTCOME" == "failure" ]]; then
+            if [[ "$OUTCOME" == "failure" && "$BLOCKING" == 0 ]]; then
+              echo
+              echo "Only go.temporal.io modules are unapproved; they wait for the registry request and do not block."
+            elif [[ "$OUTCOME" == "failure" ]]; then
               echo
               echo "An unapproved dependency blocks this PR: remove it, or add it to the"
               echo "[dependency registry](https://github.com/wso2/engineering-governance/blob/main/dependency-registry/go.yaml)"
@@ -78,5 +96,5 @@ jobs:
           } > /tmp/comment.md
           gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file /tmp/comment.md
       - name: Fail on unapproved dependencies
-        if: steps.validate.outcome == 'failure'
+        if: steps.validate.outcome == 'failure' && steps.blocking.outputs.count != '0'
         run: exit 1
