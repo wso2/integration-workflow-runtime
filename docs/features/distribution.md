@@ -58,4 +58,5 @@ Patches through WSO2 Updates, Helm charts, and supervision and restart outside s
 | Test | Covers |
 |---|---|
 | `engine/internal/launcher/launcher_test.go` | The launcher's home, working directory, configuration, commands, help and errors |
+| `engine/internal/launcher/process*_test.go` | The real handoff in separate processes: arguments, environment, stdin and exit code reach the engine; on Unix the engine replaces the launcher and gets its signals. Runs on Linux, macOS and, in its own CI job, Windows |
 | `engine/internal/runtimeconfig/security_test.go` | `broadcastAddress = "auto"` and `logFile` |

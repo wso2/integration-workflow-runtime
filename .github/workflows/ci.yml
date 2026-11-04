@@ -63,3 +63,18 @@ jobs:
           cache-dependency-path: engine/go.sum
       - run: make engine GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }}
 
+  # The launcher starts the engine as a child process on Windows (exec elsewhere); run its process tests there.
+  windows-tests:
+    name: Launcher tests on Windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: engine/go.mod
+          cache-dependency-path: engine/go.sum
+      - name: Launcher tests
+        working-directory: engine
+        run: go test -count=1 -v ./internal/launcher/...
