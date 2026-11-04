@@ -24,12 +24,15 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"math/big"
+	"net"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"go.temporal.io/server/common/dynamicconfig"
 )
 
 const sqliteDB = "[database]\ntype = \"sqlite\"\ninMemory = true\n"
@@ -88,15 +91,22 @@ func certFiles(t *testing.T) (cert, key, ca string) {
 		filepath.Join(dir, "ca.pem")
 }
 
-// certificate writes a self-signed certificate with the DNS names given.
-func certificate(t *testing.T, dir, name string, dnsNames ...string) string {
+// certificate writes a self-signed certificate for the names given: IP addresses become IP SANs, others DNS names.
+func certificate(t *testing.T, dir, name string, names ...string) string {
 	t.Helper()
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		t.Fatal(err)
 	}
 	tmpl := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "engine"},
-		NotBefore: time.Now(), NotAfter: time.Now().Add(time.Hour), DNSNames: dnsNames}
+		NotBefore: time.Now(), NotAfter: time.Now().Add(time.Hour)}
+	for _, n := range names {
+		if ip := net.ParseIP(n); ip != nil {
+			tmpl.IPAddresses = append(tmpl.IPAddresses, ip)
+		} else {
+			tmpl.DNSNames = append(tmpl.DNSNames, n)
+		}
+	}
 	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
 	if err != nil {
 		t.Fatal(err)
@@ -108,7 +118,7 @@ func certificate(t *testing.T, dir, name string, dnsNames ...string) string {
 	return path
 }
 
-func TestInternodeServerNameDefaultsToTheCertificatesDNSName(t *testing.T) {
+func TestInternodeServerNameDefaultsToTheCertificatesOnlyDNSName(t *testing.T) {
 	cert, key, ca := certFiles(t)
 	tls := "[engine.tls]\ncertFile = \"" + cert + "\"\nkeyFile = \"" + key + "\"\n"
 	internode := "[engine.tls.internode]\nenabled = true\ncaFile = \"" + ca + "\"\n"
@@ -117,27 +127,50 @@ func TestInternodeServerNameDefaultsToTheCertificatesDNSName(t *testing.T) {
 		t.Fatalf("internode server name = %q, system worker %q; want the certificate's engine.internal",
 			got.Internode.Client.ServerName, got.SystemWorker.Client.ServerName)
 	}
-	explicit := mustParseRuntime(t, tls+internode+"serverName = \"nodes.example\"\n"+sqliteDB).Temporal.Global.TLS
-	if explicit.Internode.Client.ServerName != "nodes.example" {
-		t.Fatalf("an explicit server name was replaced: %q", explicit.Internode.Client.ServerName)
-	}
 	dir := t.TempDir()
-	ipOnly := certificate(t, dir, "ip-only.crt")
-	own := func(certFile string) string {
-		return internode + "certFile = \"" + certFile + "\"\nkeyFile = \"" + key + "\"\n"
+	own := func(certFile, serverName string) string {
+		toml := internode + "certFile = \"" + certFile + "\"\nkeyFile = \"" + key + "\"\n"
+		if serverName != "" {
+			toml += "serverName = \"" + serverName + "\"\n"
+		}
+		return tls + toml + sqliteDB
 	}
-	if got := mustParseRuntime(t, tls+own(certificate(t, dir, "node.crt", "nodes.internal", "other"))+sqliteDB).
-		Temporal.Global.TLS.Internode.Client.ServerName; got != "nodes.internal" {
-		t.Fatalf("with an internode certificate of its own: %q, want nodes.internal", got)
+	several := certificate(t, dir, "several.crt", "node-1.internal", "nodes.internal")
+	ipOnly := certificate(t, dir, "ip.crt", "10.0.1.21")
+	for name, tt := range map[string]struct{ toml, want string }{
+		"one of several DNS names": {own(several, "nodes.internal"), "nodes.internal"},
+		"an IP address it carries": {own(ipOnly, "10.0.1.21"), "10.0.1.21"},
+		"a wildcard it carries":    {own(certificate(t, dir, "wild.crt", "*.nodes.internal"), "a.nodes.internal"), "a.nodes.internal"},
+	} {
+		rt := mustParseRuntime(t, tt.toml)
+		if got := rt.Temporal.Global.TLS.Internode.Client.ServerName; got != tt.want {
+			t.Errorf("%s: server name %q, want %q", name, got, tt.want)
+		}
 	}
 	for name, tt := range map[string]struct{ toml, want string }{
-		"no DNS name":      {tls + own(ipOnly), "has no DNS name"},
-		"not a PEM file":   {tls + own(ca), "holds no PEM certificate"},
-		"not readable yet": {tls + own(filepath.Join(dir, "gone.crt")), "internode.certFile"},
+		"several DNS names":          {own(several, ""), "several DNS names (node-1.internal, nodes.internal)"},
+		"an IP address only":         {own(ipOnly, ""), "has no DNS name"},
+		"no names at all":            {own(certificate(t, dir, "none.crt"), ""), "has no DNS name"},
+		"a name it does not carry":   {own(several, "other.internal"), `serverName "other.internal" is not a name in`},
+		"an IP it does not carry":    {own(ipOnly, "10.0.1.22"), `serverName "10.0.1.22" is not a name in`},
+		"not a PEM file":             {own(ca, ""), "holds no PEM certificate"},
+		"a file that does not exist": {own(filepath.Join(dir, "gone.crt"), ""), "internode.certFile"},
 	} {
-		if _, err := parse([]byte(tt.toml+sqliteDB), noEnv); err == nil || !strings.Contains(err.Error(), tt.want) {
+		if _, err := parse([]byte(tt.toml), noEnv); err == nil || !strings.Contains(err.Error(), tt.want) {
 			t.Errorf("%s: err = %v, want %q", name, err, tt.want)
 		}
+	}
+}
+
+func TestInternodeTLSTurnsOnMembershipTLS(t *testing.T) {
+	cert, key, ca := certFiles(t)
+	tls := "[engine.tls]\ncertFile = \"" + cert + "\"\nkeyFile = \"" + key + "\"\n"
+	on := mustParseRuntime(t, tls+"[engine.tls.internode]\nenabled = true\ncaFile = \""+ca+"\"\n"+sqliteDB)
+	if v, ok := on.DynamicConfig[dynamicconfig.EnableRingpopTLS.Key()].(bool); !ok || !v {
+		t.Fatalf("dynamic config = %v, want %s on", on.DynamicConfig, dynamicconfig.EnableRingpopTLS.Key())
+	}
+	if off := mustParseRuntime(t, tls+sqliteDB); off.DynamicConfig != nil {
+		t.Fatalf("dynamic config without internode TLS = %v, want none", off.DynamicConfig)
 	}
 }
 

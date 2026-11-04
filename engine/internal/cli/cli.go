@@ -27,6 +27,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -122,8 +123,9 @@ func (c command) start(args []string) error {
 	if err != nil {
 		return err
 	}
+	explicit := len(services) > 0
 	switch {
-	case len(services) > 0:
+	case explicit:
 	case rt != nil:
 		services = rt.Services
 	default:
@@ -160,14 +162,24 @@ func (c command) start(args []string) error {
 		return fmt.Errorf("unable to create the audience mapper: %w", err)
 	}
 
-	server, err := c.newServer(services,
+	// Profiles keep the internal frontend with the frontend; a --service list can drop it, which another node may cover.
+	if explicit && !authorization.IsNoopAuthorizer(authorizer) &&
+		!slices.Contains(services, string(primitives.InternalFrontendService)) {
+		logger.Warn("--service leaves out internal-frontend; with an authorizer on, another node must run it, or " +
+			"Temporal's services cannot reach the frontend and the engine stops about a minute after start")
+	}
+	opts := []temporal.ServerOption{
 		temporal.WithConfig(cfg),
 		temporal.WithLogger(logger),
 		temporal.InterruptOn(temporal.InterruptCh()),
 		temporal.WithAuthorizer(authorizer),
 		temporal.WithClaimMapper(func(*config.Config) authorization.ClaimMapper { return claimMapper }),
 		temporal.WithAudienceGetter(func(*config.Config) authorization.JWTAudienceMapper { return audienceMapper }),
-	)
+	}
+	if rt != nil && rt.DynamicConfig != nil {
+		opts = append(opts, temporal.WithDynamicConfigClient(rt.DynamicConfig))
+	}
+	server, err := c.newServer(services, opts...)
 	if err != nil {
 		return fmt.Errorf("unable to create the server: %w", err)
 	}

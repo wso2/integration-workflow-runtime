@@ -51,7 +51,7 @@ Each gRPC service also uses a membership port 300 below its port (6933, 6936, 69
 | `enabled` | `false` | TLS between the engine's services and nodes |
 | `certFile`, `keyFile` | the frontend's | Certificate the services present to each other |
 | `caFile` | required when enabled | CA that signs the internode certificates |
-| `serverName` | the certificate's first DNS name | Name the nodes verify in each other's certificates; set it when the internode certificate has no DNS name |
+| `serverName` | the certificate's DNS name, when it has exactly one | Name the nodes verify in each other's certificates; required when the certificate has no DNS name or several, and must be a name the certificate carries |
 
 ### `[engine.auth]`
 

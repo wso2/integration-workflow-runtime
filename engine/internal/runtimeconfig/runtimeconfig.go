@@ -37,6 +37,7 @@ import (
 	"go.temporal.io/server/common/auth"
 	"go.temporal.io/server/common/cluster"
 	"go.temporal.io/server/common/config"
+	"go.temporal.io/server/common/dynamicconfig"
 	"go.temporal.io/server/common/log"
 	"gopkg.in/yaml.v3"
 
@@ -78,6 +79,8 @@ type Runtime struct {
 	Services []string
 	// Auth configures the identity-provider claim mapper; nil when [engine.auth] is off.
 	Auth *jwtclaims.Settings
+	// DynamicConfig holds the dynamic settings the configuration needs; nil when it needs none.
+	DynamicConfig dynamicconfig.StaticClient
 }
 
 type settings struct {
@@ -185,6 +188,10 @@ func parse(data []byte, lookupEnv func(string) (string, bool)) (*Runtime, error)
 		return nil, fmt.Errorf("invalid Temporal configuration: %w", err)
 	}
 	rt := &Runtime{Temporal: *cfg, Services: nodeServices}
+	// Temporal keeps membership (ringpop) in plain text unless this switch is on, even with internode TLS.
+	if s.Engine.TLS.Internode.Enabled {
+		rt.DynamicConfig = dynamicconfig.StaticClient{dynamicconfig.EnableRingpopTLS.Key(): true}
+	}
 	if s.Engine.Auth.on() {
 		claims := s.Engine.Auth.claimSettings()
 		rt.Auth = &claims

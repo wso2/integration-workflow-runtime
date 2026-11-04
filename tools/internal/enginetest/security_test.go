@@ -144,6 +144,26 @@ inMemory = true
 	if out, err := e.temporalAt(internal, withCert, "operator", "cluster", "health"); err != nil || !strings.Contains(out, "SERVING") {
 		t.Errorf("the internal frontend refused a node certificate: %v\n%s", err, out)
 	}
+
+	// Every other internode port, membership (ringpop) included, takes TLS with a node certificate only.
+	ca := internode.caFile("internode-ca")
+	for name, port := range map[string]int{
+		"history": base + 1, "matching": base + 2, "worker": base + 6,
+		"frontend membership": base - 300, "history membership": base - 299, "matching membership": base - 298,
+		"internal frontend membership": base - 297, "worker membership": base - 294,
+	} {
+		addr := fmt.Sprintf("127.0.0.1:%d", port)
+		if err := tlsAccepts(addr, ca, nodeCert, nodeKey); err != nil {
+			t.Errorf("%s (%s) did not accept a node certificate over TLS: %v", name, addr, err)
+		}
+		if err := tlsAccepts(addr, ca, "", ""); err == nil {
+			t.Errorf("%s (%s) accepted a caller without a node certificate", name, addr)
+		}
+	}
+	// The server name comes from the node certificate; without one Temporal's system worker cannot connect.
+	if strings.Contains(e.log.String(), "either ServerName or InsecureSkipVerify") {
+		t.Errorf("an internode connection had no server name:\n%s", e.log)
+	}
 }
 
 // tlsRefusals are how the Temporal CLI reports a refused TLS connection: before 1.9 as a connection error, from 1.9
