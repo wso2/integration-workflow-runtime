@@ -55,8 +55,10 @@ func fakeHome(t *testing.T) (home string, executable func() (string, error)) {
 
 func runLauncher(t *testing.T, env map[string]string, args ...string) (launched, int, string) {
 	t.Helper()
-	t.Chdir(".") // the launcher changes directory; restore it after the test
 	home, executable := fakeHome(t)
+	// The launcher changes directory. Registered after the home, so the restore runs before the home is removed:
+	// Windows cannot remove the working directory.
+	t.Chdir(".")
 	var got launched
 	launch := func(engine string, a []string) (int, error) {
 		d, _ := os.Getwd()
@@ -100,8 +102,9 @@ func TestLauncherCommands(t *testing.T) {
 }
 
 func TestLauncherTakesAnotherConfiguration(t *testing.T) {
-	got, _, _ := runLauncher(t, map[string]string{ConfigEnv: "/etc/workflow/runtime.toml"})
-	if !slices.Equal(got.args, []string{"start", "--runtime-config", "/etc/workflow/runtime.toml"}) {
+	config := filepath.Join(t.TempDir(), "runtime.toml") // absolute on every OS, unlike /etc/...
+	got, _, _ := runLauncher(t, map[string]string{ConfigEnv: config})
+	if !slices.Equal(got.args, []string{"start", "--runtime-config", config}) {
 		t.Fatalf("engine arguments = %q", got.args)
 	}
 }
@@ -147,11 +150,10 @@ func TestLauncherErrors(t *testing.T) {
 		!strings.Contains(out.String(), "permission denied") {
 		t.Fatalf("code = %d, out = %q (home %s)", code, out.String(), home)
 	}
-	if err := os.RemoveAll(home); err != nil {
-		t.Fatal(err)
-	}
+	// A home that does not exist, rather than one removed: Windows keeps a directory it was in open.
+	missing := func() (string, error) { return filepath.Join(t.TempDir(), "gone", "bin", "workflow-runtime"), nil }
 	out.Reset()
-	if code := run("v", nil, executable, func(string) string { return "" }, denied, &out, &out); code != 1 {
+	if code := run("v", nil, missing, func(string) string { return "" }, denied, &out, &out); code != 1 {
 		t.Fatalf("a missing home: code = %d", code)
 	}
 }
