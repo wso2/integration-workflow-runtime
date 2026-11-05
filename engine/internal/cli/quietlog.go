@@ -42,23 +42,26 @@ var transientCauses = []string{
 // quietLogger logs transient start-up errors at debug level during the grace period, everything else unchanged.
 type quietLogger struct {
 	log.Logger
-	until time.Time
-	now   func() time.Time
+	// errors skips the frame Error adds, so the logged source position is the caller's; promoted methods add none.
+	errors log.Logger
+	until  time.Time
+	now    func() time.Time
 }
 
 func newQuietLogger(l log.Logger) log.Logger {
+	errs := l
 	if s, ok := l.(log.SkipLogger); ok {
-		l = s.Skip(1)
+		errs = s.Skip(1)
 	}
-	return quietLogger{Logger: l, until: time.Now().Add(startupGrace), now: time.Now}
+	return quietLogger{Logger: l, errors: errs, until: time.Now().Add(startupGrace), now: time.Now}
 }
 
 func (q quietLogger) Error(msg string, tags ...tag.Tag) {
 	if q.now().Before(q.until) && transient(tags) {
-		q.Debug(msg, tags...)
+		q.errors.Debug(msg, tags...)
 		return
 	}
-	q.Logger.Error(msg, tags...)
+	q.errors.Error(msg, tags...)
 }
 
 func transient(tags []tag.Tag) bool {
