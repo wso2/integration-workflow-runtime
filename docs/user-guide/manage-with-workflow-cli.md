@@ -213,8 +213,7 @@ workflow-cli admin dlq job describe --job-token <token>
 ```
 
 `merge` and `purge` work up to the queue's last task, or up to `--last-message-id` (message IDs start at 0, the
-ID `dlq read` shows), as a job on the engine; tasks that fail
-again during a merge return to the queue.
+ID `dlq read` shows), as a job on the engine; tasks that fail again during a merge return to the queue.
 
 **Shards.** Workflow state is spread over the history shards (`historyShards` in `runtime.toml`), each owned by one
 history node at a time:
