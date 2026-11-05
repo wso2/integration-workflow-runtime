@@ -64,7 +64,7 @@ func TestQuietLoggerDowngradesTransientStartupErrors(t *testing.T) {
 
 func TestQuietLoggerKeepsTheCallersSourcePosition(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "engine.log")
-	var l log.Logger = newQuietLogger(log.NewZapLogger(log.BuildZapLogger(log.Config{Level: "debug", OutputFile: file})))
+	l := newQuietLogger(log.NewZapLogger(log.BuildZapLogger(log.Config{Level: "debug", OutputFile: file})))
 	if _, ok := l.(quietLogger); !ok {
 		t.Fatal("not a quiet logger")
 	}
