@@ -19,6 +19,7 @@ package command
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -168,6 +169,18 @@ func TestDeadLetterQueues(t *testing.T) {
 		p.GetDlqKey().GetTargetCluster() != "west" {
 		t.Fatalf("purge = %v", p)
 	}
+	// Message 0 is the first a queue holds: an explicit 0 bounds the job to it.
+	tc.must("admin", "dlq", "purge", "--dlq-type", "transfer", "--last-message-id", "0", "-y")
+	tc.must("admin", "dlq", "merge", "--dlq-type", "transfer", "--last-message-id", "0", "-y")
+	if p, m := tc.engine.admin.purges[1], tc.engine.admin.merges[1]; p.GetInclusiveMaxTaskMetadata().GetMessageId() != 0 ||
+		m.GetInclusiveMaxTaskMetadata().GetMessageId() != 0 {
+		t.Fatalf("an explicit message 0 reached the engine as %v and %v", p, m)
+	}
+	var started map[string]any
+	if err := json.Unmarshal([]byte(tc.must("admin", "dlq", "purge", "--dlq-type", "transfer", "-y", "-o", "json")),
+		&started); err != nil || started["lastMessageId"] != float64(42) || started["jobToken"] == "" {
+		t.Fatalf("json purge = %v, %v", started, err)
+	}
 	token := base64.StdEncoding.EncodeToString([]byte("merge-job"))
 	out = tc.must("admin", "dlq", "job", "describe", "--job-token", token)
 	for _, want := range []string{"Operation       Merge", "State           Completed", "DLQ type        transfer",
@@ -181,12 +194,13 @@ func TestDeadLetterQueues(t *testing.T) {
 		t.Fatalf("cancel = %v", c)
 	}
 	for args, want := range map[string]string{
-		"admin dlq read --dlq-type disk":                 `--dlq-type "disk" must be one of archival`,
-		"admin dlq read --dlq-type timer --limit 0":      "--limit must be positive",
-		"admin dlq purge --dlq-type timer -y":            "the timer dead-letter queue is empty",
-		"admin dlq job describe --job-token !!":          "is not the token",
-		"admin dlq job cancel --job-token !! --reason x": "is not the token",
-		"admin shard describe":                           `required flag(s) "shard-id" not set`,
+		"admin dlq read --dlq-type disk":                              `--dlq-type "disk" must be one of archival`,
+		"admin dlq read --dlq-type timer --limit 0":                   "--limit must be positive",
+		"admin dlq purge --dlq-type timer -y":                         "the timer dead-letter queue is empty",
+		"admin dlq purge --dlq-type transfer -y --last-message-id -1": "must not be negative",
+		"admin dlq job describe --job-token !!":                       "is not the token",
+		"admin dlq job cancel --job-token !! --reason x":              "is not the token",
+		"admin shard describe":                                        `required flag(s) "shard-id" not set`,
 	} {
 		if code, _, errOut := tc.run(strings.Fields(args)...); code != 1 || !strings.Contains(errOut, want) {
 			t.Errorf("%s = %d %q, want %q", args, code, errOut, want)

@@ -19,6 +19,7 @@ package command
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -131,8 +132,7 @@ func (c *cli) shardCloseCommand() *cobra.Command {
 				&adminservice.CloseShardRequest{ShardId: id}); err != nil {
 				return fmt.Errorf("unable to close shard %d: %w", id, err)
 			}
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Shard %d closed; its node reloads it on the next call.\n", id)
-			return err
+			return c.confirm(cmd, "Shard %d closed; its node reloads it on the next call.\n", id)
 		},
 	}
 	shardID(cmd, &id)
@@ -307,6 +307,11 @@ func (c *cli) dlqJob(verb string, start func(context.Context, adminservice.Admin
 			if !yes {
 				return fmt.Errorf("add --yes to %s the tasks; `admin dlq read` shows them first", verb)
 			}
+			// 0 is the first message a queue holds, so only an absent flag means the queue's last.
+			given := cmd.Flags().Changed("last-message-id")
+			if given && last < 0 {
+				return errors.New("--last-message-id must not be negative")
+			}
 			conn, _, ctx, cancel, err := c.connect(cmd)
 			if err != nil {
 				return err
@@ -318,7 +323,7 @@ func (c *cli) dlqJob(verb string, start func(context.Context, adminservice.Admin
 				return err
 			}
 			admin := adminservice.NewAdminServiceClient(conn)
-			if last == 0 {
+			if !given {
 				if last, err = lastMessageID(ctx, admin, key); err != nil {
 					return err
 				}
@@ -328,13 +333,21 @@ func (c *cli) dlqJob(verb string, start func(context.Context, adminservice.Admin
 				return fmt.Errorf("unable to %s the %s dead-letter queue: %w", verb, k.category, err)
 			}
 			job := base64.StdEncoding.EncodeToString(token)
+			if c.output == outputJSON {
+				b, err := json.MarshalIndent(map[string]any{"jobToken": job, "lastMessageId": last}, "", "  ")
+				if err != nil {
+					return err
+				}
+				_, err = fmt.Fprintln(cmd.OutOrStdout(), string(b))
+				return err
+			}
 			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Started to %s the %s dead-letter queue up to message %d; "+
 				"follow it with\n  workflow-cli admin dlq job describe --job-token %s\n", verb, k.category, last, job)
 			return err
 		},
 	}
 	k.flags(cmd)
-	cmd.Flags().Int64Var(&last, "last-message-id", 0, "the last task to include (default: the queue's last)")
+	cmd.Flags().Int64Var(&last, "last-message-id", 0, "the last task to include, 0 being the first (default: the queue's last)")
 	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "confirm")
 	return cmd
 }
@@ -440,8 +453,7 @@ func (c *cli) dlqJobCommand() *cobra.Command {
 				&adminservice.CancelDLQJobRequest{JobToken: token, Reason: reason}); err != nil {
 				return fmt.Errorf("unable to cancel the job: %w", err)
 			}
-			_, err = fmt.Fprintln(cmd.OutOrStdout(), "Job cancelled.")
-			return err
+			return c.confirm(cmd, "Job cancelled.\n")
 		},
 	}
 	cancelCmd.Flags().StringVar(&cancelToken, "job-token", "", "the token merge or purge printed (required)")
