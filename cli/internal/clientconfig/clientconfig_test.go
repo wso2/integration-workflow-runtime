@@ -19,6 +19,7 @@ package clientconfig
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -128,6 +129,35 @@ func TestSetGetDeleteWriteTheFile(t *testing.T) {
 	}
 	if info, err := os.Stat(filepath.Dir(path)); err != nil || info.Mode().Perm() != 0o700 {
 		t.Fatalf("directory mode = %v, %v", info, err)
+	}
+}
+
+func TestInvalidProfileNamesLeaveTheFileReadable(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "cli.toml")
+	f, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Set("prod-eu_1", "address", "e:7233"); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"prod.eu", "", "a b", `q"uote`, "a]b"} {
+		if err := f.Set(name, "address", "x:7233"); err == nil || !strings.Contains(err.Error(), "invalid profile name") {
+			t.Errorf("Set(%q) = %v, want the name refused", name, err)
+		}
+		if err := f.Delete(name, ""); err == nil {
+			t.Errorf("Delete(%q) worked", name)
+		}
+		if _, err := f.Get(name, "address"); err == nil {
+			t.Errorf("Get(%q) worked", name)
+		}
+		if err := f.Apply(name, &Settings{}); err == nil {
+			t.Errorf("Apply(%q) worked", name)
+		}
+	}
+	reopened, err := Open(path)
+	if err != nil || !slices.Equal(reopened.Profiles(), []string{"prod-eu_1"}) {
+		t.Fatalf("after refused names: profiles = %v, %v", reopened.Profiles(), err)
 	}
 }
 
