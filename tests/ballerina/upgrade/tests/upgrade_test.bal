@@ -26,8 +26,22 @@ final workflow:Duration resultTimeout = {seconds: 60};
 @test:Config {groups: ["before"]}
 function testStartOnTheOldEngine() returns error? {
     _ = check workflow:runWithId(orderWorkflow, ORDER_ID, {orderId: ORDER_ID});
-    // Gives the worker time to run the first activity; the runner checks the history before it stops the engine.
-    runtime:sleep(3);
+    // Waits up to 60 s for the first activity, then gives its completion time to reach the engine; the runner
+    // checks the history for it before it stops the old server.
+    foreach int _ in 0 ..< 120 {
+        boolean done;
+        lock {
+            done = stockReserved;
+        }
+        if done {
+            break;
+        }
+        runtime:sleep(0.5);
+    }
+    lock {
+        test:assertTrue(stockReserved, "the first activity did not run within 60 s");
+    }
+    runtime:sleep(2);
     test:assertEquals(check workflow:getStatus(ORDER_ID), workflow:RUNNING);
 }
 

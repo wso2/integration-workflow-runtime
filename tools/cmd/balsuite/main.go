@@ -25,9 +25,11 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/wso2/integration-workflow-runtime/tools/internal/balsuite"
@@ -79,7 +81,10 @@ func run(args []string) int {
 		return 2
 	}
 	if args[0] == balsuite.UpgradeSuite {
-		return balsuite.RunUpgrade(context.Background(), balsuite.UpgradeOptions{
+		// Ctrl-C or SIGTERM cancels the run, and RunUpgrade still removes the old server and the databases.
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		return balsuite.RunUpgrade(ctx, balsuite.UpgradeOptions{
 			Database:       *database,
 			Root:           rootPath,
 			Engine:         enginePath,
