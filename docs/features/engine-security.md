@@ -75,8 +75,8 @@ role = "write"
   membership ports, which list every node's address, take only internode certificates too.
 - A `--service` list without `internal-frontend` on an engine with an authorizer logs a warning: another node must
   run it.
-- With neither `issuer` nor `audience`, every unexpired token the key set signs is accepted; the start logs a
-  warning.
+- With neither `issuer` nor `audience`, those two claims are not checked; the start logs a warning. A token still
+  needs a valid signature from the key set, an expiry, a subject and a mapped role.
 - With `issuer` and no `jwksUrls`, the start command reads the provider's OpenID Connect discovery document and uses
   its `jwks_uri`; the document must name exactly the same issuer, and the engine does not start if it cannot read it.
 - Key sets and discovery documents are fetched only over https (plain http only to a loopback host): a key set
