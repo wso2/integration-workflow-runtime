@@ -160,6 +160,12 @@ func TestWorkflowCLIOnADevEngine(t *testing.T) {
 	cli("schedule", "toggle", "-n", "orders", "-s", "hourly", "--unpause")
 	w.mustContain(cli("schedule", "describe", "-n", "orders", "-s", "hourly"), "Paused         false")
 	cli("schedule", "delete", "-n", "orders", "-s", "hourly")
+	// The engine stores a cron as a structured calendar; describe shows it back as cron fields.
+	cli("schedule", "create", "-n", "orders", "-s", "nightly", "--cron", "CRON_TZ=Asia/Colombo 30 2 * * 1-5",
+		"--workflow-id", "nightly-report", "--type", "Report", "-t", "reports", "--paused")
+	w.mustContain(cli("schedule", "describe", "-n", "orders", "-s", "nightly"), "Calendar       30 2 * * 1-5",
+		"Time zone      Asia/Colombo")
+	cli("schedule", "delete", "-n", "orders", "-s", "nightly")
 	if out, err := w.run(append([]string{"schedule", "describe", "-n", "orders", "-s", "hourly"}, addr...)...); err == nil {
 		t.Errorf("a deleted schedule is still described:\n%s", out)
 	}

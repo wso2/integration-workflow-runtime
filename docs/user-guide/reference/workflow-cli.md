@@ -28,7 +28,7 @@ keywords: [wso2 integrator, workflow runtime, workflow-cli, reference, flags, pr
 | `workflow reset -w <id> (--type FirstWorkflowTask\|LastWorkflowTask \| --event-id <n>) --reason <text>` | A new run from the end of that workflow task |
 | `batch list` / `batch describe --job-id <id>` / `batch terminate --job-id <id> --reason <text>` | The batch jobs a `--query` started: their state and counts; stop one |
 | `schedule create -s <id> (--cron <expr> \| --interval <duration>)... --workflow-id <id> --type <type> -t <task queue> [-i <json>]... [--overlap-policy <policy>] [--paused] [--notes <text>]` | Creates a schedule |
-| `schedule list` / `schedule describe -s <id>` | Schedules with their type, state and next run; one with its spec and recent runs |
+| `schedule list` / `schedule describe -s <id>` | Schedules with their type, state and next run; one with its calendar as cron fields, time zone, intervals and recent runs |
 | `schedule toggle -s <id> (--pause \| --unpause) [--reason <text>]` / `schedule trigger -s <id>` / `schedule delete -s <id>` | Pause or unpause, start once now, delete |
 | `task-queue describe -t <task queue>` | The workers that polled it recently, for workflow and activity tasks |
 | `config set --prop <property> --value <value>` | Sets a property of the profile, creating the profile |

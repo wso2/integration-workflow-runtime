@@ -181,7 +181,9 @@ workflow-cli schedule delete -n reports -s nightly-report
 ```
 
 `--cron` and `--interval 30m` can repeat. `--overlap-policy` says what to do when a run is still open at the next
-time (`Skip` by default). `describe` lists the recent runs and the next one. The engine runs the schedule itself;
+time (`Skip` by default). Prefix a cron with `CRON_TZ=Europe/London` for a time zone other than UTC. `describe`
+shows the calendar as cron fields, in the form the engine stores it (`@daily` shows as `0 0 * * *`), its time
+zone, the recent runs and the next one. The engine runs the schedule itself;
 the integration only needs to serve the task queue.
 
 ## Check an integration's workers

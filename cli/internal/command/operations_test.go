@@ -18,6 +18,8 @@ package command
 
 import (
 	"context"
+	"google.golang.org/protobuf/proto"
+	"slices"
 	"strings"
 	"testing"
 
@@ -36,6 +38,7 @@ type opsState struct {
 	batches   []*workflowservice.StartBatchOperationRequest
 	stops     []*workflowservice.StopBatchOperationRequest
 	schedules map[string]*schedulepb.Schedule
+	crons     []string // the cron strings create requests sent, before the engine's canonical form
 	patches   []*workflowservice.PatchScheduleRequest
 }
 
@@ -93,8 +96,30 @@ func (f workflowFake) CreateSchedule(ctx context.Context, r *workflowservice.Cre
 	if _, ok := f.ops.schedules[r.GetScheduleId()]; ok {
 		return nil, serviceerror.NewAlreadyExists("schedule already exists")
 	}
-	f.ops.schedules[r.GetScheduleId()] = r.GetSchedule()
+	f.ops.crons = append(f.ops.crons, r.GetSchedule().GetSpec().GetCronString()...)
+	f.ops.schedules[r.GetScheduleId()] = canonical(r.GetSchedule())
 	return &workflowservice.CreateScheduleResponse{}, nil
+}
+
+// canonical stores a schedule as Temporal does: each cron string becomes a structured calendar and is cleared. The
+// fake knows only the crons the tests use, written as Temporal's canonicalizeSpec (v1.32.1) writes them.
+func canonical(sc *schedulepb.Schedule) *schedulepb.Schedule {
+	sc = proto.Clone(sc).(*schedulepb.Schedule)
+	spec := sc.GetSpec()
+	for _, cron := range spec.GetCronString() {
+		switch cron {
+		case "0 2 * * *":
+			spec.StructuredCalendar = append(spec.StructuredCalendar, &schedulepb.StructuredCalendarSpec{
+				Second: []*schedulepb.Range{{Start: 0}}, Minute: []*schedulepb.Range{{Start: 0}},
+				Hour: []*schedulepb.Range{{Start: 2}}, DayOfMonth: []*schedulepb.Range{{Start: 1, End: 31}},
+				Month: []*schedulepb.Range{{Start: 1, End: 12}}, DayOfWeek: []*schedulepb.Range{{Start: 0, End: 6}},
+			})
+		default:
+			panic("the fake has no canonical form for cron " + cron)
+		}
+	}
+	spec.CronString = nil
+	return sc
 }
 
 func (f workflowFake) ListSchedules(ctx context.Context, _ *workflowservice.ListSchedulesRequest) (
@@ -232,6 +257,28 @@ func TestBatchJobs(t *testing.T) {
 	}
 }
 
+func TestCronFields(t *testing.T) {
+	r := func(start, end, step int32) *schedulepb.Range {
+		return &schedulepb.Range{Start: start, End: end, Step: step}
+	}
+	for _, tt := range []struct {
+		cal  *schedulepb.StructuredCalendarSpec
+		want string
+	}{
+		{&schedulepb.StructuredCalendarSpec{}, "0 0 * * *"},
+		{&schedulepb.StructuredCalendarSpec{Minute: []*schedulepb.Range{r(0, 59, 15)}, Hour: []*schedulepb.Range{r(9, 17, 0)},
+			DayOfWeek: []*schedulepb.Range{r(1, 5, 0)}, Comment: "office hours"}, "*/15 9-17 * * 1-5 # office hours"},
+		{&schedulepb.StructuredCalendarSpec{Second: []*schedulepb.Range{r(30, 0, 0)}, Minute: []*schedulepb.Range{r(0, 0, 0),
+			r(30, 0, 0)}, DayOfMonth: []*schedulepb.Range{r(1, 0, 0)}, Month: []*schedulepb.Range{r(1, 12, 3)}}, "30 0,30 0 1 */3 * *"},
+		{&schedulepb.StructuredCalendarSpec{Year: []*schedulepb.Range{r(2027, 0, 0)}}, "0 0 * * * 2027"},
+	} {
+		if got := calendars(&schedulepb.ScheduleSpec{StructuredCalendar: []*schedulepb.StructuredCalendarSpec{tt.cal}}); len(got) != 1 ||
+			got[0] != tt.want {
+			t.Errorf("calendar %v = %q, want %q", tt.cal, got, tt.want)
+		}
+	}
+}
+
 func TestSchedules(t *testing.T) {
 	tc := newTestCLI(t)
 	tc.must("schedule", "create", "-s", "nightly", "--cron", "0 2 * * *", "--interval", "12h", "--workflow-id",
@@ -239,7 +286,7 @@ func TestSchedules(t *testing.T) {
 		"--overlap-policy", "BufferOne", "--notes", "for finance")
 	sc := tc.engine.ops.schedules["nightly"]
 	start := sc.GetAction().GetStartWorkflow()
-	if sc.GetSpec().GetCronString()[0] != "0 2 * * *" || sc.GetSpec().GetInterval()[0].GetInterval().AsDuration().Hours() != 12 ||
+	if !slices.Equal(tc.engine.ops.crons, []string{"0 2 * * *"}) || sc.GetSpec().GetInterval()[0].GetInterval().AsDuration().Hours() != 12 ||
 		start.GetWorkflowType().GetName() != "reports.Nightly" || start.GetTaskQueue().GetName() != "reports" ||
 		string(start.GetInput().GetPayloads()[0].GetData()) != `{"days":1}` ||
 		sc.GetPolicies().GetOverlapPolicy() != enumspb.SCHEDULE_OVERLAP_POLICY_BUFFER_ONE || sc.GetState().GetNotes() != "for finance" {
@@ -249,7 +296,7 @@ func TestSchedules(t *testing.T) {
 		t.Fatalf("schedule list:\n%s", out)
 	}
 	out := tc.must("schedule", "describe", "-s", "nightly")
-	for _, want := range []string{"Cron           0 2 * * *", "Interval       12h0m0s", "Workflow type  reports.Nightly",
+	for _, want := range []string{"Calendar       0 2 * * *", "Interval       12h0m0s", "Time zone      UTC", "Workflow type  reports.Nightly",
 		"Runs           1", "Completed"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("describe lacks %q:\n%s", want, out)
