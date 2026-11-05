@@ -27,6 +27,22 @@ import (
 // frontend, matching and worker, the second the frontend and history. A workflow started through the first node needs
 // the second node's history, so it runs only if the nodes find each other over TLS-protected membership and call each
 // other over internode TLS.
+// startBusy is start, tried again when the engine stopped on SQLITE_BUSY: two processes on one SQLite file, which
+// only this test does, can collide on the start-up write of the cluster metadata.
+func startBusy(t *testing.T, binary string, base int, flags []string, args ...string) *engine {
+	t.Helper()
+	for attempt := 1; ; attempt++ {
+		e, err := launch(t, binary, base, flags, args...)
+		if err == nil {
+			return e
+		}
+		if attempt == 3 || !strings.Contains(err.Error(), "SQLITE_BUSY") {
+			t.Fatal(err)
+		}
+		t.Logf("attempt %d stopped on SQLITE_BUSY; starting the node again", attempt)
+	}
+}
+
 func TestTwoSecuredNodesFormOneEngine(t *testing.T) {
 	binary := engineBinary(t)
 	se := newSecuredEngine(t)
@@ -50,7 +66,7 @@ func TestTwoSecuredNodesFormOneEngine(t *testing.T) {
 	first := start(t, binary, se.base, admin, "start", "--runtime-config",
 		node(se.base, `["frontend", "matching", "worker"]`))
 	base := freeBase(t)
-	second := start(t, binary, base, admin, "start", "--runtime-config", node(base, `["frontend", "history"]`))
+	second := startBusy(t, binary, base, admin, "start", "--runtime-config", node(base, `["frontend", "history"]`))
 	first.must("operator", "namespace", "create", "--namespace", "orders", "--retention", "24h")
 	first.must("workflow", "start", "--namespace", "orders", "--type", "Order", "--task-queue", "orders",
 		"--workflow-id", "order-1")
