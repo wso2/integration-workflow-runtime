@@ -148,6 +148,7 @@ func (m *Mapper) parse(raw string) (jwt.MapClaims, error) {
 	opts := []jwt.ParserOption{
 		jwt.WithValidMethods(m.keys.SupportedMethods()),
 		jwt.WithExpirationRequired(),
+		jwt.WithIssuedAt(),
 		jwt.WithLeeway(m.settings.Leeway),
 	}
 	if m.settings.Issuer != "" {

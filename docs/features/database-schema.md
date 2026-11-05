@@ -24,6 +24,9 @@ The databases are the ones `[database]` names (`name`, `visibilityName`); see
   uses, so the engine and its schema always come from one Temporal version.
 - Nodes started together take turns: each takes a lock in the workflow database (PostgreSQL advisory lock, MySQL
   `GET_LOCK`) while it prepares the schema. A node that stops releases the lock with its connection.
+- The lock is held on one pinned connection, and every schema change first checks that its session is still open.
+  If the database ends that session, the node stops with "lost the schema lock" instead of migrating alongside the
+  node that takes the lock next.
 - Databases are created through the server's maintenance database (`postgres` on PostgreSQL). A user that cannot
   reach it, or cannot create databases, works with databases a DBA created and needs no other database.
 - A setup interrupted after creating the version tables but before recording the first version is finished on the
@@ -50,10 +53,10 @@ Refusing to skip a Temporal minor version on upgrade (Workflow Runtime 0.3), Cas
 
 | Test | Covers |
 |---|---|
-| `engine/internal/sqlschema/sqlschema_test.go` | Empty, current and older databases, databases the user cannot create, no maintenance database, an interrupted setup, every failure, the lock statements per database |
-| `engine/internal/sqlschema/sqlschema_db_test.go` | On PostgreSQL and MySQL: three nodes starting together on new databases, then a second start; an interrupted setup; databases at schema 1.0 holding a namespace, a workflow and its visibility row, upgraded with the rows kept; a role limited to its two DBA-created databases. Runs when `WORKFLOW_TEST_DB_PASSWORD` is set |
+| `engine/internal/sqlschema/sqlschema_test.go` | Empty, current and older databases, databases the user cannot create, no maintenance database, an interrupted setup, every failure, the lock statements per database, a lock session that ends part-way |
+| `engine/internal/sqlschema/sqlschema_db_test.go` | On PostgreSQL and MySQL: three nodes starting together on new databases, then a second start; an interrupted setup; databases at schema 1.0 holding a namespace, a workflow and its visibility row, upgraded with the rows kept; a role limited to its two DBA-created databases; the lock session killed by the server is reported, not replaced. Runs when `WORKFLOW_TEST_DB_PASSWORD` is set |
 | `engine/internal/runtimeconfig/testdata/config/*mysql-reserved*` | A MySQL reserved word as a database name, refused only when the engine manages the schema |
 | `engine/internal/cli/cli_test.go` | The schema prepared before the server starts, a failure stopping the start, `manageSchema = false` and `--config-file` skipping it |
 | `tests/ballerina` on PostgreSQL and MySQL | The suites start from empty databases with no schema step in the runner |
 | `balsuite upgrade` (`tests/ballerina/upgrade`) on PostgreSQL and MySQL | A workflow started on Temporal 1.30.9 with its schemas (temporal 1.18, visibility 1.13) runs an activity and waits; the engine started on the same databases upgrades them to its versions, and the workflow takes its data event, runs a second activity and completes |
-| `tools/internal/balsuite/upgrade_test.go` | The upgrade run's steps in order, the old server's configuration, every failure, no password in Docker's arguments |
+| `tools/internal/balsuite/upgrade_test.go` | The upgrade run's steps in order, the old server's configuration with quotes, backslashes and line breaks in its credentials, every failure, no password in Docker's arguments |

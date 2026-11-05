@@ -19,6 +19,7 @@
 package sqlschema
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -28,6 +29,11 @@ import (
 	"go.temporal.io/server/common/config"
 	"go.temporal.io/server/common/log"
 	"go.temporal.io/server/common/log/tag"
+	"go.temporal.io/server/common/persistence/sql/sqlplugin"
+	mysqlsession "go.temporal.io/server/common/persistence/sql/sqlplugin/mysql/session"
+	pgdriver "go.temporal.io/server/common/persistence/sql/sqlplugin/postgresql/driver"
+	pgsession "go.temporal.io/server/common/persistence/sql/sqlplugin/postgresql/session"
+	"go.temporal.io/server/common/resolver"
 	"go.temporal.io/server/tools/common/schema"
 	sqltool "go.temporal.io/server/tools/sql"
 )
@@ -64,6 +70,16 @@ type conn interface {
 
 type opener func(cfg *config.SQL, logger log.Logger) (conn, error)
 
+// sessionLock runs statements on one database session, so a lock it takes is held until that session ends.
+type sessionLock interface {
+	exec(stmt string, args ...any) error
+	// alive fails once the session has ended, and with it the lock.
+	alive() error
+	close()
+}
+
+type lockOpener func(cfg *config.SQL) (sessionLock, error)
+
 type store struct {
 	sql    *config.SQL
 	schema string
@@ -73,14 +89,14 @@ type store struct {
 // empty database, and applies the schema versions this binary ships. Stores that are not PostgreSQL or MySQL are
 // left alone: SQLite creates its own schema.
 func Prepare(p config.Persistence, logger log.Logger) error {
-	return prepare(p, openConnection, logger)
+	return prepare(p, openConnection, openLock, logger)
 }
 
 func openConnection(cfg *config.SQL, logger log.Logger) (conn, error) {
 	return sqltool.NewConnection(cfg, logger)
 }
 
-func prepare(p config.Persistence, open opener, logger log.Logger) (err error) {
+func prepare(p config.Persistence, open opener, openLock lockOpener, logger log.Logger) (err error) {
 	stores := sqlStores(p)
 	if len(stores) == 0 {
 		return nil
@@ -89,20 +105,26 @@ func prepare(p config.Persistence, open opener, logger log.Logger) (err error) {
 	// The lock lives in the workflow database, which every node can open, so the runtime needs no other database.
 	first := *stores[0].sql
 	first.MaxConns, first.MaxIdleConns, first.MaxConnLifetime = 1, 1, 0
-	db, err := open(&first, logger)
+	lock, err := openLock(&first)
 	if err != nil {
 		return errors.Join(fmt.Errorf("unable to connect to database %s: %w", first.DatabaseName, err), createErrs[0])
 	}
-	defer db.Close()
+	defer lock.close()
 	statements := lockStatements[schemaDirs[first.PluginName]]
-	if err := db.Exec(statements[0], lockName); err != nil {
+	if err := lock.exec(statements[0], lockName); err != nil {
 		return fmt.Errorf("unable to take the schema lock in database %s: %w", first.DatabaseName, err)
 	}
 	defer func() {
-		if unlockErr := db.Exec(statements[1], lockName); unlockErr != nil {
+		if unlockErr := lock.exec(statements[1], lockName); unlockErr != nil {
 			logger.Warn("Unable to release the schema lock; it is released when the connection closes", tag.Error(unlockErr))
 		}
 	}()
+	opened, err := open(&first, logger)
+	if err != nil {
+		return errors.Join(fmt.Errorf("unable to connect to database %s: %w", first.DatabaseName, err), createErrs[0])
+	}
+	defer opened.Close()
+	db := guarded{opened, lock}
 	if err := prepareStore(db, stores[0], createErrs[0], logger); err != nil {
 		return err
 	}
@@ -111,7 +133,7 @@ func prepare(p config.Persistence, open opener, logger log.Logger) (err error) {
 		if err != nil {
 			return errors.Join(fmt.Errorf("unable to connect to database %s: %w", s.sql.DatabaseName, err), createErrs[i+1])
 		}
-		err = prepareStore(other, s, createErrs[i+1], logger)
+		err = prepareStore(guarded{other, lock}, s, createErrs[i+1], logger)
 		other.Close()
 		if err != nil {
 			return err
@@ -198,4 +220,104 @@ func hasVersion(db conn, tables []string) (bool, error) {
 		return false, err
 	}
 	return true, nil
+}
+
+// guarded checks that the schema lock is still held before each schema change, so a node whose lock session ended
+// stops instead of migrating alongside the node that took the lock next.
+type guarded struct {
+	conn
+	lock sessionLock
+}
+
+func (g guarded) held() error {
+	if err := g.lock.alive(); err != nil {
+		return fmt.Errorf("lost the schema lock: %w", err)
+	}
+	return nil
+}
+
+func (g guarded) Exec(stmt string, args ...any) error {
+	if err := g.held(); err != nil {
+		return err
+	}
+	return g.conn.Exec(stmt, args...)
+}
+
+func (g guarded) CreateSchemaVersionTables() error {
+	if err := g.held(); err != nil {
+		return err
+	}
+	return g.conn.CreateSchemaVersionTables()
+}
+
+func (g guarded) UpdateSchemaVersion(newVersion, minCompatibleVersion string) error {
+	if err := g.held(); err != nil {
+		return err
+	}
+	return g.conn.UpdateSchemaVersion(newVersion, minCompatibleVersion)
+}
+
+func (g guarded) WriteSchemaUpdateLog(oldVersion, newVersion, manifestMD5, desc string) error {
+	if err := g.held(); err != nil {
+		return err
+	}
+	return g.conn.WriteSchemaUpdateLog(oldVersion, newVersion, manifestMD5, desc)
+}
+
+func (g guarded) DropAllTables() error {
+	if err := g.held(); err != nil {
+		return err
+	}
+	return g.conn.DropAllTables()
+}
+
+// pinnedLock holds one physical connection. database/sql retries a pooled statement on a new connection when the old
+// one breaks, which would drop the lock unnoticed; a pinned connection reports the break instead.
+type pinnedLock struct {
+	db   *sql.DB
+	conn *sql.Conn
+}
+
+// openLock connects as Temporal's plugin does, so the lock uses the same address, credentials and TLS.
+func openLock(cfg *config.SQL) (sessionLock, error) {
+	var db *sql.DB
+	switch cfg.PluginName {
+	case "postgres12", "postgres12_pgx":
+		var d pgdriver.Driver = &pgdriver.PQDriver{}
+		if cfg.PluginName == "postgres12_pgx" {
+			d = &pgdriver.PGXDriver{}
+		}
+		s, err := pgsession.NewSession(cfg, d, resolver.NewNoopResolver())
+		if err != nil {
+			return nil, err
+		}
+		db = s.DB.DB
+	case "mysql8":
+		s, err := mysqlsession.NewSession(sqlplugin.DbKindMain, cfg, resolver.NewNoopResolver())
+		if err != nil {
+			return nil, err
+		}
+		db = s.DB.DB
+	default:
+		return nil, fmt.Errorf("no schema lock for plugin %s", cfg.PluginName)
+	}
+	c, err := db.Conn(context.Background())
+	if err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	return &pinnedLock{db: db, conn: c}, nil
+}
+
+func (l *pinnedLock) exec(stmt string, args ...any) error {
+	_, err := l.conn.ExecContext(context.Background(), stmt, args...)
+	return err
+}
+
+// alive runs a statement rather than a ping: a driver without a ping reports every connection as alive.
+func (l *pinnedLock) alive() error { return l.exec("SELECT 1") }
+
+func (l *pinnedLock) close() {
+	_ = l.conn.Close()
+	_ = l.db.Close()
 }
