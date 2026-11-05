@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -56,7 +57,7 @@ func Discover(ctx context.Context, client *http.Client, issuer string) (string, 
 		Issuer  string `json:"issuer"`
 		JWKSURI string `json:"jwks_uri"`
 	}
-	if err := json.NewDecoder(res.Body).Decode(&doc); err != nil {
+	if err := json.NewDecoder(io.LimitReader(res.Body, maxDocumentBytes)).Decode(&doc); err != nil {
 		return "", fmt.Errorf("invalid discovery document at %s: %w", url, err)
 	}
 	// Exactly: tokens are checked against the configured issuer as written, trailing slash included.

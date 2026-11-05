@@ -18,7 +18,7 @@ connection, and tokens from the customer's own identity provider mapped to Tempo
 | `[engine.tls.internode]` `enabled` | `false` | TLS between the engine's services and nodes |
 | `[engine.tls.internode]` `certFile`, `keyFile` | the frontend's | Certificate the services present to each other |
 | `[engine.tls.internode]` `caFile` | required when enabled | CA that signs the internode certificates |
-| `[engine.tls.internode]` `serverName` | | Name to verify in internode certificates, when it differs from the host |
+| `[engine.tls.internode]` `serverName` | the internode certificate's DNS name, when it has exactly one | Name every node verifies in the others' certificates. Temporal reaches the internal frontend through its membership resolver, which has no host name, so a name is always needed. Required when the certificate has no DNS name or several; an explicit name must be in the certificate (a DNS name, a wildcard match or an IP address) |
 
 ### `[engine.auth]`
 
@@ -71,14 +71,24 @@ role = "write"
 - `type = "jwt"` needs `[engine.tls]`, and, unless `bindAddress` is a loopback address, `[engine.tls.internode]`:
   the internal frontend gives Temporal's own services system access without a token, so it and the other services'
   ports accept only internode certificates.
+- Internode TLS also turns on Temporal's `system.enableRingpopTLS` (passed as dynamic configuration at start), so the
+  membership ports, which list every node's address, take only internode certificates too.
+- A `--service` list without `internal-frontend` on an engine with an authorizer logs a warning: another node must
+  run it.
 - With neither `issuer` nor `audience`, every unexpired token the key set signs is accepted; the start logs a
   warning.
 - With `issuer` and no `jwksUrls`, the start command reads the provider's OpenID Connect discovery document and uses
   its `jwks_uri`; the document must name exactly the same issuer, and the engine does not start if it cannot read it.
 - Key sets and discovery documents are fetched only over https (plain http only to a loopback host): a key set
-  replaced on the way would let anyone sign tokens the engine trusts.
-- Every token is checked for its signature, an expiry, the issuer and audience when set, and a subject. A call
-  without a token, or with a token that maps to no role, is refused, except Temporal's health checks.
+  replaced on the way would let anyone sign tokens the engine trusts. The same rule applies to every redirect, at start
+  and on each refresh, so the engine reads key sets itself (`jwtclaims.KeySet`); Temporal's key provider follows any
+  redirect.
+- Each discovery document and key set read is limited to 1 MiB, and a redirect never goes from https to http. Only
+  RS256 and ES256 keys are kept, and only when their `use`, `key_ops` and `alg`, if published, allow verifying that
+  algorithm's signatures; an invalid entry never replaces a valid key with the same `kid`. A response without a `keys` member (an error page served with status 200) is refused, and the previous keys stay.
+- Every token is checked for its signature, an expiry, the issuer and audience when set, and a subject; one issued in
+  the future (`iat` beyond `leewaySeconds`) is refused. A call without a token, or with a token that maps to no role,
+  is refused, except Temporal's health checks.
 - Refusals return Temporal's generic "Request unauthorized"; the reason goes to the engine log.
 - Temporal's own services reach the frontend through the internal frontend, which is not exposed to clients.
 - Integrations connect with `mode = "SELF_HOSTED"`, the token in `authApiKey` and the CA in `authCaCert`
@@ -86,7 +96,7 @@ role = "write"
 
 ## Limits
 
-- Tokens must be signed with RS256 or ES256, which Temporal's key provider supports.
+- Tokens must be signed with RS256 or ES256, as with Temporal's key provider.
 - Clients present the token themselves; refreshing an expiring token is the client's job.
 - Client certificates authenticate the connection only; roles still come from the token.
 
@@ -99,7 +109,9 @@ Roles from client certificate subjects, tokens issued by the Manager, and task-q
 | Test | Covers |
 |---|---|
 | `engine/plugins/jwtclaims/discovery_test.go` | Discovery: the key set URL, another issuer or a trailing slash, no key set, a plain-http issuer or key set, invalid documents, unreachable providers; which URLs `CheckURL` accepts |
-| `engine/plugins/jwtclaims/jwtclaims_test.go` | Temporal's format, rules on nested claims, scope strings, regex, issuer, audience, expiry, forged and malformed tokens |
+| `engine/plugins/jwtclaims/keyset_test.go` | Reading RS256 and ES256 keys, keeping them when a refresh fails, refreshing on the interval; a redirect to plain http refused for key sets and discovery, from https to loopback http refused, one to https followed; keys for encryption or another algorithm dropped, a bad entry not replacing a good key with the same ID; oversized key sets and sets without `keys` refused |
+| `engine/plugins/jwtclaims/jwtclaims_test.go` | Temporal's format, rules on nested claims, scope strings, regex, issuer, audience, expiry, tokens issued in the future, forged and malformed tokens |
 | `engine/internal/runtimeconfig/security_test.go` | TLS, auth and metrics mapping and every validation rule |
-| `engine/internal/cli/cli_test.go` | A start with identity-provider auth; which claim mapper is built; the services the profiles and `--service` pass to the server |
-| `tools/internal/enginetest/security_test.go` | A real engine with TLS, internode mutual TLS and an OpenID Connect provider: an integration token starts and lists in its namespace; another namespace, a reader writing, no token, expired, forged, other-issuer and unmatched tokens, and plaintext are refused; the internal frontend refuses callers without an internode certificate and answers one with it |
+| `engine/internal/cli/cli_test.go` | A start with identity-provider auth; which claim mapper is built; the services the profiles and `--service` pass to the server, including `--service` with an `api`-only profile |
+| `tools/internal/enginetest/cluster_test.go` | Two secured nodes on one SQLite file, one with frontend, matching and worker and one with frontend and history, form one engine: a workflow started through the first runs on the second's history, over TLS membership and internode TLS |
+| `tools/internal/enginetest/security_test.go` | A real engine with TLS, internode mutual TLS and an OpenID Connect provider: an integration token starts and lists in its namespace; another namespace, a reader writing, no token, expired, forged, other-issuer and unmatched tokens, and plaintext are refused; the internal frontend refuses callers without an internode certificate and answers one with it; adding a search attribute works, which goes through the internal frontend with the derived server name; history, matching, worker and every membership port take TLS with a node certificate and refuse callers without one |

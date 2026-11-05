@@ -19,6 +19,7 @@ package balsuite
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -150,6 +151,38 @@ func TestRunUpgradeWritesTheOldServerConfiguration(t *testing.T) {
 	if strings.Contains(b.String(), "internal-frontend") {
 		t.Error("the old server must run without an internal frontend")
 	}
+}
+
+func TestRunUpgradeQuotesTheCredentials(t *testing.T) {
+	for _, password := range []string{`a"b`, `a\nb`, "line\nbreak", `back\slash`, "colon: hash #", "'single'"} {
+		var b strings.Builder
+		err := oldServerConfig.Execute(&b, map[string]any{"Plugin": "postgres12", "Host": dockerHost, "Port": "15432",
+			"User": "work\"flow", "Password": password, "Stores": []map[string]string{{"Store": "default", "Name": "a"}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for key, want := range map[string]string{"user": "work\"flow", "password": password} {
+			if got := scalar(t, b.String(), key); got != want {
+				t.Errorf("%s = %q, want %q:\n%s", key, got, want, b.String())
+			}
+		}
+	}
+}
+
+// scalar reads the double-quoted value of key, which YAML unescapes as JSON does for these characters.
+func scalar(t *testing.T, config, key string) string {
+	t.Helper()
+	for line := range strings.Lines(config) {
+		if v, ok := strings.CutPrefix(strings.TrimSpace(line), key+": "); ok {
+			var s string
+			if err := json.Unmarshal([]byte(v), &s); err != nil {
+				t.Fatalf("%s is not one quoted scalar: %s", key, v)
+			}
+			return s
+		}
+	}
+	t.Fatalf("configuration lacks %s:\n%s", key, config)
+	return ""
 }
 
 func TestRunUpgradeFailures(t *testing.T) {
