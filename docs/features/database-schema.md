@@ -59,4 +59,4 @@ Refusing to skip a Temporal minor version on upgrade (Workflow Runtime 0.3), Cas
 | `engine/internal/cli/cli_test.go` | The schema prepared before the server starts, a failure stopping the start, `manageSchema = false` and `--config-file` skipping it |
 | `tests/ballerina` on PostgreSQL and MySQL | The suites start from empty databases with no schema step in the runner |
 | `balsuite upgrade` (`tests/ballerina/upgrade`) on PostgreSQL and MySQL | A workflow started on Temporal 1.30.9 with its schemas (temporal 1.18, visibility 1.13) runs an activity and waits; the engine started on the same databases upgrades them to its versions, and the workflow takes its data event, runs a second activity and completes |
-| `tools/internal/balsuite/upgrade_test.go` | The upgrade run's steps in order, the old server's configuration, every failure, no password in Docker's arguments |
+| `tools/internal/balsuite/upgrade_test.go` | The upgrade run's steps in order, the old server's configuration with quotes, backslashes and line breaks in its credentials, every failure, no password in Docker's arguments |
