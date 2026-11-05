@@ -68,5 +68,5 @@ it exists.
 |---|---|
 | `cli/internal/command/command_test.go` | Every command against an in-memory fake engine (bufconn): health per service and exit codes, describe with and without the admin API, namespace create (cache retry, idempotence), describe, list over pages, update, search attributes, profile/environment/flag precedence and the bearer header, `config` commands and file mode, error messages |
 | `cli/internal/command/dial_test.go` | Mutual TLS against a real TLS server, refusal without a client certificate or TLS, token refused in plain text off-loopback, CA, client certificate and key file errors |
-| `cli/internal/clientconfig/clientconfig_test.go` | Profile file parsing, unknown keys, environment variables, TLS on/off rules, writing and deleting properties |
+| `cli/internal/clientconfig/clientconfig_test.go` | Profile file parsing, unknown keys, environment variables, TLS on/off rules, writing and deleting properties, profile names that would nest refused with the file left readable |
 | `tools/internal/enginetest/workflowcli_test.go` | Against the real engine: every P0 command on `start-dev`; on a secured engine, profiles with admin and namespace tokens, refusals, a token never sent in plain text, and the health of each internal port with a node certificate |

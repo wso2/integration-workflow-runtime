@@ -15,7 +15,7 @@ keywords: [wso2 integrator, workflow runtime, workflow-cli, reference, flags, pr
 | `operator namespace create [--retention <duration>] [--description <text>]` | Creates `--namespace` (retention 720h, 30 days, by default) with the `WorkflowKind` search attribute; an existing namespace is left unchanged |
 | `operator namespace list` | Every namespace with its state, retention and description |
 | `operator namespace describe` | One namespace |
-| `operator namespace update [--retention <duration>] [--description <text>]` | Changes the retention or the description |
+| `operator namespace update [--retention <duration>] [--description <text>]` | Changes the retention or the description; the engine cannot clear a description, so an empty one is refused |
 | `operator search-attribute create --name <name> --type <type> ...` | Adds search attributes, each `--name` with the `--type` in the same position; existing ones are left unchanged |
 | `operator search-attribute list` | The namespace's custom and system search attributes |
 | `config set --prop <property> --value <value>` | Sets a property of the profile, creating the profile |
@@ -39,7 +39,7 @@ Durations are Go durations: `720h`, `90m`, `36h30m`.
 | `--tls-ca-path` | the system's | The CA that signed the engine's certificate |
 | `--tls-cert-path`, `--tls-key-path` | | A client certificate, for an engine that requires one or for the internal ports |
 | `--tls-server-name` | the address's host | The name to verify in the engine's certificate |
-| `--profile` | `default` | The profile to use |
+| `--profile` | `default` | The profile to use: letters, digits, `-` and `_` |
 | `--config-file` | see below | The profile file |
 | `-o`, `--output` | `text` | `text` or `json` |
 | `--command-timeout` | `30s` | Limit for each command |

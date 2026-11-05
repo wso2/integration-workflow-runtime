@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"sort"
 	"strconv"
@@ -35,6 +36,17 @@ import (
 
 // DefaultProfile is used when no profile is named.
 const DefaultProfile = "default"
+
+// profileName is a TOML bare key: a dot would nest the profile inside another one.
+var profileName = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+
+// CheckProfile refuses a profile name the file cannot hold as one table.
+func CheckProfile(name string) error {
+	if !profileName.MatchString(name) {
+		return fmt.Errorf("invalid profile name %q: use letters, digits, '-' and '_'", name)
+	}
+	return nil
+}
 
 // Settings is the connection to one engine.
 type Settings struct {
@@ -203,6 +215,9 @@ func (f *File) Has(profile string) bool {
 
 // Apply sets on s every property the profile holds.
 func (f *File) Apply(profile string, s *Settings) error {
+	if err := CheckProfile(profile); err != nil {
+		return err
+	}
 	for _, p := range properties {
 		key := "profile." + profile + "." + p.name
 		if !f.k.Exists(key) {
@@ -217,6 +232,9 @@ func (f *File) Apply(profile string, s *Settings) error {
 
 // Get returns one property of a profile, empty when unset.
 func (f *File) Get(profile, name string) (string, error) {
+	if err := CheckProfile(profile); err != nil {
+		return "", err
+	}
 	if _, err := lookup(name); err != nil {
 		return "", err
 	}
@@ -225,6 +243,9 @@ func (f *File) Get(profile, name string) (string, error) {
 
 // Set stores one property of a profile and writes the file.
 func (f *File) Set(profile, name, value string) error {
+	if err := CheckProfile(profile); err != nil {
+		return err
+	}
 	p, err := lookup(name)
 	if err != nil {
 		return err
@@ -244,6 +265,9 @@ func (f *File) Set(profile, name, value string) error {
 
 // Delete removes one property of a profile, or the whole profile when name is empty, and writes the file.
 func (f *File) Delete(profile, name string) error {
+	if err := CheckProfile(profile); err != nil {
+		return err
+	}
 	if !f.Has(profile) {
 		return fmt.Errorf("no profile %q in %s", profile, f.path)
 	}
