@@ -17,6 +17,7 @@
 package sqlschema
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"os"
@@ -312,5 +313,40 @@ func readVersion(t *testing.T, cfg config.SQL) string {
 func dropDatabase(t *testing.T, cfg config.SQL) {
 	if err := sqltool.DoDropDatabase(&cfg, "", log.NewNoopLogger()); err != nil {
 		t.Logf("unable to drop %s: %v", cfg.DatabaseName, err)
+	}
+}
+
+func TestTheSchemaLockReportsAnEndedSession(t *testing.T) {
+	for _, server := range realServers(t) {
+		t.Run(server.plugin, func(t *testing.T) {
+			cfg := *server.stores(t, server.admin, server.password).DataStores["default"].SQL
+			cfg.DatabaseName = ""
+			if server.driver == "postgres" {
+				cfg.DatabaseName = "postgres"
+			}
+			l, err := openLock(&cfg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer l.close()
+			lock := l.(*pinnedLock)
+			var id int64
+			query := "SELECT pg_backend_pid()"
+			if server.driver != "postgres" {
+				query = "SELECT CONNECTION_ID()"
+			}
+			if err := lock.conn.QueryRowContext(context.Background(), query).Scan(&id); err != nil {
+				t.Fatal(err)
+			}
+			kill := fmt.Sprintf("SELECT pg_terminate_backend(%d)", id)
+			if server.driver != "postgres" {
+				kill = fmt.Sprintf("KILL %d", id)
+			}
+			server.exec(t, server.open(t, ""), kill)
+			// A pooled connection would answer from a new session here, without the lock.
+			if err := l.alive(); err == nil {
+				t.Fatal("alive = nil after the lock's session ended")
+			}
+		})
 	}
 }

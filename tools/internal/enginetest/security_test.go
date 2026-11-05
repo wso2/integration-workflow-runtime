@@ -103,6 +103,9 @@ func TestSecuredEngine(t *testing.T) {
 	for _, ns := range []string{"orders", "billing"} {
 		e.must("operator", "namespace", "create", "--namespace", ns, "--retention", "24h")
 	}
+	// The frontend adds a search attribute through the internal frontend, over internode TLS with the server name
+	// taken from the internode certificate; without one, that call fails the TLS handshake.
+	e.must("operator", "search-attribute", "create", "--namespace", "orders", "--name", "Customer", "--type", "Keyword")
 	app := token(map[string]any{"sub": "orders-app", "groups": []any{"orders-app"}})
 	auditor := token(map[string]any{"sub": "audit", "groups": []any{"auditors"}})
 	startIn := func(ns string) []string {
@@ -161,6 +164,26 @@ func TestSecuredEngine(t *testing.T) {
 	withCert := append(append([]string{}, internalCA...), "--tls-cert-path", nodeCert, "--tls-key-path", nodeKey)
 	if out, err := e.temporalAt(internal, withCert, "operator", "cluster", "health"); err != nil || !strings.Contains(out, "SERVING") {
 		t.Errorf("the internal frontend refused a node certificate: %v\n%s", err, out)
+	}
+
+	// Every other internode port, membership (ringpop) included, takes TLS with a node certificate only.
+	ca := internode.caFile("internode-ca")
+	for name, port := range map[string]int{
+		"history": base + 1, "matching": base + 2, "worker": base + 6,
+		"frontend membership": base - 300, "history membership": base - 299, "matching membership": base - 298,
+		"internal frontend membership": base - 297, "worker membership": base - 294,
+	} {
+		addr := fmt.Sprintf("127.0.0.1:%d", port)
+		if err := tlsAccepts(addr, ca, nodeCert, nodeKey); err != nil {
+			t.Errorf("%s (%s) did not accept a node certificate over TLS: %v", name, addr, err)
+		}
+		if err := tlsAccepts(addr, ca, "", ""); err == nil {
+			t.Errorf("%s (%s) accepted a caller without a node certificate", name, addr)
+		}
+	}
+	// The server name comes from the node certificate; without one Temporal's system worker cannot connect.
+	if strings.Contains(e.log.String(), "either ServerName or InsecureSkipVerify") {
+		t.Errorf("an internode connection had no server name:\n%s", e.log)
 	}
 }
 

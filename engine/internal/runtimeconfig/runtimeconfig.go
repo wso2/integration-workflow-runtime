@@ -38,6 +38,7 @@ import (
 	"go.temporal.io/server/common/auth"
 	"go.temporal.io/server/common/cluster"
 	"go.temporal.io/server/common/config"
+	"go.temporal.io/server/common/dynamicconfig"
 	"go.temporal.io/server/common/log"
 	"gopkg.in/yaml.v3"
 
@@ -83,6 +84,8 @@ type Runtime struct {
 	Auth *jwtclaims.Settings
 	// ManageSchema is whether the engine creates and upgrades the SQL databases and schemas before it starts.
 	ManageSchema bool
+	// DynamicConfig holds the dynamic settings the configuration needs; nil when it needs none.
+	DynamicConfig dynamicconfig.StaticClient
 }
 
 type settings struct {
@@ -186,9 +189,6 @@ func parse(data []byte, lookupEnv func(string) (string, bool)) (*Runtime, error)
 	if err != nil {
 		return nil, err
 	}
-	if len(nodeServices) == 0 {
-		return nil, errNoServices
-	}
 	s.applyDefaults()
 	if err := s.validate(); err != nil {
 		return nil, err
@@ -202,6 +202,10 @@ func parse(data []byte, lookupEnv func(string) (string, bool)) (*Runtime, error)
 		return nil, fmt.Errorf("invalid Temporal configuration: %w", err)
 	}
 	rt := &Runtime{Temporal: *cfg, Services: nodeServices, ManageSchema: *s.Database.ManageSchema}
+	// Temporal keeps membership (ringpop) in plain text unless this switch is on, even with internode TLS.
+	if s.Engine.TLS.Internode.Enabled {
+		rt.DynamicConfig = dynamicconfig.StaticClient{dynamicconfig.EnableRingpopTLS.Key(): true}
+	}
 	if s.Engine.Auth.on() {
 		claims := s.Engine.Auth.claimSettings()
 		rt.Auth = &claims
@@ -342,6 +346,11 @@ func (s *settings) validate() error {
 	if d.Type == typePostgreSQL && d.TLS.ServerName != "" {
 		problems = append(problems, "database.tls.serverName is not supported for a postgresql database; "+
 			"set database.host to the name on the database certificate")
+	}
+	if len(problems) == 0 {
+		if err := s.Engine.TLS.defaultInternodeServerName(); err != nil {
+			problems = append(problems, err.Error())
+		}
 	}
 	if len(problems) > 0 {
 		return errors.New("invalid runtime configuration: " + strings.Join(problems, "; "))

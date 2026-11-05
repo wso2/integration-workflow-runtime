@@ -17,7 +17,14 @@
 package cli
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"runtime"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -55,8 +62,35 @@ func TestQuietLoggerDowngradesTransientStartupErrors(t *testing.T) {
 	}
 }
 
-func TestQuietLoggerWrapsAZapLogger(t *testing.T) {
-	if _, ok := newQuietLogger(log.NewZapLogger(log.BuildZapLogger(log.Config{Level: "error"}))).(quietLogger); !ok {
+func TestQuietLoggerKeepsTheCallersSourcePosition(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "engine.log")
+	var l log.Logger = newQuietLogger(log.NewZapLogger(log.BuildZapLogger(log.Config{Level: "debug", OutputFile: file})))
+	if _, ok := l.(quietLogger); !ok {
 		t.Fatal("not a quiet logger")
+	}
+	_, _, line, _ := runtime.Caller(0)
+	l.Info("info")
+	l.Warn("warn")
+	l.Debug("debug")
+	l.Error("error")
+	l.Error("transient", tag.Error(shard.ErrShardStatusUnknown))
+	data, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for entry := range strings.Lines(string(data)) {
+		var e map[string]any
+		if err := json.Unmarshal([]byte(entry), &e); err != nil {
+			t.Fatalf("%v: %s", err, entry)
+		}
+		got = append(got, fmt.Sprintf("%s %s", e["msg"], filepath.Base(fmt.Sprint(e[tag.LoggingCallAtKey]))))
+	}
+	want := []string{}
+	for i, msg := range []string{"info", "warn", "debug", "error", "transient"} {
+		want = append(want, fmt.Sprintf("%s quietlog_test.go:%d", msg, line+1+i))
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("logged at %v, want %v", got, want)
 	}
 }

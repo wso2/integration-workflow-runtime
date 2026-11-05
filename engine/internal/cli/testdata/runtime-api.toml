@@ -1,0 +1,6 @@
+[runtime]
+profiles = ["api"]
+
+[database]
+type = "sqlite"
+inMemory = true
