@@ -40,6 +40,12 @@ linters:
               desc: run SQL from internal/sqlschema
             - pkg: go.temporal.io/server/common/persistence/sql/sqlplugin$
               desc: run SQL from internal/sqlschema
+            - pkg: go.temporal.io/server/common/persistence/sql/sqlplugin/mysql/session
+              desc: run SQL from internal/sqlschema
+            - pkg: go.temporal.io/server/common/persistence/sql/sqlplugin/postgresql/session
+              desc: run SQL from internal/sqlschema
+            - pkg: go.temporal.io/server/common/persistence/sql/sqlplugin/postgresql/driver
+              desc: run SQL from internal/sqlschema
     usetesting:
       os-temp-dir: true
     staticcheck:

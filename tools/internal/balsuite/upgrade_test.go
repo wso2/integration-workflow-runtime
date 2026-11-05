@@ -38,6 +38,7 @@ case "$*" in
   inspect*) if [ -n "$DEAD_SERVER" ]; then echo false; else echo true; fi;;
   "run -d"*) [ -z "$DEAD_SERVER" ] && touch "$dir/serving";;
   stop*) rm -f "$dir/serving";;
+  logs*) echo "old server: shutting down";;
 esac
 exit 0
 `
@@ -127,6 +128,9 @@ func TestRunUpgradeFinishesTheWorkflowOnTheEngine(t *testing.T) {
 		}
 		last = at
 	}
+	if !strings.Contains(docker, "run --rm --name workflow-upgrade-old-") {
+		t.Errorf("throwaway containers are not named after the run:\n%s", docker)
+	}
 	if strings.Contains(docker, o.Password) {
 		t.Errorf("the password reached docker's arguments:\n%s", docker)
 	}
@@ -195,6 +199,9 @@ func TestRunUpgradeFailures(t *testing.T) {
 		{"version unreadable", map[string]string{"FAIL_DOCKER": "curr_version"}, "unable to read the schema version"},
 		{"old server not started", map[string]string{"FAIL_DOCKER": "temporalio/server"}, "unable to start Temporal 1.30.9"},
 		{"old server exits", map[string]string{"DEAD_SERVER": "1"}, "server exited before it was ready"},
+		{"old server log shown", map[string]string{"DEAD_SERVER": "1"}, "old server: shutting down"},
+		{"old server not removed", map[string]string{"FAIL_DOCKER": "rm -f workflow-upgrade-old-"},
+			"unable to remove the Temporal 1.30.9 container"},
 		{"before group fails", map[string]string{"FAIL_GROUP": "before"}, "the before group failed"},
 		{"no activity before the upgrade", map[string]string{"NO_ACTIVITY": "1"}, "has no completed activity"},
 		{"schema not upgraded", map[string]string{"STALE_SCHEMA": "1"}, "is still at schema 1.18"},

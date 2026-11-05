@@ -128,7 +128,8 @@ type upgradeRun struct {
 	o         UpgradeOptions
 	db        upgradeDatabase
 	names     [2]string // workflow and visibility databases
-	container string
+	container string    // the old server's container, and the prefix of the throwaway ones
+	runs      int       // throwaway containers started, which numbers their names
 	stderr    io.Writer
 }
 
@@ -140,15 +141,16 @@ func RunUpgrade(ctx context.Context, o UpgradeOptions, stdout, stderr io.Writer)
 		_, _ = fmt.Fprintf(stderr, "error: the upgrade run needs postgresql or mysql, not %q\n", o.Database)
 		return 2
 	}
-	suffix := time.Now().Format("150405")
-	r := &upgradeRun{o: o, db: db, stderr: stderr, container: "workflow-upgrade-old-" + suffix,
-		names: [2]string{"upgrade_temporal_" + suffix, "upgrade_visibility_" + suffix}}
 	work, err := os.MkdirTemp("", "workflow-upgrade-")
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "error: %v\n", err)
 		return 1
 	}
 	defer func() { _ = os.RemoveAll(work) }()
+	// The temporary directory's random part is unique among concurrent runs, so their names never collide.
+	suffix := strings.TrimPrefix(filepath.Base(work), "workflow-upgrade-")
+	r := &upgradeRun{o: o, db: db, stderr: stderr, container: "workflow-upgrade-old-" + suffix,
+		names: [2]string{"upgrade_temporal_" + suffix, "upgrade_visibility_" + suffix}}
 	logDir := o.LogDir
 	if logDir == "" {
 		logDir = work
@@ -157,7 +159,8 @@ func RunUpgrade(ctx context.Context, o UpgradeOptions, stdout, stderr io.Writer)
 		_, _ = fmt.Fprintf(stderr, "error: %v\n", err)
 		return 1
 	}
-	defer r.dropDatabases(ctx)
+	// Clean-up runs after an interrupt too, which cancels ctx.
+	defer r.dropDatabases(context.WithoutCancel(ctx))
 	code, err := r.run(ctx, work, logDir, stdout)
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "error: %v\n", err)
@@ -176,7 +179,8 @@ func (r *upgradeRun) run(ctx context.Context, work, logDir string, stdout io.Wri
 		return 1, err
 	}
 	if err := r.startOldServer(ctx, work); err != nil {
-		r.stopOldServer(ctx, logDir)
+		logPath, _ := r.stopOldServer(context.WithoutCancel(ctx), logDir)
+		printLogTail(r.stderr, logPath, logTailLines)
 		return 1, err
 	}
 	code, err := func() (int, error) {
@@ -190,9 +194,13 @@ func (r *upgradeRun) run(ctx context.Context, work, logDir string, stdout io.Wri
 		}
 		return 0, r.checkActivityRan(ctx)
 	}()
-	r.stopOldServer(ctx, logDir)
+	_, stopErr := r.stopOldServer(context.WithoutCancel(ctx), logDir)
 	if code != 0 || err != nil {
 		return max(code, 1), err
+	}
+	// A left-over old server would hold the port, and the health check below would reach it instead of the engine.
+	if stopErr != nil {
+		return 1, stopErr
 	}
 
 	config, err := r.engineConfig(work)
@@ -242,13 +250,20 @@ func (r *upgradeRun) docker(ctx context.Context, env []string, args ...string) r
 	return runQuietEnv(ctx, dockerTimeout, env, r.o.Docker, args...)
 }
 
-// dockerRun runs a throwaway container that reaches the databases published on the host.
+// dockerRun runs a throwaway container that reaches the databases published on the host. It is named, so one whose
+// command timed out, which kills only the docker client, can still be removed.
 func (r *upgradeRun) dockerRun(ctx context.Context, env []string, args ...string) result {
-	base := []string{"run", "--rm", "--add-host", dockerHost + ":host-gateway"}
+	r.runs++
+	name := fmt.Sprintf("%s-%d", r.container, r.runs)
+	base := []string{"run", "--rm", "--name", name, "--add-host", dockerHost + ":host-gateway"}
 	for _, kv := range env {
 		base = append(base, "-e", strings.SplitN(kv, "=", 2)[0])
 	}
-	return r.docker(ctx, env, append(base, args...)...)
+	res := r.docker(ctx, env, append(base, args...)...)
+	if res.code == exitCodeTimeout {
+		_ = r.docker(context.WithoutCancel(ctx), nil, "rm", "-f", name)
+	}
+	return res
 }
 
 // installOldSchema creates both databases and installs the schema versions the old release ships, with its own tool.
@@ -333,13 +348,18 @@ func (r *upgradeRun) startOldServer(ctx context.Context, work string) error {
 	return fmt.Errorf("the Temporal %s server was not SERVING on %s after %.0fs", r.o.OldVersion, Address, r.o.StartupTimeout.Seconds())
 }
 
-// stopOldServer keeps the old server's log next to the engine's, then removes its container.
-func (r *upgradeRun) stopOldServer(ctx context.Context, logDir string) {
+// stopOldServer keeps the old server's log next to the engine's and returns its path, then removes its container.
+// A failed stop is ignored because the removal forces it; a failed removal is returned.
+func (r *upgradeRun) stopOldServer(ctx context.Context, logDir string) (string, error) {
+	logPath := filepath.Join(logDir, "temporal-"+r.o.OldVersion+"-"+r.o.Database+".log")
 	logs := r.docker(ctx, nil, "logs", r.container)
-	_ = os.WriteFile(filepath.Join(logDir, "temporal-"+r.o.OldVersion+"-"+r.o.Database+".log"),
-		[]byte(logs.stdout+logs.stderr), 0o600)
+	_ = os.WriteFile(logPath, []byte(logs.stdout+logs.stderr), 0o600)
 	_ = r.docker(ctx, nil, "stop", "-t", "30", r.container)
-	_ = r.docker(ctx, nil, "rm", "-f", r.container)
+	if rm := r.docker(ctx, nil, "rm", "-f", r.container); rm.code != 0 {
+		return logPath, fmt.Errorf("unable to remove the Temporal %s container %s: %s", r.o.OldVersion, r.container,
+			rm.message())
+	}
+	return logPath, nil
 }
 
 // checkActivityRan makes sure the old server recorded the first activity, so the upgraded engine resumes real history.
