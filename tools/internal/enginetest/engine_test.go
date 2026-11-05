@@ -131,6 +131,7 @@ func launch(t *testing.T, binary string, base int, flags []string, args ...strin
 		}
 		time.Sleep(time.Second)
 	}
+	e.stop() // free its ports before a caller starts another engine on them
 	return nil, fmt.Errorf("the engine did not report SERVING within %s:\n%s", startTimeout, e.log)
 }
 
