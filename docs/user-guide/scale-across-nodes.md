@@ -44,5 +44,6 @@ A starting point: two frontend nodes, three history nodes, two matching nodes an
 with workflow throughput and frontend with the number of connected workers.
 
 :::info
-`--service frontend --service history` on the command line overrides the profiles for one start.
+`--service frontend --service history` on the command line overrides the profiles for one start, including on a
+node whose profiles name only `api`.
 :::

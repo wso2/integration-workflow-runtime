@@ -26,9 +26,10 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
+	"slices"
 	"strings"
+	"time"
 
 	"go.temporal.io/server/common/authorization"
 	"go.temporal.io/server/common/config"
@@ -129,12 +130,16 @@ func (c command) start(args []string) error {
 	if err != nil {
 		return err
 	}
+	explicit := len(services) > 0
 	switch {
-	case len(services) > 0:
+	case explicit:
 	case rt != nil:
 		services = rt.Services
 	default:
 		services = defaultServices(cfg)
+	}
+	if len(services) == 0 {
+		return runtimeconfig.ErrNoServices
 	}
 	logger := log.NewZapLogger(log.BuildZapLogger(cfg.Log))
 
@@ -169,14 +174,24 @@ func (c command) start(args []string) error {
 		}
 	}
 
-	server, err := c.newServer(services,
+	// Profiles keep the internal frontend with the frontend; a --service list can drop it, which another node may cover.
+	if explicit && !authorization.IsNoopAuthorizer(authorizer) &&
+		!slices.Contains(services, string(primitives.InternalFrontendService)) {
+		logger.Warn("--service leaves out internal-frontend; with an authorizer on, another node must run it, or " +
+			"Temporal's services cannot reach the frontend and the engine stops about a minute after start")
+	}
+	opts := []temporal.ServerOption{
 		temporal.WithConfig(cfg),
 		temporal.WithLogger(logger),
 		temporal.InterruptOn(temporal.InterruptCh()),
 		temporal.WithAuthorizer(authorizer),
 		temporal.WithClaimMapper(func(*config.Config) authorization.ClaimMapper { return claimMapper }),
 		temporal.WithAudienceGetter(func(*config.Config) authorization.JWTAudienceMapper { return audienceMapper }),
-	)
+	}
+	if rt != nil && rt.DynamicConfig != nil {
+		opts = append(opts, temporal.WithDynamicConfigClient(rt.DynamicConfig))
+	}
+	server, err := c.newServer(services, opts...)
 	if err != nil {
 		return fmt.Errorf("unable to create the server: %w", err)
 	}
@@ -228,6 +243,9 @@ func loadConfig(runtimeConfig, configFile string) (*config.Config, *runtimeconfi
 	}
 }
 
+// keyFetchTimeout bounds each discovery or key set request.
+const keyFetchTimeout = 15 * time.Second
+
 // newClaimMapper builds the identity-provider mapper that runtime.toml's [engine.auth] asks for, or Temporal's own.
 func newClaimMapper(cfg *config.Config, rt *runtimeconfig.Runtime, logger log.Logger) (authorization.ClaimMapper, error) {
 	if cfg.Global.Authorization.ClaimMapper != runtimeconfig.ClaimMapperName {
@@ -237,8 +255,9 @@ func newClaimMapper(cfg *config.Config, rt *runtimeconfig.Runtime, logger log.Lo
 		return nil, fmt.Errorf("claim mapper %q is configured only through runtime.toml [engine.auth]",
 			runtimeconfig.ClaimMapperName)
 	}
+	client := jwtclaims.Client(keyFetchTimeout)
 	if len(cfg.Global.Authorization.JWTKeyProvider.KeySourceURIs) == 0 {
-		jwks, err := jwtclaims.Discover(context.Background(), http.DefaultClient, rt.Auth.Issuer)
+		jwks, err := jwtclaims.Discover(context.Background(), client, rt.Auth.Issuer)
 		if err != nil {
 			return nil, fmt.Errorf("unable to discover the identity provider's key set: %w", err)
 		}
@@ -248,7 +267,8 @@ func newClaimMapper(cfg *config.Config, rt *runtimeconfig.Runtime, logger log.Lo
 		logger.Warn("engine.auth checks neither issuer nor audience: every unexpired token the key set signs is " +
 			"accepted, including tokens issued for other applications; set issuer or audience")
 	}
-	keys := authorization.NewDefaultTokenKeyProvider(&cfg.Global.Authorization, logger)
+	kp := cfg.Global.Authorization.JWTKeyProvider
+	keys := jwtclaims.NewKeySet(kp.KeySourceURIs, kp.RefreshInterval, client, logger)
 	return jwtclaims.New(keys, *rt.Auth)
 }
 
