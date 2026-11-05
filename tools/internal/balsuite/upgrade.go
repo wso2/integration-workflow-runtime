@@ -18,6 +18,7 @@ package balsuite
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -64,9 +65,15 @@ type UpgradeOptions struct {
 	TestTimeout    time.Duration
 }
 
+// yamlQuote writes s as a double-quoted YAML scalar: a JSON string is one, with the same escapes.
+func yamlQuote(s string) (string, error) {
+	b, err := json.Marshal(s)
+	return string(b), err
+}
+
 // oldServerConfig matches the engine's cluster metadata and shard count, which the engine refuses to change. The old
 // server runs without an internal frontend, as Temporal's default services do.
-var oldServerConfig = template.Must(template.New("config").Parse(`log:
+var oldServerConfig = template.Must(template.New("config").Funcs(template.FuncMap{"quote": yamlQuote}).Parse(`log:
   stdout: true
   level: warn
 persistence:
@@ -81,8 +88,8 @@ persistence:
         databaseName: {{.Name}}
         connectAddr: {{$.Host}}:{{$.Port}}
         connectProtocol: tcp
-        user: {{$.User}}
-        password: "{{$.Password}}"
+        user: {{quote $.User}}
+        password: {{quote $.Password}}
         maxConns: 20
         maxIdleConns: 20
         maxConnLifetime: 1h
