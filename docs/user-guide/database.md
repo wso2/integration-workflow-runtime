@@ -44,8 +44,8 @@ upgrades their schemas, so a new installation and an upgrade need no separate st
    GRANT ALL PRIVILEGES ON temporal_visibility.* TO 'workflow'@'%';
    ```
 
-   On MySQL, database names cannot be reserved words such as `order` (8.4's, and 8.0's such as `member`) when the engine manages the schema, because
-   Temporal's schema tool writes them unquoted.
+   On MySQL, database names cannot be reserved words such as `order` (8.4's, and 8.0's such as `member`) when the
+   engine manages the schema, because Temporal's schema tool writes them unquoted.
 
 3. Configure `[database]` in `conf/runtime.toml` ([Configure the runtime](configure.md)).
 
