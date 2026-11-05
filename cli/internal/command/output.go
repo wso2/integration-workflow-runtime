@@ -25,12 +25,24 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/spf13/cobra"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/durationpb"
 )
 
 var jsonOptions = protojson.MarshalOptions{Indent: "  ", EmitUnpopulated: false}
+
+// confirm reports a command that changed something. With -o json it goes to stderr, so stdout stays JSON for scripts;
+// the engine's answers to these calls are empty, and the exit status is the result.
+func (c *cli) confirm(cmd *cobra.Command, format string, args ...any) error {
+	out := cmd.OutOrStdout()
+	if c.output == outputJSON {
+		out = cmd.ErrOrStderr()
+	}
+	_, err := fmt.Fprintf(out, format, args...)
+	return err
+}
 
 // writeJSON writes one message as an object, or several as an array, in the Temporal API's JSON form.
 func writeJSON(w io.Writer, list bool, msgs ...proto.Message) error {

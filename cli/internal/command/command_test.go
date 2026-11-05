@@ -343,6 +343,11 @@ func TestNamespaceLifecycle(t *testing.T) {
 		t.Fatalf("second create:\n%s", out)
 	}
 	tc.must("operator", "namespace", "create", "-n", "billing", "--retention", "72h")
+	// With -o json a change reports on stderr, so stdout holds only JSON, here none.
+	if code, out, errOut := tc.run("operator", "namespace", "update", "-n", "billing", "--retention", "72h", "-o",
+		"json"); code != 0 || out != "" || !strings.Contains(errOut, "Namespace billing updated.") {
+		t.Fatalf("json update: exit %d, stdout %q, stderr %q", code, out, errOut)
+	}
 
 	out = tc.must("operator", "namespace", "describe", "-n", "orders")
 	for _, want := range []string{"Name         orders", "State        Registered", "Retention    30d",

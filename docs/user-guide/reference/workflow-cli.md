@@ -41,7 +41,7 @@ Durations are Go durations: `720h`, `90m`, `36h30m`.
 | `--tls-server-name` | the address's host | The name to verify in the engine's certificate |
 | `--profile` | `default` | The profile to use: letters, digits, `-` and `_` |
 | `--config-file` | see below | The profile file |
-| `-o`, `--output` | `text` | `text` or `json` |
+| `-o`, `--output` | `text` | `text` or `json`. With `json`, a command that changes something prints its confirmation on stderr and nothing on stdout; the exit status is the result |
 | `--command-timeout` | `30s` | Limit for each command |
 
 A token is sent only over TLS, or in plain text only to a loopback address.

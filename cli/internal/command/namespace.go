@@ -69,7 +69,6 @@ func (c *cli) namespaceCreateCommand() *cobra.Command {
 			}
 			defer cancel()
 			defer func() { _ = conn.Close() }()
-			out := cmd.OutOrStdout()
 			_, err = workflowservice.NewWorkflowServiceClient(conn).RegisterNamespace(ctx,
 				&workflowservice.RegisterNamespaceRequest{
 					Namespace: s.Namespace, Description: description,
@@ -77,18 +76,17 @@ func (c *cli) namespaceCreateCommand() *cobra.Command {
 				})
 			switch {
 			case status.Code(err) == codes.AlreadyExists:
-				_, _ = fmt.Fprintf(out, "Namespace %s already exists; its settings are unchanged.\n", s.Namespace)
+				_ = c.confirm(cmd, "Namespace %s already exists; its settings are unchanged.\n", s.Namespace)
 			case err != nil:
 				return fmt.Errorf("unable to create namespace %s: %w", s.Namespace, err)
 			default:
-				_, _ = fmt.Fprintf(out, "Namespace %s created.\n", s.Namespace)
+				_ = c.confirm(cmd, "Namespace %s created.\n", s.Namespace)
 			}
 			if err := addSearchAttributes(ctx, operatorservice.NewOperatorServiceClient(conn), s.Namespace,
 				map[string]enumspb.IndexedValueType{workflowKind: enumspb.INDEXED_VALUE_TYPE_KEYWORD}); err != nil {
 				return err
 			}
-			_, err = fmt.Fprintf(out, "Search attribute %s is in namespace %s.\n", workflowKind, s.Namespace)
-			return err
+			return c.confirm(cmd, "Search attribute %s is in namespace %s.\n", workflowKind, s.Namespace)
 		},
 	}
 	cmd.Flags().DurationVar(&retention, "retention", defaultRetention, "how long closed workflows are kept")
@@ -232,8 +230,7 @@ func (c *cli) namespaceUpdateCommand() *cobra.Command {
 			if _, err := workflowservice.NewWorkflowServiceClient(conn).UpdateNamespace(ctx, req); err != nil {
 				return fmt.Errorf("unable to update namespace %s: %w", s.Namespace, err)
 			}
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Namespace %s updated.\n", s.Namespace)
-			return err
+			return c.confirm(cmd, "Namespace %s updated.\n", s.Namespace)
 		},
 	}
 	cmd.Flags().DurationVar(&retention, "retention", 0, "how long closed workflows are kept")
