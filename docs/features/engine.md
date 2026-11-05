@@ -54,6 +54,7 @@ tokens and profiles are covered by [engine security](engine-security.md) and
 | Test | Covers |
 |---|---|
 | `engine/internal/cli/cli_test.go` | Usage, version, flags, configuration errors, the authorizer, claim mapper and internal frontend refusals, the default services, the start path and `start-dev`'s `--db-file` directory |
+| `engine/internal/cli/quietlog_test.go` | Transient start-up errors at debug level during the grace period and errors after it; every level logged with the caller's source position |
 | `engine/internal/sqlschema/devnamespaces_test.go` | `start-dev`'s namespaces and their `WorkflowKind` alias, read back from SQLite (in memory and in a file) |
 | `tools/internal/enginetest/dev_test.go` | A real `start-dev` with no outside setup: `default` and `--namespace` with `WorkflowKind`, a first workflow found by `WorkflowKind`, and both kept across a restart on the same `--db-file` |
 | `tests/ballerina/smoke` | A real engine runs workflows, activities, data events and failures |

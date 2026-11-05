@@ -21,11 +21,13 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"math/big"
 	"net"
 	"net/http"
@@ -150,4 +152,38 @@ func (p *identityProvider) token(claims map[string]any, key *rsa.PrivateKey) str
 		p.t.Fatal(err)
 	}
 	return signing + "." + base64.RawURLEncoding.EncodeToString(sig)
+}
+
+// tlsAccepts opens a TLS connection with an optional client certificate and reports whether the server kept it. A
+// refused client certificate surfaces on the first read under TLS 1.3, so a read that only times out means accepted;
+// it offers h2, which gRPC servers require.
+func tlsAccepts(addr, caFile, certFile, keyFile string) error {
+	caPEM, err := os.ReadFile(caFile) //nolint:gosec // a test file
+	if err != nil {
+		return err
+	}
+	pool := x509.NewCertPool()
+	pool.AppendCertsFromPEM(caPEM)
+	cfg := &tls.Config{RootCAs: pool, ServerName: "localhost", MinVersion: tls.VersionTLS12, NextProtos: []string{"h2"}}
+	if certFile != "" {
+		cert, err := tls.LoadX509KeyPair(certFile, keyFile)
+		if err != nil {
+			return err
+		}
+		cfg.Certificates = []tls.Certificate{cert}
+	}
+	conn, err := tls.DialWithDialer(&net.Dialer{Timeout: 5 * time.Second}, "tcp", addr, cfg)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = conn.Close() }()
+	_ = conn.SetReadDeadline(time.Now().Add(time.Second))
+	if _, err := conn.Read(make([]byte, 1)); err != nil {
+		var ne net.Error
+		if errors.As(err, &ne) && ne.Timeout() {
+			return nil
+		}
+		return err
+	}
+	return nil
 }

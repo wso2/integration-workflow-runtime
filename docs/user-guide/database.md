@@ -88,13 +88,14 @@ manageSchema = false
 ```
 
 ```bash
-SQL="bin/workflow-engine-sql --plugin postgres12 --ep db.example.com -p 5432 -u dba --pw <password>"
-$SQL --db temporal create-database
-$SQL --db temporal_visibility create-database
-$SQL --db temporal setup-schema -v 0.0
-$SQL --db temporal update-schema --schema-name postgresql/v12/temporal
-$SQL --db temporal_visibility setup-schema -v 0.0
-$SQL --db temporal_visibility update-schema --schema-name postgresql/v12/visibility
+export SQL_PASSWORD='<password>'   # read by the tool, so the password stays out of the command line
+sql() { bin/workflow-engine-sql --plugin postgres12 --ep db.example.com -p 5432 -u dba "$@"; }
+sql --db temporal create-database
+sql --db temporal_visibility create-database
+sql --db temporal setup-schema -v 0.0
+sql --db temporal update-schema --schema-name postgresql/v12/temporal
+sql --db temporal_visibility setup-schema -v 0.0
+sql --db temporal_visibility update-schema --schema-name postgresql/v12/visibility
 ```
 
 For MySQL use `--plugin mysql8`, port 3306 and the schema names `mysql/v8/temporal` and `mysql/v8/visibility`.

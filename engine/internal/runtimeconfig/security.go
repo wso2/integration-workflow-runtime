@@ -17,11 +17,14 @@
 package runtimeconfig
 
 import (
+	"crypto/x509"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"net"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"go.temporal.io/server/common/config"
@@ -110,6 +113,59 @@ func (t engineTLSSettings) problems() []string {
 		}
 	}
 	return problems
+}
+
+// defaultInternodeServerName settles the name every node verifies in the others' internode certificates. Temporal
+// reaches the internal frontend through its membership resolver, a target with no host name, so without a server name
+// that connection fails, and with it the search attribute, namespace and system worker calls behind it. The name
+// defaults to the certificate's DNS name when it has exactly one; an explicit name must be in the certificate.
+func (t *engineTLSSettings) defaultInternodeServerName() error {
+	in := &t.Internode
+	if !in.Enabled {
+		return nil
+	}
+	file := in.CertFile
+	if file == "" {
+		file = t.CertFile
+	}
+	cert, err := readCertificate(file)
+	if err != nil {
+		return fmt.Errorf("engine.tls.internode: %w", err)
+	}
+	if in.ServerName != "" {
+		if err := cert.VerifyHostname(in.ServerName); err != nil {
+			return fmt.Errorf("engine.tls.internode.serverName %q is not a name in %s", in.ServerName, file)
+		}
+		return nil
+	}
+	switch len(cert.DNSNames) {
+	case 1:
+		in.ServerName = cert.DNSNames[0]
+		return nil
+	case 0:
+		return fmt.Errorf("engine.tls.internode.serverName is required: %s has no DNS name; issue the internode "+
+			"certificates with a DNS name every node shares, or set serverName to a name every node's certificate "+
+			"carries", file)
+	default:
+		return fmt.Errorf("engine.tls.internode.serverName is required: %s has several DNS names (%s); set it to "+
+			"the one every node's certificate carries", file, strings.Join(cert.DNSNames, ", "))
+	}
+}
+
+func readCertificate(file string) (*x509.Certificate, error) {
+	data, err := os.ReadFile(file) //nolint:gosec // the configured certificate
+	if err != nil {
+		return nil, err
+	}
+	block, _ := pem.Decode(data)
+	if block == nil || block.Type != "CERTIFICATE" {
+		return nil, fmt.Errorf("%s holds no PEM certificate", file)
+	}
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", file, err)
+	}
+	return cert, nil
 }
 
 func (t engineTLSSettings) temporalTLS() config.RootTLS {
@@ -245,4 +301,5 @@ func (m metricsSettings) temporalMetrics() *metrics.Config {
 	}}
 }
 
-var errNoServices = errors.New("runtime.profiles names no engine service; this node runs only other components")
+// ErrNoServices is returned by the CLI when profiles select no engine service and no --service is given.
+var ErrNoServices = errors.New("runtime.profiles names no engine service; this node runs only other components")
