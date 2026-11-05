@@ -88,8 +88,7 @@ func (c *cli) searchAttributeCreateCommand() *cobra.Command {
 			if len(names) == 1 {
 				format = "Search attribute %s is in namespace %s.\n"
 			}
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), format, strings.Join(names, ", "), s.Namespace)
-			return err
+			return c.confirm(cmd, format, strings.Join(names, ", "), s.Namespace)
 		},
 	}
 	cmd.Flags().StringArrayVar(&names, "name", nil, "the attribute's name; repeat for more")

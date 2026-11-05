@@ -163,8 +163,9 @@ func (f workflowFake) UpdateNamespace(ctx context.Context, r *workflowservice.Up
 	if r.GetConfig() != nil {
 		ns.Config.WorkflowExecutionRetentionTtl = r.GetConfig().GetWorkflowExecutionRetentionTtl()
 	}
-	if r.GetUpdateInfo() != nil {
-		ns.NamespaceInfo.Description = r.GetUpdateInfo().GetDescription()
+	// As Temporal's namespace handler: an empty description leaves the current one.
+	if d := r.GetUpdateInfo().GetDescription(); d != "" {
+		ns.NamespaceInfo.Description = d
 	}
 	return &workflowservice.UpdateNamespaceResponse{}, nil
 }
@@ -347,6 +348,11 @@ func TestNamespaceLifecycle(t *testing.T) {
 		t.Fatalf("second create:\n%s", out)
 	}
 	tc.must("operator", "namespace", "create", "-n", "billing", "--retention", "72h")
+	// With -o json a change reports on stderr, so stdout holds only JSON, here none.
+	if code, out, errOut := tc.run("operator", "namespace", "update", "-n", "billing", "--retention", "72h", "-o",
+		"json"); code != 0 || out != "" || !strings.Contains(errOut, "Namespace billing updated.") {
+		t.Fatalf("json update: exit %d, stdout %q, stderr %q", code, out, errOut)
+	}
 
 	out = tc.must("operator", "namespace", "describe", "-n", "orders")
 	for _, want := range []string{"Name         orders", "State        Registered", "Retention    30d",
@@ -365,15 +371,16 @@ func TestNamespaceLifecycle(t *testing.T) {
 		t.Fatalf("json list = %v, %v", list, err)
 	}
 
-	tc.must("operator", "namespace", "update", "-n", "orders", "--retention", "36h", "--description", "")
+	tc.must("operator", "namespace", "update", "-n", "orders", "--retention", "36h", "--description", "Order processing")
 	ns := tc.engine.namespaces["orders"]
 	if ns.GetConfig().GetWorkflowExecutionRetentionTtl().AsDuration() != 36*time.Hour ||
-		ns.GetNamespaceInfo().GetDescription() != "" {
+		ns.GetNamespaceInfo().GetDescription() != "Order processing" {
 		t.Fatalf("after update: %v", ns)
 	}
 	for args, want := range map[string]string{
 		"operator namespace update -n orders":                  "nothing to update",
 		"operator namespace update -n orders --retention 0s":   "must be positive",
+		"operator namespace update -n orders --description=":   "must not be empty",
 		"operator namespace create -n x --retention -1h":       "must be positive",
 		"operator namespace describe -n missing":               "unable to describe namespace missing",
 		"operator namespace update -n missing --description x": "unable to update namespace missing",
