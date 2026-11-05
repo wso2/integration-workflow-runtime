@@ -18,7 +18,6 @@ package command
 
 import (
 	"context"
-	"google.golang.org/protobuf/proto"
 	"slices"
 	"strings"
 	"testing"
@@ -29,6 +28,7 @@ import (
 	schedulepb "go.temporal.io/api/schedule/v1"
 	"go.temporal.io/api/serviceerror"
 	"go.temporal.io/api/workflowservice/v1"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
