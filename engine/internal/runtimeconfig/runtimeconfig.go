@@ -321,7 +321,8 @@ func (s *settings) validate() error {
 		if !validPort(d.Port) {
 			problems = append(problems, fmt.Sprintf("database.port %d is not a valid port", d.Port))
 		}
-		if d.Name == d.VisibilityName {
+		// Unquoted names are case-insensitive on PostgreSQL, and on MySQL with lower_case_table_names set.
+		if strings.EqualFold(d.Name, d.VisibilityName) {
 			problems = append(problems, "database.name and database.visibilityName must differ")
 		}
 		for _, n := range []struct{ key, value string }{{"name", d.Name}, {"visibilityName", d.VisibilityName}} {

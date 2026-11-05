@@ -16,9 +16,10 @@
 
 package runtimeconfig
 
-// mysqlReservedWords are MySQL 8.4's reserved words (INFORMATION_SCHEMA.KEYWORDS WHERE RESERVED = 1). Temporal's
-// MySQL schema tool writes database names unquoted, so a database named after one of them cannot be created.
+// mysqlReservedWords are MySQL 8.4's reserved words (INFORMATION_SCHEMA.KEYWORDS WHERE RESERVED = 1) and those only
+// 8.0.17+ reserves. Temporal's MySQL schema tool writes database names unquoted, so such a name cannot be created.
 var mysqlReservedWords = map[string]struct{}{
+	"master_bind": {}, "master_ssl_verify_server_cert": {}, "member": {},
 	"accessible": {}, "add": {}, "all": {}, "alter": {}, "analyze": {}, "and": {}, "as": {}, "asc": {},
 	"asensitive": {}, "before": {}, "between": {}, "bigint": {}, "binary": {}, "blob": {}, "both": {}, "by": {},
 	"call": {}, "cascade": {}, "case": {}, "change": {}, "char": {}, "character": {}, "check": {}, "collate": {},
