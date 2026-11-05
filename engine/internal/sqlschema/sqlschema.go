@@ -55,7 +55,8 @@ var schemaDirs = map[string]string{
 	"mysql8":         "mysql/v8",
 }
 
-// lockStatements take and release a server-wide lock held by the session that took it.
+// lockStatements take and release a lock held by the session that took it: server-wide on MySQL, and per database
+// on PostgreSQL, where the nodes of one engine all take it in the same workflow database.
 var lockStatements = map[string][2]string{
 	"postgresql/v12": {"SELECT pg_advisory_lock(hashtext($1))", "SELECT pg_advisory_unlock(hashtext($1))"},
 	"mysql/v8":       {"SELECT GET_LOCK(?, -1)", "SELECT RELEASE_LOCK(?)"},
@@ -184,7 +185,8 @@ func prepareStore(db conn, s store, createErr error, logger log.Logger) error {
 	tables, err := db.ListTables()
 	if err != nil {
 		if createErr != nil {
-			return fmt.Errorf("unable to create database %s: %w", name, createErr)
+			return errors.Join(fmt.Errorf("unable to create database %s: %w", name, createErr),
+				fmt.Errorf("unable to read the tables of database %s: %w", name, err))
 		}
 		return fmt.Errorf("unable to read the tables of database %s: %w", name, err)
 	}
