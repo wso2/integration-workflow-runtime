@@ -94,7 +94,7 @@ MySQL, membership ports must be at most 32767, so service ports at most 33067.
 | `port` | `5432` / `3306` | Database server port |
 | `user`, `password` | empty | Credentials; `password` is a literal or `$env{NAME}` |
 | `name` | `temporal` | Workflow database |
-| `visibilityName` | `temporal_visibility` | Visibility (search) database; must differ from `name` |
+| `visibilityName` | `temporal_visibility` | Visibility (search) database; must differ from `name`, ignoring case |
 | `path` | | SQLite only: the database file |
 | `inMemory` | `false` | SQLite only: keep everything in memory |
 | `maxConns` | `20` (`1` for SQLite) | Connections per database; must be `1` for an in-memory SQLite database |

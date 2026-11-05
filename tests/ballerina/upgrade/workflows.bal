@@ -25,8 +25,14 @@ type Decision record {|
     string comment;
 |};
 
+// Set when the first activity runs, so the "before" test waits for it instead of a fixed time.
+isolated boolean stockReserved = false;
+
 @workflow:Activity
 function reserveStock(string orderId) returns string|error {
+    lock {
+        stockReserved = true;
+    }
     return "reserved " + orderId;
 }
 
