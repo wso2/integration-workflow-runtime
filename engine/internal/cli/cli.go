@@ -21,12 +21,15 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strings"
+	"time"
 
 	"go.temporal.io/server/common/authorization"
 	"go.temporal.io/server/common/config"
@@ -39,13 +42,19 @@ import (
 	"go.temporal.io/server/temporal"
 
 	"github.com/wso2/integration-workflow-runtime/engine/internal/runtimeconfig"
+	"github.com/wso2/integration-workflow-runtime/engine/plugins/jwtclaims"
 )
 
 const usageText = `usage: workflow-engine version
        workflow-engine start (--runtime-config <runtime.toml> | --config-file <temporal.yaml>) [--service <name>]... [--allow-no-auth]
        workflow-engine render-config --runtime-config <runtime.toml>`
 
-type serverFactory func(opts ...temporal.ServerOption) (temporal.Server, error)
+// serverFactory builds the server for the services this node runs; tests record the services.
+type serverFactory func(services []string, opts ...temporal.ServerOption) (temporal.Server, error)
+
+func newTemporalServer(services []string, opts ...temporal.ServerOption) (temporal.Server, error) {
+	return temporal.NewServer(append(opts, temporal.ForServices(services))...)
+}
 
 type command struct {
 	version   string
@@ -56,7 +65,7 @@ type command struct {
 
 // Main runs the command with the given arguments and returns the process exit code.
 func Main(version string, args []string) int {
-	c := command{version: version, stdout: os.Stdout, stderr: os.Stderr, newServer: temporal.NewServer}
+	c := command{version: version, stdout: os.Stdout, stderr: os.Stderr, newServer: newTemporalServer}
 	return c.run(args)
 }
 
@@ -110,12 +119,20 @@ func (c command) start(args []string) error {
 		}
 		return err
 	}
-	cfg, err := loadConfig(*runtimeConfig, *configFile)
+	cfg, rt, err := loadConfig(*runtimeConfig, *configFile)
 	if err != nil {
 		return err
 	}
-	if len(services) == 0 {
+	explicit := len(services) > 0
+	switch {
+	case explicit:
+	case rt != nil:
+		services = rt.Services
+	default:
 		services = defaultServices(cfg)
+	}
+	if len(services) == 0 {
+		return runtimeconfig.ErrNoServices
 	}
 	logger := log.NewZapLogger(log.BuildZapLogger(cfg.Log))
 
@@ -136,7 +153,7 @@ func (c command) start(args []string) error {
 	if !authorization.IsNoopAuthorizer(authorizer) && !hasInternalFrontend(cfg) {
 		return errors.New("an authorizer needs the internal frontend; add services.internal-frontend to the configuration")
 	}
-	claimMapper, err := authorization.GetClaimMapperFromConfig(&cfg.Global.Authorization, logger)
+	claimMapper, err := newClaimMapper(cfg, rt, logger)
 	if err != nil {
 		return fmt.Errorf("unable to create the claim mapper: %w", err)
 	}
@@ -145,15 +162,24 @@ func (c command) start(args []string) error {
 		return fmt.Errorf("unable to create the audience mapper: %w", err)
 	}
 
-	server, err := c.newServer(
-		temporal.ForServices(services),
+	// Profiles keep the internal frontend with the frontend; a --service list can drop it, which another node may cover.
+	if explicit && !authorization.IsNoopAuthorizer(authorizer) &&
+		!slices.Contains(services, string(primitives.InternalFrontendService)) {
+		logger.Warn("--service leaves out internal-frontend; with an authorizer on, another node must run it, or " +
+			"Temporal's services cannot reach the frontend and the engine stops about a minute after start")
+	}
+	opts := []temporal.ServerOption{
 		temporal.WithConfig(cfg),
 		temporal.WithLogger(logger),
 		temporal.InterruptOn(temporal.InterruptCh()),
 		temporal.WithAuthorizer(authorizer),
 		temporal.WithClaimMapper(func(*config.Config) authorization.ClaimMapper { return claimMapper }),
 		temporal.WithAudienceGetter(func(*config.Config) authorization.JWTAudienceMapper { return audienceMapper }),
-	)
+	}
+	if rt != nil && rt.DynamicConfig != nil {
+		opts = append(opts, temporal.WithDynamicConfigClient(rt.DynamicConfig))
+	}
+	server, err := c.newServer(services, opts...)
 	if err != nil {
 		return fmt.Errorf("unable to create the server: %w", err)
 	}
@@ -170,11 +196,11 @@ func (c command) renderConfig(args []string) error {
 	if *runtimeConfig == "" {
 		return errors.New("--runtime-config is required")
 	}
-	cfg, err := runtimeconfig.Load(*runtimeConfig)
+	rt, err := runtimeconfig.Load(*runtimeConfig)
 	if err != nil {
 		return err
 	}
-	rendered, err := runtimeconfig.Render(cfg)
+	rendered, err := runtimeconfig.Render(&rt.Temporal)
 	if err != nil {
 		return fmt.Errorf("unable to render the configuration: %w", err)
 	}
@@ -182,22 +208,56 @@ func (c command) renderConfig(args []string) error {
 	return err
 }
 
-// loadConfig returns the Temporal configuration from exactly one of a runtime.toml and a Temporal YAML file.
-func loadConfig(runtimeConfig, configFile string) (*config.Config, error) {
+// loadConfig returns the Temporal configuration from exactly one of a runtime.toml and a Temporal YAML file; the
+// runtime settings are nil for a Temporal YAML file, which is used as is.
+func loadConfig(runtimeConfig, configFile string) (*config.Config, *runtimeconfig.Runtime, error) {
 	switch {
 	case runtimeConfig != "" && configFile != "":
-		return nil, errors.New("pass either --runtime-config or --config-file, not both")
+		return nil, nil, errors.New("pass either --runtime-config or --config-file, not both")
 	case runtimeConfig != "":
-		return runtimeconfig.Load(runtimeConfig)
+		rt, err := runtimeconfig.Load(runtimeConfig)
+		if err != nil {
+			return nil, nil, err
+		}
+		return &rt.Temporal, rt, nil
 	case configFile != "":
 		cfg, err := config.Load(config.WithConfigFile(configFile))
 		if err != nil {
-			return nil, fmt.Errorf("unable to load configuration: %w", err)
+			return nil, nil, fmt.Errorf("unable to load configuration: %w", err)
 		}
-		return cfg, nil
+		return cfg, nil, nil
 	default:
-		return nil, errors.New("--runtime-config or --config-file is required")
+		return nil, nil, errors.New("--runtime-config or --config-file is required")
 	}
+}
+
+// keyFetchTimeout bounds each discovery or key set request.
+const keyFetchTimeout = 15 * time.Second
+
+// newClaimMapper builds the identity-provider mapper that runtime.toml's [engine.auth] asks for, or Temporal's own.
+func newClaimMapper(cfg *config.Config, rt *runtimeconfig.Runtime, logger log.Logger) (authorization.ClaimMapper, error) {
+	if cfg.Global.Authorization.ClaimMapper != runtimeconfig.ClaimMapperName {
+		return authorization.GetClaimMapperFromConfig(&cfg.Global.Authorization, logger)
+	}
+	if rt == nil || rt.Auth == nil {
+		return nil, fmt.Errorf("claim mapper %q is configured only through runtime.toml [engine.auth]",
+			runtimeconfig.ClaimMapperName)
+	}
+	client := jwtclaims.Client(keyFetchTimeout)
+	if len(cfg.Global.Authorization.JWTKeyProvider.KeySourceURIs) == 0 {
+		jwks, err := jwtclaims.Discover(context.Background(), client, rt.Auth.Issuer)
+		if err != nil {
+			return nil, fmt.Errorf("unable to discover the identity provider's key set: %w", err)
+		}
+		cfg.Global.Authorization.JWTKeyProvider.KeySourceURIs = []string{jwks}
+	}
+	if rt.Auth.Issuer == "" && rt.Auth.Audience == "" {
+		logger.Warn("engine.auth checks neither issuer nor audience: every unexpired token the key set signs is " +
+			"accepted, including tokens issued for other applications; set issuer or audience")
+	}
+	kp := cfg.Global.Authorization.JWTKeyProvider
+	keys := jwtclaims.NewKeySet(kp.KeySourceURIs, kp.RefreshInterval, client, logger)
+	return jwtclaims.New(keys, *rt.Auth)
 }
 
 // defaultServices is Temporal's default set plus the internal frontend when the configuration defines one.

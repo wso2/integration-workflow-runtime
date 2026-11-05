@@ -32,22 +32,22 @@ func noEnv(string) (string, bool) { return "", false }
 
 func mustParse(t *testing.T, toml string) *config.Config {
 	t.Helper()
-	cfg, err := parse([]byte(toml), noEnv)
+	rt, err := parse([]byte(toml), noEnv)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	return cfg
+	return &rt.Temporal
 }
 
 func TestPasswordFromEnvironment(t *testing.T) {
 	t.Parallel()
 	lookup := func(name string) (string, bool) { return "from-env", name == "WF_DB_PASSWORD" }
-	cfg, err := parse([]byte("[database]\ntype = \"postgresql\"\nhost = \"db\"\npassword = \"$env{WF_DB_PASSWORD}\"\n"), lookup)
+	rt, err := parse([]byte("[database]\ntype = \"postgresql\"\nhost = \"db\"\npassword = \"$env{WF_DB_PASSWORD}\"\n"), lookup)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, store := range []string{defaultStore, visibilityStore} {
-		if got := cfg.Persistence.DataStores[store].SQL.Password; got != "from-env" {
+		if got := rt.Temporal.Persistence.DataStores[store].SQL.Password; got != "from-env" {
 			t.Fatalf("%s password = %q, want the environment value", store, got)
 		}
 	}

@@ -19,13 +19,21 @@ package cli
 import (
 	"bytes"
 	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
 	"go.temporal.io/server/common/config"
+	"go.temporal.io/server/common/log"
 	"go.temporal.io/server/temporal"
+
+	"github.com/wso2/integration-workflow-runtime/engine/internal/runtimeconfig"
+	"github.com/wso2/integration-workflow-runtime/engine/plugins/jwtclaims"
 )
 
 const minimalConfig = "testdata/minimal.yaml"
@@ -48,7 +56,7 @@ func newTestCommand(server temporal.Server, factoryErr error) (command, *bytes.B
 		version: "9.9.9-test",
 		stdout:  stdout,
 		stderr:  stderr,
-		newServer: func(...temporal.ServerOption) (temporal.Server, error) {
+		newServer: func([]string, ...temporal.ServerOption) (temporal.Server, error) {
 			return server, factoryErr
 		},
 	}
@@ -285,5 +293,118 @@ func TestRenderConfigErrors(t *testing.T) {
 	}
 	if err := c.renderConfig([]string{"--no-such-flag"}); err == nil {
 		t.Fatal("render-config accepted an unknown flag")
+	}
+}
+
+func TestStartWithIdentityProviderAuth(t *testing.T) {
+	server := &fakeServer{}
+	c, _, stderr := newTestCommand(server, nil)
+	if code := c.run([]string{"start", "--runtime-config", "testdata/runtime-auth.toml"}); code != 0 || !server.started {
+		t.Fatalf("exit code = %d, started = %v, stderr = %s", code, server.started, stderr.String())
+	}
+}
+
+func TestNewClaimMapper(t *testing.T) {
+	logger := log.NewNoopLogger()
+	rt, err := runtimeconfig.Load("testdata/runtime-auth.toml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(rt.Services, []string{"frontend", "internal-frontend", "history"}) {
+		t.Fatalf("services = %v", rt.Services)
+	}
+	m, err := newClaimMapper(&rt.Temporal, rt, logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := m.(*jwtclaims.Mapper); !ok {
+		t.Fatalf("mapper = %T, want *jwtclaims.Mapper", m)
+	}
+	if _, err := newClaimMapper(&rt.Temporal, nil, logger); err == nil || !strings.Contains(err.Error(), "only through runtime.toml") {
+		t.Fatalf("mapper without runtime settings: %v", err)
+	}
+	plain := &config.Config{Global: config.Global{Authorization: config.Authorization{ClaimMapper: "default"}}}
+	if m, err := newClaimMapper(plain, nil, logger); err != nil || m == nil {
+		t.Fatalf("Temporal's default mapper: %v, %v", m, err)
+	}
+}
+
+func TestNewClaimMapperDiscoversTheKeySet(t *testing.T) {
+	var base string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = fmt.Fprintf(w, `{"issuer":%q,"jwks_uri":%q}`, base+"/oauth2/token", base+"/oauth2/jwks")
+	}))
+	defer srv.Close()
+	base = srv.URL
+	write := func(issuer string) string {
+		p := filepath.Join(t.TempDir(), "runtime.toml")
+		cert, _ := filepath.Abs("testdata/certs/engine.crt")
+		key, _ := filepath.Abs("testdata/certs/engine.key")
+		toml := "[engine.tls]\ncertFile = \"" + cert + "\"\nkeyFile = \"" + key + "\"\n" +
+			"[engine.auth]\ntype = \"jwt\"\nissuer = \"" + issuer + "\"\n[database]\ntype = \"sqlite\"\ninMemory = true\n"
+		if err := os.WriteFile(p, []byte(toml), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	rt, err := runtimeconfig.Load(write(base + "/oauth2/token"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := newClaimMapper(&rt.Temporal, rt, log.NewNoopLogger()); err != nil {
+		t.Fatal(err)
+	}
+	if got := rt.Temporal.Global.Authorization.JWTKeyProvider.KeySourceURIs; !slices.Equal(got, []string{base + "/oauth2/jwks"}) {
+		t.Fatalf("key set = %v", got)
+	}
+	rt, err = runtimeconfig.Load(write("http://127.0.0.1:1/oauth2/token"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := newClaimMapper(&rt.Temporal, rt, log.NewNoopLogger()); err == nil ||
+		!strings.Contains(err.Error(), "unable to discover the identity provider's key set") {
+		t.Fatalf("unreachable provider: %v", err)
+	}
+}
+
+func TestServicesReachTheServerFactory(t *testing.T) {
+	for name, tt := range map[string]struct {
+		args []string
+		want []string
+	}{
+		"profiles":                   {[]string{"--runtime-config", "testdata/runtime-auth.toml"}, []string{"frontend", "internal-frontend", "history"}},
+		"service override":           {[]string{"--runtime-config", "testdata/runtime-auth.toml", "--service", "worker"}, []string{"worker"}},
+		"default profile":            {[]string{"--runtime-config", "testdata/runtime-sqlite.toml", "--allow-no-auth"}, []string{"frontend", "internal-frontend", "history", "matching", "worker"}},
+		"api profile with a service": {[]string{"--runtime-config", "testdata/runtime-api.toml", "--allow-no-auth", "--service", "history"}, []string{"history"}},
+	} {
+		c, _, stderr := newTestCommand(&fakeServer{}, nil)
+		var got []string
+		c.newServer = func(services []string, _ ...temporal.ServerOption) (temporal.Server, error) {
+			got = services
+			return &fakeServer{}, nil
+		}
+		if err := c.start(tt.args); err != nil {
+			t.Fatalf("%s: start = %v (%s)", name, err, stderr.String())
+		}
+		if !slices.Equal(got, tt.want) {
+			t.Errorf("%s: services = %v, want %v", name, got, tt.want)
+		}
+	}
+}
+
+func TestStartRefusesAnAPIProfileWithoutAService(t *testing.T) {
+	c, _, _ := newTestCommand(&fakeServer{}, nil)
+	if err := c.start([]string{"--runtime-config", "testdata/runtime-api.toml", "--allow-no-auth"}); !errors.Is(err, runtimeconfig.ErrNoServices) {
+		t.Fatalf("start = %v, want %v", err, runtimeconfig.ErrNoServices)
+	}
+}
+
+func TestNewTemporalServerBuildsAServer(t *testing.T) {
+	rt, err := runtimeconfig.Load("testdata/runtime-sqlite.toml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := newTemporalServer([]string{"frontend"}, temporal.WithConfig(&rt.Temporal)); err != nil {
+		t.Fatalf("newTemporalServer = %v", err)
 	}
 }

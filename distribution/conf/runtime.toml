@@ -1,7 +1,7 @@
-# The runtime's configuration. [engine] and [database] are read by workflow-engine (docs/features/runtime-config.md);
-# the other tables are illustrative until their components arrive.
+# The runtime's configuration. [runtime] profiles, [engine] and [database] are read by workflow-engine
+# (docs/features/runtime-config.md); the other tables are illustrative until their components arrive.
 [runtime]
-profiles = ["all"]          # or e.g. ["history"], ["manager"]
+profiles = ["all"]          # or e.g. ["frontend"], ["history", "matching"], ["worker"]
 
 [engine]
 # Listen on every interface and tell other nodes and clients which address reaches this one.
@@ -9,6 +9,24 @@ profiles = ["all"]          # or e.g. ["history"], ["manager"]
 # broadcastAddress = "10.0.0.5"
 # historyShards = 512        # fixed after the first start
 logLevel = "info"
+
+# TLS on port 7233 and tokens from your identity provider (docs/features/engine-security.md).
+# [engine.tls]
+# certFile = "conf/certs/engine.crt"
+# keyFile = "conf/certs/engine.key"
+#
+# [engine.auth]
+# type = "jwt"
+# issuer = "https://idp.example.com/oauth2/token"   # its key set is discovered; or set jwksUrls
+# rolesClaim = "groups"
+#
+# [[engine.auth.rules]]
+# value = "workflow-admins"
+# namespace = "*"
+# role = "admin"
+
+# [engine.metrics]
+# prometheusAddress = "0.0.0.0:9464"
 
 [database]
 type = "postgresql"         # postgresql | mysql | sqlite

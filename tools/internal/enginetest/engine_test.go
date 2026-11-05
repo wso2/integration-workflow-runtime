@@ -40,20 +40,21 @@ type engine struct {
 	log     *bytes.Buffer
 	address string
 	done    chan struct{} // closed when the process exits
+	// flags go on every Temporal CLI call, such as the CA and a token for a secured engine.
+	flags []string
 }
 
-// binaries returns the engine binary and the temporal CLI, or skips the test.
-func binaries(t *testing.T) (string, string) {
+// engineBinary returns the engine binary, or skips the test when it or the temporal CLI is missing.
+func engineBinary(t *testing.T) string {
 	t.Helper()
 	path := os.Getenv("WORKFLOW_ENGINE")
 	if path == "" {
 		t.Skip("WORKFLOW_ENGINE does not name the engine binary")
 	}
-	cli, err := exec.LookPath("temporal")
-	if err != nil {
+	if _, err := exec.LookPath("temporal"); err != nil {
 		t.Skip("the temporal CLI is not on PATH")
 	}
-	return path, cli
+	return path
 }
 
 // freeBase finds a frontend port whose service ports (+1 to +10) and membership ports (-300) are free. It holds the
@@ -94,15 +95,25 @@ func writeConfig(t *testing.T, dir, toml string) string {
 	return path
 }
 
-// start runs the engine with args and waits until its frontend reports SERVING.
-func start(t *testing.T, binary string, base int, args ...string) *engine {
+// start runs the engine with args and waits until its frontend reports SERVING to a CLI call with flags.
+func start(t *testing.T, binary string, base int, flags []string, args ...string) *engine {
+	t.Helper()
+	e, err := launch(t, binary, base, flags, args...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return e
+}
+
+// launch is start, returning an engine that stopped or never reported SERVING as an error.
+func launch(t *testing.T, binary string, base int, flags []string, args ...string) (*engine, error) {
 	t.Helper()
 	lockPorts(t) // already held when freeBase or a restart took it
-	e := &engine{t: t, log: &bytes.Buffer{}, address: fmt.Sprintf("127.0.0.1:%d", base)}
+	e := &engine{t: t, log: &bytes.Buffer{}, address: fmt.Sprintf("127.0.0.1:%d", base), flags: flags}
 	e.cmd = exec.Command(binary, args...) //nolint:gosec // the engine under test
 	e.cmd.Stdout, e.cmd.Stderr = e.log, e.log
 	if err := e.cmd.Start(); err != nil {
-		t.Fatal(err)
+		return nil, err
 	}
 	e.done = make(chan struct{})
 	go func() { _ = e.cmd.Wait(); close(e.done) }()
@@ -111,17 +122,17 @@ func start(t *testing.T, binary string, base int, args ...string) *engine {
 	for time.Now().Before(deadline) {
 		select {
 		case <-e.done:
-			t.Fatalf("the engine exited before it reported SERVING:\n%s", e.log)
+			return nil, fmt.Errorf("the engine exited before it reported SERVING:\n%s", e.log)
 		default:
 		}
 		if out, err := e.temporal("operator", "cluster", "health"); err == nil && strings.Contains(out, "SERVING") {
 			unlockPorts()
-			return e
+			return e, nil
 		}
 		time.Sleep(time.Second)
 	}
-	t.Fatalf("the engine did not report SERVING within %s:\n%s", startTimeout, e.log)
-	return nil
+	e.stop() // free its ports before a caller starts another engine on them
+	return nil, fmt.Errorf("the engine did not report SERVING within %s:\n%s", startTimeout, e.log)
 }
 
 // stop ends the engine with SIGTERM, as a service manager does, and waits for it.
@@ -144,11 +155,17 @@ func (e *engine) stop() {
 	}
 }
 
-// temporal runs the Temporal CLI against this engine.
+// temporal runs the Temporal CLI against this engine's frontend with its flags.
 func (e *engine) temporal(args ...string) (string, error) {
+	return e.temporalAt(e.address, e.flags, args...)
+}
+
+// temporalAt runs the Temporal CLI against any address with the given flags.
+func (e *engine) temporalAt(address string, flags []string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "temporal", append(args, "--address", e.address)...) //nolint:gosec // test calls
+	all := append(append(append([]string{}, args...), "--address", address), flags...)
+	cmd := exec.CommandContext(ctx, "temporal", all...) //nolint:gosec // test calls
 	out, err := cmd.CombinedOutput()
 	return string(out), err
 }

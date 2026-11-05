@@ -87,6 +87,7 @@ github.com/go-viper/mapstructure/v2,https://github.com/go-viper/mapstructure/blo
 github.com/gocql/gocql,https://github.com/gocql/gocql/blob/v1.7.0/LICENSE,Apache-2.0
 github.com/gogo/protobuf,https://github.com/gogo/protobuf/blob/v1.3.2/LICENSE,BSD-3-Clause
 github.com/golang-jwt/jwt/v4,https://github.com/golang-jwt/jwt/blob/v4.5.2/LICENSE,MIT
+github.com/golang-jwt/jwt/v5,https://github.com/golang-jwt/jwt/blob/v5.3.1/LICENSE,MIT
 github.com/golang/mock,https://github.com/golang/mock/blob/v1.6.0/LICENSE,Apache-2.0
 github.com/golang/snappy,https://github.com/golang/snappy/blob/v1.0.0/LICENSE,BSD-3-Clause
 github.com/google/gnostic-models,https://github.com/google/gnostic-models/blob/v0.7.1/LICENSE,Apache-2.0
