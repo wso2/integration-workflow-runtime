@@ -212,6 +212,10 @@ func (c *cli) namespaceUpdateCommand() *cobra.Command {
 			if flags.Changed("retention") && retention <= 0 {
 				return errors.New("--retention must be positive")
 			}
+			// The engine ignores an empty description, so it cannot clear one; say so rather than report success.
+			if flags.Changed("description") && description == "" {
+				return errors.New("--description must not be empty: the engine keeps the current description")
+			}
 			conn, s, ctx, cancel, err := c.connect(cmd)
 			if err != nil {
 				return err
