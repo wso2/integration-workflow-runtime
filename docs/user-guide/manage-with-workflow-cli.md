@@ -181,7 +181,9 @@ workflow-cli schedule delete -n reports -s nightly-report
 ```
 
 `--cron` and `--interval 30m` can repeat. `--overlap-policy` says what to do when a run is still open at the next
-time (`Skip` by default). `describe` lists the recent runs and the next one. The engine runs the schedule itself;
+time (`Skip` by default). Prefix a cron with `CRON_TZ=Europe/London` for a time zone other than UTC. `describe`
+shows the calendar as cron fields, in the form the engine stores it (`@daily` shows as `0 0 * * *`), its time
+zone, the recent runs and the next one. The engine runs the schedule itself;
 the integration only needs to serve the task queue.
 
 ## Check an integration's workers
@@ -190,8 +192,9 @@ the integration only needs to serve the task queue.
 workflow-cli task-queue describe --namespace orders --task-queue orders
 ```
 
-lists the workers that polled the task queue recently, for workflow and for activity tasks. Workflows that stay
-`Running` without progress while this lists no worker are waiting for their integration to start.
+lists the workers that polled the task queue in the last five minutes, for workflow and for activity tasks. Workflows
+that stay `Running` without progress while this lists no worker are waiting for an integration to poll: one that
+is not running, or one that cannot reach the engine.
 
 ## Repair the engine
 

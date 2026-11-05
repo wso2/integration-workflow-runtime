@@ -19,6 +19,7 @@ package command
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -114,8 +115,7 @@ func (c *cli) scheduleCreateCommand() *cobra.Command {
 					Identity: identity(), RequestId: requestID()}); err != nil {
 				return fmt.Errorf("unable to create schedule %s: %w", id, err)
 			}
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Schedule %s created.\n", id)
-			return err
+			return c.confirm(cmd, "Schedule %s created.\n", id)
 		},
 	}
 	scheduleID(cmd, &id)
@@ -217,10 +217,15 @@ func (c *cli) scheduleDescribeCommand() *cobra.Command {
 			if times := info.GetFutureActionTimes(); len(times) > 0 {
 				next = timestamp(times[0])
 			}
+			zone := sc.GetSpec().GetTimezoneName()
+			if zone == "" {
+				zone = "UTC"
+			}
 			rows := [][]string{
 				{"Schedule ID", id},
-				{"Cron", strings.Join(sc.GetSpec().GetCronString(), "; ")},
+				{"Calendar", strings.Join(calendars(sc.GetSpec()), "; ")},
 				{"Interval", strings.Join(every, ", ")},
+				{"Time zone", zone},
 				{"Workflow type", start.GetWorkflowType().GetName()},
 				{"Task queue", start.GetTaskQueue().GetName()},
 				{"Workflow ID", start.GetWorkflowId()},
@@ -311,8 +316,7 @@ func (c *cli) patchSchedule(cmd *cobra.Command, id string, patch *schedulepb.Sch
 	}); err != nil {
 		return fmt.Errorf("unable to update schedule %s: %w", id, err)
 	}
-	_, err = fmt.Fprintf(cmd.OutOrStdout(), "Schedule %s %s.\n", id, verb)
-	return err
+	return c.confirm(cmd, "Schedule %s %s.\n", id, verb)
 }
 
 func (c *cli) scheduleDeleteCommand() *cobra.Command {
@@ -333,10 +337,59 @@ func (c *cli) scheduleDeleteCommand() *cobra.Command {
 					Identity: identity()}); err != nil {
 				return fmt.Errorf("unable to delete schedule %s: %w", id, err)
 			}
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Schedule %s deleted.\n", id)
-			return err
+			return c.confirm(cmd, "Schedule %s deleted.\n", id)
 		},
 	}
 	scheduleID(cmd, &id)
 	return cmd
+}
+
+// calendars shows a spec's calendars as cron fields. The engine stores a --cron as a structured calendar and clears
+// the cron string, so describe reads the structured form.
+func calendars(spec *schedulepb.ScheduleSpec) []string {
+	shown := slices.Clone(spec.GetCronString())
+	for _, cal := range spec.GetStructuredCalendar() {
+		fields := []string{
+			cronField(cal.GetMinute(), 0, 59, "0"), cronField(cal.GetHour(), 0, 23, "0"),
+			cronField(cal.GetDayOfMonth(), 1, 31, "*"), cronField(cal.GetMonth(), 1, 12, "*"),
+			cronField(cal.GetDayOfWeek(), 0, 6, "*"),
+		}
+		if second := cronField(cal.GetSecond(), 0, 59, "0"); second != "0" {
+			fields = append([]string{second}, append(fields, cronField(cal.GetYear(), 0, 0, "*"))...)
+		} else if len(cal.GetYear()) > 0 {
+			fields = append(fields, cronField(cal.GetYear(), 0, 0, "*"))
+		}
+		text := strings.Join(fields, " ")
+		if cal.GetComment() != "" {
+			text += " # " + cal.GetComment()
+		}
+		shown = append(shown, text)
+	}
+	return shown
+}
+
+// cronField writes ranges as a cron field: an empty list is the field's default, and a range over the whole
+// field [lowest, highest] is "*". A range's end 0 means its start, and its step 0 means 1.
+func cronField(ranges []*schedulepb.Range, lowest, highest int32, empty string) string {
+	if len(ranges) == 0 {
+		return empty
+	}
+	parts := make([]string, 0, len(ranges))
+	for _, r := range ranges {
+		start, end, step := r.GetStart(), max(r.GetEnd(), r.GetStart()), max(r.GetStep(), 1)
+		var part string
+		switch {
+		case start == lowest && end == highest && highest > lowest:
+			part = "*"
+		case start == end:
+			part = strconv.Itoa(int(start))
+		default:
+			part = fmt.Sprintf("%d-%d", start, end)
+		}
+		if step > 1 {
+			part += "/" + strconv.Itoa(int(step))
+		}
+		parts = append(parts, part)
+	}
+	return strings.Join(parts, ",")
 }

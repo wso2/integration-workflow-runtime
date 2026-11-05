@@ -15,7 +15,7 @@ keywords: [wso2 integrator, workflow runtime, workflow-cli, reference, flags, pr
 | `operator namespace create [--retention <duration>] [--description <text>]` | Creates `--namespace` (retention 720h, 30 days, by default) with the `WorkflowKind` search attribute; an existing namespace is left unchanged |
 | `operator namespace list` | Every namespace with its state, retention and description |
 | `operator namespace describe` | One namespace |
-| `operator namespace update [--retention <duration>] [--description <text>]` | Changes the retention or the description |
+| `operator namespace update [--retention <duration>] [--description <text>]` | Changes the retention or the description; the engine cannot clear a description, so an empty one is refused |
 | `operator search-attribute create --name <name> --type <type> ...` | Adds search attributes, each `--name` with the `--type` in the same position; existing ones are left unchanged |
 | `operator search-attribute list` | The namespace's custom and system search attributes |
 | `workflow list [--query <query>] [--limit <n>]` | Workflows, newest first, with status, ID, type and start time; `--limit` 100 by default, 0 for all |
@@ -28,7 +28,7 @@ keywords: [wso2 integrator, workflow runtime, workflow-cli, reference, flags, pr
 | `workflow reset -w <id> (--type FirstWorkflowTask\|LastWorkflowTask \| --event-id <n>) --reason <text>` | A new run from the end of that workflow task |
 | `batch list` / `batch describe --job-id <id>` / `batch terminate --job-id <id> --reason <text>` | The batch jobs a `--query` started: their state and counts; stop one |
 | `schedule create -s <id> (--cron <expr> \| --interval <duration>)... --workflow-id <id> --type <type> -t <task queue> [-i <json>]... [--overlap-policy <policy>] [--paused] [--notes <text>]` | Creates a schedule |
-| `schedule list` / `schedule describe -s <id>` | Schedules with their type, state and next run; one with its spec and recent runs |
+| `schedule list` / `schedule describe -s <id>` | Schedules with their type, state and next run; one with its calendar as cron fields, time zone, intervals and recent runs |
 | `schedule toggle -s <id> (--pause \| --unpause) [--reason <text>]` / `schedule trigger -s <id>` / `schedule delete -s <id>` | Pause or unpause, start once now, delete |
 | `task-queue describe -t <task queue>` | The workers that polled it recently, for workflow and activity tasks |
 | `admin dlq list` | The history-task dead-letter queues: type, clusters, task count and last message ID |
@@ -61,9 +61,9 @@ cluster) and need a token with the `admin` role in every namespace.
 | `--tls-ca-path` | the system's | The CA that signed the engine's certificate |
 | `--tls-cert-path`, `--tls-key-path` | | A client certificate, for an engine that requires one or for the internal ports |
 | `--tls-server-name` | the address's host | The name to verify in the engine's certificate |
-| `--profile` | `default` | The profile to use |
+| `--profile` | `default` | The profile to use: letters, digits, `-` and `_` |
 | `--config-file` | see below | The profile file |
-| `-o`, `--output` | `text` | `text` or `json` |
+| `-o`, `--output` | `text` | `text` or `json`. With `json`, a command that changes something prints its confirmation on stderr and nothing on stdout; the exit status is the result |
 | `--command-timeout` | `30s` | Limit for each command |
 
 A token is sent only over TLS, or in plain text only to a loopback address.

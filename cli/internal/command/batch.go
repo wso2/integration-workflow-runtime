@@ -18,6 +18,7 @@ package command
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -74,6 +75,14 @@ func (c *cli) startBatch(cmd *cobra.Command, ctx context.Context, conn *grpc.Cli
 	apply(req)
 	if _, err := client.StartBatchOperation(ctx, req); err != nil {
 		return fmt.Errorf("unable to start the batch job: %w", err)
+	}
+	if c.output == outputJSON {
+		b, err := json.MarshalIndent(map[string]any{"jobId": req.GetJobId(), "count": count.GetCount()}, "", "  ")
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Fprintln(cmd.OutOrStdout(), string(b))
+		return err
 	}
 	_, err = fmt.Fprintf(cmd.OutOrStdout(), "Batch job %s started to %s %d workflows; follow it with\n"+
 		"  workflow-cli batch describe --job-id %s\n", req.GetJobId(), verb, count.GetCount(), req.GetJobId())
@@ -191,8 +200,7 @@ func (c *cli) batchTerminateCommand() *cobra.Command {
 					Identity: identity()}); err != nil {
 				return fmt.Errorf("unable to stop batch job %s: %w", jobID, err)
 			}
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Batch job %s stopped.\n", jobID)
-			return err
+			return c.confirm(cmd, "Batch job %s stopped.\n", jobID)
 		},
 	}
 	cmd.Flags().StringVar(&jobID, "job-id", "", "the batch job (required)")

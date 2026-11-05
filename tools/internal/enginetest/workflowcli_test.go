@@ -160,6 +160,12 @@ func TestWorkflowCLIOnADevEngine(t *testing.T) {
 	cli("schedule", "toggle", "-n", "orders", "-s", "hourly", "--unpause")
 	w.mustContain(cli("schedule", "describe", "-n", "orders", "-s", "hourly"), "Paused         false")
 	cli("schedule", "delete", "-n", "orders", "-s", "hourly")
+	// The engine stores a cron as a structured calendar; describe shows it back as cron fields.
+	cli("schedule", "create", "-n", "orders", "-s", "nightly", "--cron", "CRON_TZ=Asia/Colombo 30 2 * * 1-5",
+		"--workflow-id", "nightly-report", "--type", "Report", "-t", "reports", "--paused")
+	w.mustContain(cli("schedule", "describe", "-n", "orders", "-s", "nightly"), "Calendar       30 2 * * 1-5",
+		"Time zone      Asia/Colombo")
+	cli("schedule", "delete", "-n", "orders", "-s", "nightly")
 	if out, err := w.run(append([]string{"schedule", "describe", "-n", "orders", "-s", "hourly"}, addr...)...); err == nil {
 		t.Errorf("a deleted schedule is still described:\n%s", out)
 	}
@@ -192,7 +198,7 @@ func TestWorkflowCLIOnASecuredEngine(t *testing.T) {
 	}
 	admin := tokenFile("admin", map[string]any{"sub": "ops", "groups": []any{"workflow-admins"}})
 	app := tokenFile("app", map[string]any{"sub": "orders-app", "groups": []any{"orders-app"}})
-	start(t, binary, se.base, []string{"--tls-ca-path", ca, "--api-key", strings.TrimSpace(readFile(t, admin))},
+	eng := start(t, binary, se.base, []string{"--tls-ca-path", ca, "--api-key", strings.TrimSpace(readFile(t, admin))},
 		"start", "--runtime-config", se.config)
 
 	for prop, value := range map[string]string{
@@ -213,7 +219,15 @@ func TestWorkflowCLIOnASecuredEngine(t *testing.T) {
 	w.must("operator", "namespace", "create", "--profile", "ops", "-n", "billing")
 	w.mustContain(w.must("operator", "search-attribute", "list", "--profile", "app"), "WorkflowKind")
 	w.mustContain(w.must("operator", "namespace", "describe", "--profile", "app"), "orders")
-	w.mustContain(w.must("workflow", "count", "--profile", "app"), "Total: 0")
+	// The app reads a workflow the admin started in its namespace, not only an empty one.
+	eng.startTagged("orders", "Order", "orders", "secured-1", `WorkflowKind="orders.Order"`)
+	var count string
+	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(time.Second) {
+		if count = w.must("workflow", "count", "--profile", "app"); strings.Contains(count, "Total: 1") {
+			break
+		}
+	}
+	w.mustContain(count, "Total: 1")
 	w.mustContain(w.must("task-queue", "describe", "--profile", "app", "-t", "orders"), "No worker has polled")
 
 	refused := map[string][]string{
