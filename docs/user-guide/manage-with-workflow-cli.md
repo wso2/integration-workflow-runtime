@@ -145,8 +145,9 @@ history. These need `write` in the namespace.
 workflow-cli task-queue describe --namespace orders --task-queue orders
 ```
 
-lists the workers that polled the task queue recently, for workflow and for activity tasks. Workflows that stay
-`Running` without progress while this lists no worker are waiting for their integration to start.
+lists the workers that polled the task queue in the last five minutes, for workflow and for activity tasks. Workflows
+that stay `Running` without progress while this lists no worker are waiting for an integration to poll: one that
+is not running, or one that cannot reach the engine.
 
 ## Use it in scripts
 

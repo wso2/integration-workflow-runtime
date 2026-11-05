@@ -38,8 +38,8 @@ func (c *cli) taskQueueDescribeCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "describe",
 		Short: "List the workers polling a task queue for workflow and activity tasks",
-		Long: "Lists the workers that polled --task-queue in the last few minutes. An integration's workers poll the\n" +
-			"task queue named in its Config.toml; none here means no integration serves those workflows.",
+		Long: "Lists the workers that polled --task-queue in the last five minutes. An integration's workers poll the\n" +
+			"task queue named in its Config.toml; an empty list means none polled recently, not that none runs.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			conn, s, ctx, cancel, err := c.connect(cmd)

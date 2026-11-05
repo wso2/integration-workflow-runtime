@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -42,6 +43,7 @@ type workflowState struct {
 	cancels []*workflowservice.RequestCancelWorkflowExecutionRequest
 	ends    []*workflowservice.TerminateWorkflowExecutionRequest
 	queries []string
+	runIDs  []string
 	pollers map[enumspb.TaskQueueType][]*taskqueuepb.PollerInfo
 }
 
@@ -108,6 +110,7 @@ func (f workflowFake) DescribeWorkflowExecution(ctx context.Context, r *workflow
 	f.record(ctx)
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.workflows.runIDs = append(f.workflows.runIDs, r.GetExecution().GetRunId())
 	info := f.workflows.find(r.GetExecution().GetWorkflowId())
 	if info == nil {
 		return nil, serviceerror.NewNotFound("workflow not found")
@@ -122,6 +125,7 @@ func (f workflowFake) GetWorkflowExecutionHistory(ctx context.Context,
 	f.record(ctx)
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.workflows.runIDs = append(f.workflows.runIDs, r.GetExecution().GetRunId())
 	if f.workflows.find(r.GetExecution().GetWorkflowId()) == nil {
 		return nil, serviceerror.NewNotFound("workflow not found")
 	}
@@ -231,6 +235,12 @@ func TestWorkflowDescribeAndShow(t *testing.T) {
 		len(history["events"]) != 3 {
 		t.Fatalf("json history = %v, %v", history, err)
 	}
+	tc.engine.workflows.runIDs = nil
+	tc.must("workflow", "describe", "-w", "order-1", "-r", "run-1")
+	tc.must("workflow", "show", "-w", "order-1", "-r", "run-1")
+	if got := tc.engine.workflows.runIDs; len(got) < 2 || slices.ContainsFunc(got, func(id string) bool { return id != "run-1" }) {
+		t.Fatalf("describe and show sent run IDs %q, want run-1 on every call", got)
+	}
 	for args, want := range map[string]string{
 		"workflow describe -w missing": "unable to describe workflow missing",
 		"workflow show -w missing":     "unable to read the history of workflow missing",
@@ -265,6 +275,12 @@ func TestWorkflowSignalCancelTerminate(t *testing.T) {
 	}
 	if e := tc.engine.workflows.ends[0]; e.GetReason() != "stuck" {
 		t.Fatalf("terminate request = %v", e)
+	}
+	for _, args := range [][]string{{"signal", "--name", "approval"}, {"cancel"}, {"terminate"}} {
+		args = append([]string{"workflow"}, append(args, "-w", "order-1", "-o", "json")...)
+		if code, out, errOut := tc.run(args...); code != 0 || out != "" || errOut == "" {
+			t.Errorf("%v: exit %d, stdout %q, stderr %q; want the confirmation on stderr only", args, code, out, errOut)
+		}
 	}
 	for args, want := range map[string]string{
 		"workflow signal -w order-1 --name x -i {oops": "is not JSON",

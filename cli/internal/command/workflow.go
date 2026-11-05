@@ -260,8 +260,7 @@ func (c *cli) workflowSignalCommand() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("unable to signal workflow %s: %w", e.workflowID, err)
 			}
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Signal %s sent to workflow %s.\n", name, e.workflowID)
-			return err
+			return c.confirm(cmd, "Signal %s sent to workflow %s.\n", name, e.workflowID)
 		},
 	}
 	e.flags(cmd)
@@ -293,8 +292,7 @@ func (c *cli) workflowCancelCommand() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("unable to cancel workflow %s: %w", e.workflowID, err)
 			}
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Cancellation requested for workflow %s.\n", e.workflowID)
-			return err
+			return c.confirm(cmd, "Cancellation requested for workflow %s.\n", e.workflowID)
 		},
 	}
 	e.flags(cmd)
@@ -323,8 +321,7 @@ func (c *cli) workflowTerminateCommand() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("unable to terminate workflow %s: %w", e.workflowID, err)
 			}
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Workflow %s terminated.\n", e.workflowID)
-			return err
+			return c.confirm(cmd, "Workflow %s terminated.\n", e.workflowID)
 		},
 	}
 	e.flags(cmd)
