@@ -98,12 +98,22 @@ func writeConfig(t *testing.T, dir, toml string) string {
 // start runs the engine with args and waits until its frontend reports SERVING to a CLI call with flags.
 func start(t *testing.T, binary string, base int, flags []string, args ...string) *engine {
 	t.Helper()
+	e, err := launch(t, binary, base, flags, args...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return e
+}
+
+// launch is start, returning an engine that stopped or never reported SERVING as an error.
+func launch(t *testing.T, binary string, base int, flags []string, args ...string) (*engine, error) {
+	t.Helper()
 	lockPorts(t) // already held when freeBase or a restart took it
 	e := &engine{t: t, log: &bytes.Buffer{}, address: fmt.Sprintf("127.0.0.1:%d", base), flags: flags}
 	e.cmd = exec.Command(binary, args...) //nolint:gosec // the engine under test
 	e.cmd.Stdout, e.cmd.Stderr = e.log, e.log
 	if err := e.cmd.Start(); err != nil {
-		t.Fatal(err)
+		return nil, err
 	}
 	e.done = make(chan struct{})
 	go func() { _ = e.cmd.Wait(); close(e.done) }()
@@ -112,17 +122,16 @@ func start(t *testing.T, binary string, base int, flags []string, args ...string
 	for time.Now().Before(deadline) {
 		select {
 		case <-e.done:
-			t.Fatalf("the engine exited before it reported SERVING:\n%s", e.log)
+			return nil, fmt.Errorf("the engine exited before it reported SERVING:\n%s", e.log)
 		default:
 		}
 		if out, err := e.temporal("operator", "cluster", "health"); err == nil && strings.Contains(out, "SERVING") {
 			unlockPorts()
-			return e
+			return e, nil
 		}
 		time.Sleep(time.Second)
 	}
-	t.Fatalf("the engine did not report SERVING within %s:\n%s", startTimeout, e.log)
-	return nil
+	return nil, fmt.Errorf("the engine did not report SERVING within %s:\n%s", startTimeout, e.log)
 }
 
 // stop ends the engine with SIGTERM, as a service manager does, and waits for it.
