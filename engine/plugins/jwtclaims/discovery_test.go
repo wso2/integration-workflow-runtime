@@ -57,6 +57,7 @@ func TestDiscoverErrors(t *testing.T) {
 		want   string
 	}{
 		"other issuer": {func(string) string { return `{"issuer":"https://evil","jwks_uri":"https://evil/jwks"}` }, 200, "names issuer"},
+		"oversized":    {func(string) string { return `{"issuer":"` + strings.Repeat("a", maxDocumentBytes) + `"}` }, 200, "invalid discovery document"},
 		"issuer with a trailing slash": {func(b string) string { return `{"issuer":"` + b + `/oauth2/token/","jwks_uri":"` + b + `/jwks"}` },
 			200, "names issuer"},
 		"plain jwks_uri": {func(b string) string {

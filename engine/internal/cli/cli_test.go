@@ -374,9 +374,10 @@ func TestServicesReachTheServerFactory(t *testing.T) {
 		args []string
 		want []string
 	}{
-		"profiles":         {[]string{"--runtime-config", "testdata/runtime-auth.toml"}, []string{"frontend", "internal-frontend", "history"}},
-		"service override": {[]string{"--runtime-config", "testdata/runtime-auth.toml", "--service", "worker"}, []string{"worker"}},
-		"default profile":  {[]string{"--runtime-config", "testdata/runtime-sqlite.toml", "--allow-no-auth"}, []string{"frontend", "internal-frontend", "history", "matching", "worker"}},
+		"profiles":                   {[]string{"--runtime-config", "testdata/runtime-auth.toml"}, []string{"frontend", "internal-frontend", "history"}},
+		"service override":           {[]string{"--runtime-config", "testdata/runtime-auth.toml", "--service", "worker"}, []string{"worker"}},
+		"default profile":            {[]string{"--runtime-config", "testdata/runtime-sqlite.toml", "--allow-no-auth"}, []string{"frontend", "internal-frontend", "history", "matching", "worker"}},
+		"api profile with a service": {[]string{"--runtime-config", "testdata/runtime-api.toml", "--allow-no-auth", "--service", "history"}, []string{"history"}},
 	} {
 		c, _, stderr := newTestCommand(&fakeServer{}, nil)
 		var got []string
@@ -390,6 +391,13 @@ func TestServicesReachTheServerFactory(t *testing.T) {
 		if !slices.Equal(got, tt.want) {
 			t.Errorf("%s: services = %v, want %v", name, got, tt.want)
 		}
+	}
+}
+
+func TestStartRefusesAnAPIProfileWithoutAService(t *testing.T) {
+	c, _, _ := newTestCommand(&fakeServer{}, nil)
+	if err := c.start([]string{"--runtime-config", "testdata/runtime-api.toml", "--allow-no-auth"}); !errors.Is(err, runtimeconfig.ErrNoServices) {
+		t.Fatalf("start = %v, want %v", err, runtimeconfig.ErrNoServices)
 	}
 }
 
