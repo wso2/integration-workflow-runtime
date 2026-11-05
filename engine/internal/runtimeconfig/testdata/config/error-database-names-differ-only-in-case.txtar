@@ -1,0 +1,8 @@
+-- runtime.toml --
+[database]
+type = "postgresql"
+host = "db"
+name = "temporal"
+visibilityName = "Temporal"
+-- error --
+invalid runtime configuration: database.name and database.visibilityName must differ
