@@ -179,6 +179,7 @@ func (c *cli) settings(cmd *cobra.Command) (clientconfig.Settings, error) {
 			*value = v
 		}
 	}
+	clientconfig.ReplaceCredential(&s, flags.Changed("api-key"), flags.Changed("api-key-file"))
 	if flags.Changed("tls") {
 		s.TLS.Enabled = &c.tls
 	}

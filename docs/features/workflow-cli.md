@@ -30,7 +30,8 @@ User guide: [Manage the engine with workflow-cli](../user-guide/manage-with-work
 | `-o` | `text` | `text` or `json` (protojson) |
 | `--command-timeout` | `30s` | Limit per command |
 
-Precedence, as in the Temporal CLI: flag, environment variable, profile, default.
+Precedence, as in the Temporal CLI: flag, environment variable, profile, default. The token and the token file are one
+setting (`clientconfig.ReplaceCredential`): a level that sets either replaces both, and within a level the token wins.
 
 ## Behavior
 
@@ -71,7 +72,7 @@ it exists.
 
 | Test | Covers |
 |---|---|
-| `cli/internal/command/command_test.go` | Every command against an in-memory fake engine (bufconn): health per service and exit codes, describe with and without the admin API, namespace create (cache retry, idempotence), describe, list over pages, update, search attributes, profile/environment/flag precedence and the bearer header, `config` commands and file mode, error messages |
+| `cli/internal/command/command_test.go` | Every command against an in-memory fake engine (bufconn): health per service and exit codes, describe with and without the admin API, namespace create (cache retry, idempotence), describe, list over pages, update, search attributes, profile/environment/flag precedence and the bearer header, a token file replacing an earlier level's token, `config` commands and file mode, error messages |
 | `cli/internal/command/workflow_test.go` | `workflow list` over pages with a query and `--limit`, `count`, `describe`, `show` over pages, `signal` payloads, identity and request ID, `describe` and `show` sending `-r`, `cancel` and `terminate` with reasons and run IDs, confirmations on stderr with `-o json`, `task-queue describe` with and without pollers, error messages |
 | `cli/internal/command/dial_test.go` | Mutual TLS against a real TLS server, refusal without a client certificate or TLS, token refused in plain text off-loopback, CA, client certificate and key file errors |
 | `cli/internal/clientconfig/clientconfig_test.go` | Profile file parsing, unknown keys, environment variables, TLS on/off rules, writing and deleting properties, profile names that would nest refused with the file left readable |
