@@ -77,6 +77,8 @@ engine's (1.31 already ships the engine's schema versions):
 5. Runs the `after` group: the decision is sent, the workflow runs its second activity on the engine and completes.
 6. Drops both databases. With `ENGINE_LOG_DIR` set, the old server's and the engine's logs are kept there.
 
+Ctrl-C or SIGTERM stops the running `bal test`, removes the run's containers and drops both databases.
+
 ### Everything in Docker
 
 `make test-docker` runs what GitHub Actions runs, on any machine with Docker and nothing else installed (Compose
