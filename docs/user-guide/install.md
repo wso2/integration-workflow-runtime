@@ -50,6 +50,7 @@ The engine is a single static binary: no Java or other runtime is needed.
 | `bin/workflow-runtime dev` | Development mode: in-memory SQLite, no authentication, the `default` namespace ([Quick start](quick-start.md)) |
 | `bin/workflow-runtime render-config` | Prints the generated configuration, password hidden |
 | `bin/workflow-runtime version` | Prints the runtime's and the embedded Temporal server's versions |
+| `bin/workflow-cli ...` | The client: health checks, the cluster's nodes, namespaces and search attributes ([Manage the engine with workflow-cli](manage-with-workflow-cli.md)) |
 
 Set `WORKFLOW_RUNTIME_CONFIG` to use another configuration file.
 
@@ -89,7 +90,7 @@ The Linux zip includes `systemd/workflow-runtime.service`, written for `/opt/wso
 
 | Path | What |
 |---|---|
-| `bin/` | `workflow-runtime` (the command you run), `workflow-engine`, and `workflow-engine-sql` (schema tool for DBAs) |
+| `bin/` | `workflow-runtime` (the command you run), `workflow-engine`, `workflow-engine-sql` (schema tool for DBAs), and `workflow-cli` (the client) |
 | `conf/runtime.toml` | The configuration |
 | `systemd/` | Example service unit (Linux) |
 | `sbom/` | CycloneDX software bill of materials per binary |

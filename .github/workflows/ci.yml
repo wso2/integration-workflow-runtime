@@ -25,10 +25,11 @@ jobs:
         with:
           go-version-file: engine/go.mod
           cache-dependency-path: |
+            cli/go.sum
             engine/go.sum
             tools/go.sum
       - name: Build
-        run: make build && ./build/workflow-engine version
+        run: make build && ./build/workflow-engine version && ./build/workflow-cli version
       - name: Vet
         run: make vet
       - name: Check gofmt
@@ -60,8 +61,10 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: engine/go.mod
-          cache-dependency-path: engine/go.sum
-      - run: make engine GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }}
+          cache-dependency-path: |
+            cli/go.sum
+            engine/go.sum
+      - run: make build GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }}
 
   # The launcher starts the engine as a child process on Windows (exec elsewhere); run its process tests there.
   windows-tests:

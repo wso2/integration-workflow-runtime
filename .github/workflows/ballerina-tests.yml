@@ -79,10 +79,11 @@ jobs:
         with:
           go-version-file: engine/go.mod
           cache-dependency-path: |
+            cli/go.sum
             engine/go.sum
             tools/go.sum
-      - name: Build the engine
-        run: make engine && ./build/workflow-engine version
+      - name: Build the engine and workflow-cli
+        run: make build && ./build/workflow-engine version && ./build/workflow-cli version
       # Both service databases run in every job; one job covers the schema test for both.
       - name: Test schema preparation on PostgreSQL and MySQL
         if: matrix.database == 'postgresql' && matrix.suite == 'smoke'
@@ -102,12 +103,13 @@ jobs:
           tar -xzf "$archive" temporal
           sudo mv temporal /usr/local/bin/temporal
           temporal --version
-      # Real-engine tests driven by the Temporal CLI; one job is enough.
-      - name: Engine tests (restart persistence)
+      # Real-engine tests driven by the Temporal CLI and workflow-cli; one job is enough.
+      - name: Engine tests (restart persistence, security, workflow-cli)
         if: matrix.database == 'sqlite' && matrix.suite == 'smoke'
         working-directory: tools
         env:
           WORKFLOW_ENGINE: ${{ github.workspace }}/build/workflow-engine
+          WORKFLOW_CLI: ${{ github.workspace }}/build/workflow-cli
         run: go test -count=1 -v ./internal/enginetest
       - name: Run the ${{ matrix.suite }} suite on ${{ matrix.database }}
         env:

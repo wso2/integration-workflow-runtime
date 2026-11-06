@@ -15,6 +15,7 @@ Manager (API server) and portals are being built.
 | Path | Component | Language |
 |---|---|---|
 | `engine/` | Temporal's services in our own binary (`workflow-engine`) and the schema tool (`workflow-engine-sql`) | Go |
+| `cli/` | `workflow-cli`, the operators' command line client of the engine | Go |
 | `launcher/` | Notes on the launcher, `bin/workflow-runtime` (its code is in `engine/cmd/workflow-runtime`) | Docs |
 | `manager/` | The Manager: administration API, SSO sign-in, roles; serves the portals | Go |
 | `portals/` | Admin Portal and User Portal, static web apps served by the Manager | TypeScript |
@@ -36,7 +37,7 @@ Needs Go 1.26.8 or later; the Go toolchain downloads it on demand.
 
 ```sh
 make install-hooks   # commit checks
-make build           # build/workflow-engine, build/workflow-engine-sql
+make build           # build/workflow-runtime, workflow-engine, workflow-engine-sql and workflow-cli
 make check           # every CI gate: vet, lint, gofmt, unit tests (75% coverage), licenses, vulnerabilities
 make test-smoke      # Ballerina smoke suite against the engine (needs bal and the temporal CLI)
 make test-full       # Ballerina full suite

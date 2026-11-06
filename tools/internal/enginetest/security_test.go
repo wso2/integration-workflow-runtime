@@ -54,6 +54,7 @@ enabled = true
 certFile = %s
 keyFile = %s
 caFile = %s
+serverName = "localhost"
 
 [engine.auth]
 type = "jwt"

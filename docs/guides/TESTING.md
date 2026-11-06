@@ -7,7 +7,8 @@
 | Go unit tests | Next to the code in each module | `make test`, `make test-coverage`, every pull request | 75% statement coverage outside `cmd/` wrappers |
 | Launcher tests on Windows | `engine/internal/launcher` (the engine runs as a child process there) | The `windows-latest` job of every pull request | All pass |
 | Tool and script tests | `tools/internal/...` (the coverage gate, the suite runner, the shell scripts run for real) | `make test`, every pull request | All pass |
-| Engine tests | `tools/internal/enginetest`: the real engine binary driven by the Temporal CLI | `WORKFLOW_ENGINE=build/workflow-engine go test ./internal/enginetest` in `tools/`; the SQLite smoke job of every pull request | All pass |
+| workflow-cli tests | `cli/...`: every command against an in-memory fake engine, TLS, profiles | `make test`, every pull request | All pass |
+| Engine tests | `tools/internal/enginetest`: the real engine binary driven by the Temporal CLI and `workflow-cli` | `WORKFLOW_ENGINE=build/workflow-engine WORKFLOW_CLI=build/workflow-cli go test ./internal/enginetest` in `tools/`; the SQLite smoke job of every pull request | All pass |
 | Ballerina smoke suite | `tests/ballerina/smoke` | `make test-smoke`, every pull request (SQLite, PostgreSQL, MySQL and `start-dev`) | All pass |
 | Ballerina full suite | `tests/ballerina/full` | `make test-full`, on `main`, nightly, on demand | All pass |
 | Upgrade run | `tests/ballerina/upgrade`, `balsuite upgrade` | The PostgreSQL and MySQL smoke jobs of every pull request | The workflow finishes |
@@ -25,14 +26,16 @@
 
 ## Engine tests
 
-`tools/internal/enginetest` starts the built `workflow-engine` on free ports and drives it with the Temporal CLI, for
-behavior a configuration test cannot show, such as a SQLite file surviving a restart or `start-dev` needing no setup.
-A lock file in the temporary directory keeps concurrent runs on one Unix host from picking the same ports; on Windows,
-run one at a time. The tests skip unless `WORKFLOW_ENGINE` names the engine binary and `temporal` is on `PATH`:
+`tools/internal/enginetest` starts the built `workflow-engine` on free ports and drives it with the Temporal CLI and
+`workflow-cli`, for behavior a configuration test cannot show, such as a SQLite file surviving a restart or
+`start-dev` needing no setup. A lock file in the temporary directory keeps concurrent runs on one Unix host from
+picking the same ports; on Windows, run one at a time. The tests skip unless `WORKFLOW_ENGINE` names the engine
+binary and `temporal` is on `PATH`; the `workflow-cli` tests also need `WORKFLOW_CLI`:
 
 ```sh
-make engine
-cd tools && WORKFLOW_ENGINE=$PWD/../build/workflow-engine go test -count=1 -v ./internal/enginetest
+make build
+cd tools && WORKFLOW_ENGINE=$PWD/../build/workflow-engine WORKFLOW_CLI=$PWD/../build/workflow-cli \
+  go test -count=1 -v ./internal/enginetest
 ```
 
 ## Ballerina suites

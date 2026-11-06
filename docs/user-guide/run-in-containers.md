@@ -56,13 +56,22 @@ TLS or authentication:
 WORKFLOW_RUNTIME_IMAGE=<image>:<version> docker compose -f distribution/docker/compose.yml up
 ```
 
-Create the `default` namespace and the `WorkflowKind` search attribute, then point an integration at
-`localhost:7233` ([Connect an integration](connect-an-integration.md)):
+Its `setup` service creates the `default` namespace, with the `WorkflowKind` search attribute, once the engine is
+healthy; then point an integration at `localhost:7233` ([Connect an integration](connect-an-integration.md)).
 
-```bash
-temporal operator namespace create --namespace default --address localhost:7233
-temporal operator search-attribute create --namespace default --name WorkflowKind --type Keyword --address localhost:7233
+## Health checks
+
+The image includes `workflow-cli`, and the image has no shell, so give the health check its path:
+
+```yaml
+healthcheck:
+  test: ["CMD", "/opt/wso2-workflow-runtime/bin/workflow-cli", "operator", "cluster", "health"]
 ```
+
+On a node that runs another profile, check its own service and port, for example
+`--service history --address 127.0.0.1:7234`, adding the internode certificate flags when internode TLS is on
+([Manage the engine with workflow-cli](manage-with-workflow-cli.md#check-the-engine)). In Kubernetes, use the same
+command as the readiness probe.
 
 ## Amazon ECS and Kubernetes
 
