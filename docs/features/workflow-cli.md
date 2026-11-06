@@ -1,6 +1,6 @@
 # workflow-cli
 
-Status: in progress · P0 (cluster, namespaces, search attributes, profiles), P1 (workflows, task queues) and P2 (reset, batch jobs, schedules) since 0.1.0
+Status: in progress · P0 (cluster, namespaces, search attributes, profiles), P1 (workflows, task queues) and P2 (reset, batch jobs, schedules, dead-letter queues, shards) since 0.1.0
 
 ## What it does
 
@@ -59,6 +59,11 @@ setting (`clientconfig.ReplaceCredential`): a level that sets either replaces bo
 - `schedule` maps to `CreateSchedule` (cron strings and intervals, a start-workflow action, overlap policy, paused
   state and notes), `ListSchedules`, `DescribeSchedule`, `PatchSchedule` (pause, unpause, trigger) and
   `DeleteSchedule`.
+- `admin` covers the parts of Temporal's `tdbg` an operator needs in an incident, over the admin API:
+  `ListQueues` (queue type 2, history DLQs; names parsed as `<category>_<source>_<target>_<hash>`), `GetDLQTasks`,
+  `MergeDLQTasks` and `PurgeDLQTasks` (up to `--last-message-id`, by default the queue's `LastMessageId`, only with
+  `--yes`), `DescribeDLQJob`, `CancelDLQJob` (the job token printed base64), `GetShard` with `DescribeHistoryHost`,
+  and `CloseShard`. The clusters default to the engine's own cluster name from `GetClusterInfo`.
 - `task-queue describe` calls `DescribeTaskQueue` once for workflow and once for activity tasks and lists their
   pollers.
 - A token goes only over TLS, or in plain text to a loopback address; otherwise the command refuses before dialing.
@@ -69,13 +74,14 @@ setting (`clientconfig.ReplaceCredential`): a level that sets either replaces bo
 
 ## Limits
 
-- No `workflow start` or `schedule update`; dead-letter queue and shard commands come next (P2b).
+- No `workflow start` or `schedule update`, and of `tdbg` only dead-letter queues and shards: mutable state, history
+  tasks and namespace-cache commands are left to Temporal's own tool for now.
 - A token is read once per command; refreshing an expiring one is up to the caller (`apiKeyFile` rewritten by a
   token helper works).
 
 ## Not covered yet
 
-P2b: dead-letter queues and shards (Temporal's `tdbg`). A token command for the API server, once
+`workflow start` and `schedule update`; the rest of `tdbg` (mutable state, history task listing) if operators need it. A token command for the API server, once
 it exists.
 
 ## Tests
@@ -85,7 +91,8 @@ it exists.
 | `cli/internal/command/command_test.go` | Every command against an in-memory fake engine (bufconn): health per service and exit codes, describe with and without the admin API, namespace create (cache retry, idempotence), describe, list over pages, update, search attributes, profile/environment/flag precedence and the bearer header, a token file replacing an earlier level's token, `config` commands and file mode, error messages |
 | `cli/internal/command/workflow_test.go` | `workflow list` over pages with a query and `--limit`, `count`, `describe`, `show` over pages, `signal` payloads, identity and request ID, `describe` and `show` sending `-r`, `cancel` and `terminate` with reasons and run IDs, confirmations on stderr with `-o json`, `task-queue describe` with and without pollers, error messages |
 | `cli/internal/command/operations_test.go` | Reset to the first and last workflow task, of the run looked up first, and to an event ID; batch jobs refused without `--yes`, started for terminate, cancel and signal with their queries, reasons and payloads, listed, described and stopped; schedules created with crons, intervals, input, overlap policy and notes, stored as the engine's structured calendar and described as cron fields with recent runs, paused, unpaused, triggered and deleted; error messages |
+| `cli/internal/command/admin_test.go` | Shard describe and close; dead-letter queues listed (with and without queues), read with `--limit` and the default clusters, merged and purged only with `--yes` up to the last or a given message (message 0 included), the job token as JSON, jobs described and cancelled; error messages |
 | `cli/internal/command/engine_test.go` | With `WORKFLOW_ENGINE`: on a real `start-dev` engine, a workflow whose first workflow task a test worker completed is reset to it and gets a new running run. It lives in the CLI module because the worker needs the Temporal API, which the tools module does not depend on |
 | `cli/internal/command/dial_test.go` | Mutual TLS against a real TLS server, refusal without a client certificate or TLS, token refused in plain text off-loopback, CA, client certificate and key file errors |
 | `cli/internal/clientconfig/clientconfig_test.go` | Profile file parsing, unknown keys, environment variables, TLS on/off rules, writing and deleting properties, profile names that would nest refused with the file left readable |
-| `tools/internal/enginetest/workflowcli_test.go` | Against the real engine: every P0 and P1 command on `start-dev` (workflows started on a task queue no worker polls: listed by `WorkflowKind`, described, signalled, cancelled and terminated, their history shown; a batch job terminates the two workflows a query matches; a paused schedule is triggered, unpaused and deleted; a cron with a time zone is described back as cron fields); on a secured engine, profiles with admin and namespace tokens, refusals, a token never sent in plain text, a namespace token listing only its own namespace and counting a workflow started in it, and the health of each internal port with a node certificate |
+| `tools/internal/enginetest/workflowcli_test.go` | Against the real engine: every P0 and P1 command on `start-dev` (workflows started on a task queue no worker polls: listed by `WorkflowKind`, described, signalled, cancelled and terminated, their history shown; a batch job terminates the two workflows a query matches; a paused schedule is triggered, unpaused and deleted; a cron with a time zone is described back as cron fields; a shard is described and closed and reloads on the next call; there is no dead-letter queue); on a secured engine, profiles with admin and namespace tokens, refusals, a token never sent in plain text, a namespace token listing only its own namespace, counting a workflow started in it and refused the admin API, and the health of each internal port with a node certificate |

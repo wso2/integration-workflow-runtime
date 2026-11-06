@@ -105,7 +105,7 @@ func (c *cli) root() *cobra.Command {
 	f.DurationVar(&c.timeout, "command-timeout", 30*time.Second, "limit for each command")
 
 	root.AddCommand(c.versionCommand(), c.operatorCommand(), c.workflowCommand(), c.taskQueueCommand(),
-		c.batchCommand(), c.scheduleCommand(), c.configCommand())
+		c.batchCommand(), c.scheduleCommand(), c.adminCommand(), c.configCommand())
 	return root
 }
 

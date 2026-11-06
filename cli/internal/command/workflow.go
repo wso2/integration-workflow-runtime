@@ -412,14 +412,19 @@ func timestamp(t *timestamppb.Timestamp) string {
 	return t.AsTime().UTC().Format(time.RFC3339)
 }
 
-// enumName shows WORKFLOW_EXECUTION_STATUS_RUNNING as Running and EVENT_TYPE_TIMER_STARTED as TimerStarted; the
-// Temporal API's enums already print in that form, which is kept as it is.
+// enumName shows WORKFLOW_EXECUTION_STATUS_RUNNING as Running and EVENT_TYPE_TIMER_STARTED as TimerStarted. Enums
+// that already print in that form keep it, without the prefix where they carry one (DlqOperationTypeMerge: Merge).
 func enumName(s, prefix string) string {
 	if !strings.Contains(s, "_") {
-		return s
+		return strings.TrimPrefix(s, camel(prefix))
 	}
+	return camel(strings.TrimPrefix(s, prefix))
+}
+
+// camel turns UPPER_SNAKE words into CamelCase.
+func camel(s string) string {
 	var b strings.Builder
-	for _, word := range strings.Split(strings.TrimPrefix(s, prefix), "_") {
+	for _, word := range strings.Split(s, "_") {
 		if word == "" {
 			continue
 		}
