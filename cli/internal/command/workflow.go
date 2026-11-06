@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	batchpb "go.temporal.io/api/batch/v1"
 	commonpb "go.temporal.io/api/common/v1"
 	historypb "go.temporal.io/api/history/v1"
 	workflowpb "go.temporal.io/api/workflow/v1"
@@ -55,7 +56,8 @@ func (e execution) proto() *commonpb.WorkflowExecution {
 func (c *cli) workflowCommand() *cobra.Command {
 	wf := &cobra.Command{Use: "workflow", Short: "List, inspect, signal, cancel and terminate workflows"}
 	wf.AddCommand(c.workflowListCommand(), c.workflowCountCommand(), c.workflowDescribeCommand(),
-		c.workflowShowCommand(), c.workflowSignalCommand(), c.workflowCancelCommand(), c.workflowTerminateCommand())
+		c.workflowShowCommand(), c.workflowSignalCommand(), c.workflowCancelCommand(), c.workflowTerminateCommand(),
+		c.workflowResetCommand())
 	return wf
 }
 
@@ -232,16 +234,19 @@ func (c *cli) workflowShowCommand() *cobra.Command {
 }
 
 func (c *cli) workflowSignalCommand() *cobra.Command {
-	var e execution
-	var name string
+	var t target
+	var name, reason string
 	var inputs []string
 	cmd := &cobra.Command{
 		Use:   "signal",
-		Short: "Send a signal, such as an integration's data event, to a workflow",
+		Short: "Send a signal, such as an integration's data event, to a workflow or to every workflow a query matches",
 		Long: "Sends --name with each --input as a JSON argument, for example\n" +
 			"  workflow-cli workflow signal -w order-1 --name approval --input '{\"approved\":true}'",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if err := t.check(); err != nil {
+				return err
+			}
 			payloads, err := jsonPayloads(inputs)
 			if err != nil {
 				return err
@@ -252,80 +257,117 @@ func (c *cli) workflowSignalCommand() *cobra.Command {
 			}
 			defer cancel()
 			defer func() { _ = conn.Close() }()
+			if t.query != "" {
+				if reason == "" {
+					reason = "signal " + name + " from workflow-cli"
+				}
+				return c.startBatch(cmd, ctx, conn, s, t, "signal", reason, func(r *workflowservice.StartBatchOperationRequest) {
+					r.Operation = &workflowservice.StartBatchOperationRequest_SignalOperation{
+						SignalOperation: &batchpb.BatchOperationSignal{Signal: name, Input: payloads, Identity: identity()},
+					}
+				})
+			}
 			_, err = workflowservice.NewWorkflowServiceClient(conn).SignalWorkflowExecution(ctx,
 				&workflowservice.SignalWorkflowExecutionRequest{
-					Namespace: s.Namespace, WorkflowExecution: e.proto(), SignalName: name, Input: payloads,
+					Namespace: s.Namespace, WorkflowExecution: t.proto(), SignalName: name, Input: payloads,
 					Identity: identity(), RequestId: requestID(),
 				})
 			if err != nil {
-				return fmt.Errorf("unable to signal workflow %s: %w", e.workflowID, err)
+				return fmt.Errorf("unable to signal workflow %s: %w", t.workflowID, err)
 			}
-			return c.confirm(cmd, "Signal %s sent to workflow %s.\n", name, e.workflowID)
+			return c.confirm(cmd, "Signal %s sent to workflow %s.\n", name, t.workflowID)
 		},
 	}
-	e.flags(cmd)
+	t.flags(cmd)
 	cmd.Flags().StringVar(&name, "name", "", "the signal's name (required)")
 	cmd.Flags().StringArrayVarP(&inputs, "input", "i", nil, "a JSON argument; repeat for more")
+	cmd.Flags().StringVar(&reason, "reason", "", "why, for a --query batch job")
 	_ = cmd.MarkFlagRequired("name")
 	return cmd
 }
 
 func (c *cli) workflowCancelCommand() *cobra.Command {
-	var e execution
+	var t target
 	var reason string
 	cmd := &cobra.Command{
 		Use:   "cancel",
-		Short: "Ask a workflow to cancel; it can clean up before it closes",
+		Short: "Ask a workflow, or every workflow a query matches, to cancel; each can clean up before it closes",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if err := t.check(); err != nil {
+				return err
+			}
 			conn, s, ctx, cancel, err := c.connect(cmd)
 			if err != nil {
 				return err
 			}
 			defer cancel()
 			defer func() { _ = conn.Close() }()
+			if t.query != "" {
+				if reason == "" {
+					return errors.New("a --query batch job needs a --reason")
+				}
+				return c.startBatch(cmd, ctx, conn, s, t, "cancel", reason, func(r *workflowservice.StartBatchOperationRequest) {
+					r.Operation = &workflowservice.StartBatchOperationRequest_CancellationOperation{
+						CancellationOperation: &batchpb.BatchOperationCancellation{Identity: identity()},
+					}
+				})
+			}
 			_, err = workflowservice.NewWorkflowServiceClient(conn).RequestCancelWorkflowExecution(ctx,
 				&workflowservice.RequestCancelWorkflowExecutionRequest{
-					Namespace: s.Namespace, WorkflowExecution: e.proto(), Reason: reason,
+					Namespace: s.Namespace, WorkflowExecution: t.proto(), Reason: reason,
 					Identity: identity(), RequestId: requestID(),
 				})
 			if err != nil {
-				return fmt.Errorf("unable to cancel workflow %s: %w", e.workflowID, err)
+				return fmt.Errorf("unable to cancel workflow %s: %w", t.workflowID, err)
 			}
-			return c.confirm(cmd, "Cancellation requested for workflow %s.\n", e.workflowID)
+			return c.confirm(cmd, "Cancellation requested for workflow %s.\n", t.workflowID)
 		},
 	}
-	e.flags(cmd)
-	cmd.Flags().StringVar(&reason, "reason", "", "why, recorded in its history")
+	t.flags(cmd)
+	cmd.Flags().StringVar(&reason, "reason", "", "why, recorded in its history (required with --query)")
 	return cmd
 }
 
 func (c *cli) workflowTerminateCommand() *cobra.Command {
-	var e execution
+	var t target
 	var reason string
 	cmd := &cobra.Command{
 		Use:   "terminate",
-		Short: "End a workflow at once, without letting it clean up",
+		Short: "End a workflow, or every workflow a query matches, at once, without letting it clean up",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if err := t.check(); err != nil {
+				return err
+			}
 			conn, s, ctx, cancel, err := c.connect(cmd)
 			if err != nil {
 				return err
 			}
 			defer cancel()
 			defer func() { _ = conn.Close() }()
+			if t.query != "" {
+				if reason == "" {
+					return errors.New("a --query batch job needs a --reason")
+				}
+				return c.startBatch(cmd, ctx, conn, s, t, "terminate", reason, func(r *workflowservice.StartBatchOperationRequest) {
+					r.Operation = &workflowservice.StartBatchOperationRequest_TerminationOperation{
+						TerminationOperation: &batchpb.BatchOperationTermination{Identity: identity()},
+					}
+				})
+			}
 			_, err = workflowservice.NewWorkflowServiceClient(conn).TerminateWorkflowExecution(ctx,
 				&workflowservice.TerminateWorkflowExecutionRequest{
-					Namespace: s.Namespace, WorkflowExecution: e.proto(), Reason: reason, Identity: identity(),
+					Namespace: s.Namespace, WorkflowExecution: t.proto(), Reason: reason, Identity: identity(),
 				})
 			if err != nil {
-				return fmt.Errorf("unable to terminate workflow %s: %w", e.workflowID, err)
+				return fmt.Errorf("unable to terminate workflow %s: %w", t.workflowID, err)
 			}
-			return c.confirm(cmd, "Workflow %s terminated.\n", e.workflowID)
+			return c.confirm(cmd, "Workflow %s terminated.\n", t.workflowID)
 		},
 	}
-	e.flags(cmd)
-	cmd.Flags().StringVar(&reason, "reason", "", "why, recorded in its history")
+	t.flags(cmd)
+	cmd.Flags().StringVar(&reason, "reason", "", "why, recorded in its history (required with --query)")
 	return cmd
 }
 

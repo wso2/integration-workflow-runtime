@@ -139,6 +139,53 @@ workflow-cli workflow terminate -n orders -w order-1042 --reason "stuck on a ret
 stop and lets it clean up; `terminate` ends it at once, running nothing more. Both record the reason in its
 history. These need `write` in the namespace.
 
+## Act on many workflows at once
+
+Give `signal`, `cancel` or `terminate` a `--query` instead of a `--workflow-id`, and the engine works through every
+workflow it matches as a batch job:
+
+```bash
+workflow-cli workflow terminate -n orders -q 'WorkflowType="orders.Order" AND ExecutionStatus="Running"' \
+  --reason "retire version 1"
+```
+
+Without `--yes` it only says how many workflows match. With it, it prints the job's ID; follow and stop the job with:
+
+```bash
+workflow-cli batch describe -n orders --job-id <job id>
+workflow-cli batch list -n orders
+workflow-cli batch terminate -n orders --job-id <job id> --reason "wrong query"
+```
+
+## Run a workflow again from an earlier point
+
+```bash
+workflow-cli workflow reset -n orders -w order-1042 --type LastWorkflowTask --reason "after the payment fix"
+```
+
+starts a new run of the workflow from the end of its last workflow task (`FirstWorkflowTask` for its first one, or
+`--event-id` for a `WorkflowTaskCompleted` event from `workflow show`), and ends the current run. Signals received
+after that point are delivered to the new run again. Use it after fixing the integration's code that made the
+workflow fail or stall.
+
+## Start workflows on a schedule
+
+```bash
+workflow-cli schedule create -n reports -s nightly-report --cron '0 2 * * *' \
+  --workflow-id nightly-report --type reports.Nightly --task-queue reports
+workflow-cli schedule list -n reports
+workflow-cli schedule describe -n reports -s nightly-report
+workflow-cli schedule toggle -n reports -s nightly-report --pause --reason "month-end freeze"
+workflow-cli schedule trigger -n reports -s nightly-report
+workflow-cli schedule delete -n reports -s nightly-report
+```
+
+`--cron` and `--interval 30m` can repeat. `--overlap-policy` says what to do when a run is still open at the next
+time (`Skip` by default). Prefix a cron with `CRON_TZ=Europe/London` for a time zone other than UTC. `describe`
+shows the calendar as cron fields, in the form the engine stores it (`@daily` shows as `0 0 * * *`), its time
+zone, the recent runs and the next one. The engine runs the schedule itself;
+the integration only needs to serve the task queue.
+
 ## Check an integration's workers
 
 ```bash

@@ -32,6 +32,7 @@ import (
 	enumspb "go.temporal.io/api/enums/v1"
 	namespacepb "go.temporal.io/api/namespace/v1"
 	"go.temporal.io/api/operatorservice/v1"
+	schedulepb "go.temporal.io/api/schedule/v1"
 	"go.temporal.io/api/serviceerror"
 	"go.temporal.io/api/workflowservice/v1"
 	"go.temporal.io/server/api/adminservice/v1"
@@ -59,6 +60,7 @@ type fakeEngine struct {
 	adminDenied bool
 	health      *health.Server
 	workflows   *workflowState
+	ops         *opsState
 }
 
 // One type per service: the generated Unimplemented servers share method names.
@@ -83,6 +85,7 @@ func newFakeEngine() *fakeEngine {
 		attributes: map[string]map[string]enumspb.IndexedValueType{},
 		health:     health.NewServer(),
 		workflows:  newWorkflowState(),
+		ops:        &opsState{schedules: map[string]*schedulepb.Schedule{}},
 	}
 	f.health.SetServingStatus(healthServices["frontend"], healthpb.HealthCheckResponse_SERVING)
 	f.health.SetServingStatus(healthServices["history"], healthpb.HealthCheckResponse_NOT_SERVING)
