@@ -189,7 +189,7 @@ func (r *upgradeRun) run(ctx context.Context, work, logDir string, stdout io.Wri
 		}
 		_, _ = fmt.Fprintf(stdout, "Temporal %s SERVING on %s (%s, schema %s); starting %s\n", o.OldVersion, Address,
 			o.Database, strings.Join(before, ", "), upgradeWorkflowID)
-		if code := runBalTest(o.Bal, suiteDir, o.TestTimeout, r.stderr, "--groups", "before"); code != 0 {
+		if code := runBalTest(ctx, o.Bal, suiteDir, o.TestTimeout, r.stderr, "--groups", "before"); code != 0 {
 			return code, fmt.Errorf("the before group failed on Temporal %s", o.OldVersion)
 		}
 		return 0, r.checkActivityRan(ctx)
@@ -232,7 +232,7 @@ func (r *upgradeRun) run(ctx context.Context, work, logDir string, stdout io.Wri
 		}
 		_, _ = fmt.Fprintf(stdout, "workflow-engine SERVING on %s (schema %s, was %s); finishing %s\n", Address,
 			strings.Join(after, ", "), strings.Join(before, ", "), upgradeWorkflowID)
-		if code := runBalTest(o.Bal, suiteDir, o.TestTimeout, r.stderr, "--groups", "after"); code != 0 {
+		if code := runBalTest(ctx, o.Bal, suiteDir, o.TestTimeout, r.stderr, "--groups", "after"); code != 0 {
 			return code, fmt.Errorf("the after group failed on the upgraded engine")
 		}
 		return 0, nil
@@ -251,7 +251,7 @@ func (r *upgradeRun) docker(ctx context.Context, env []string, args ...string) r
 }
 
 // dockerRun runs a throwaway container that reaches the databases published on the host. It is named, so one whose
-// command timed out, which kills only the docker client, can still be removed.
+// command timed out or was canceled, which kills only the docker client, can still be removed.
 func (r *upgradeRun) dockerRun(ctx context.Context, env []string, args ...string) result {
 	r.runs++
 	name := fmt.Sprintf("%s-%d", r.container, r.runs)
@@ -260,7 +260,7 @@ func (r *upgradeRun) dockerRun(ctx context.Context, env []string, args ...string
 		base = append(base, "-e", strings.SplitN(kv, "=", 2)[0])
 	}
 	res := r.docker(ctx, env, append(base, args...)...)
-	if res.code == exitCodeTimeout {
+	if res.code == exitCodeTimeout || ctx.Err() != nil {
 		_ = r.docker(context.WithoutCancel(ctx), nil, "rm", "-f", name)
 	}
 	return res

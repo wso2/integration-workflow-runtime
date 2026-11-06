@@ -211,7 +211,8 @@ func TestRunQuietReportsAMissingCommand(t *testing.T) {
 
 func TestRunBalTestReportsAnUnstartableCommand(t *testing.T) {
 	var stderr bytes.Buffer
-	if code := runBalTest(filepath.Join(t.TempDir(), "absent"), t.TempDir(), time.Second, &stderr); code != 1 {
+	absent := filepath.Join(t.TempDir(), "absent")
+	if code := runBalTest(context.Background(), absent, t.TempDir(), time.Second, &stderr); code != 1 {
 		t.Fatalf("runBalTest = %d, want 1", code)
 	}
 }
