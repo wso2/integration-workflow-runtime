@@ -17,10 +17,10 @@
 package sqlschema
 
 import (
-	"context"
 	"database/sql"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -316,36 +316,76 @@ func dropDatabase(t *testing.T, cfg config.SQL) {
 	}
 }
 
-func TestTheSchemaLockReportsAnEndedSession(t *testing.T) {
+func TestASchemaChangeEndsWithItsLockSession(t *testing.T) {
 	for _, server := range realServers(t) {
 		t.Run(server.plugin, func(t *testing.T) {
 			cfg := *server.stores(t, server.admin, server.password).DataStores["default"].SQL
-			cfg.DatabaseName = ""
-			if server.driver == "postgres" {
-				cfg.DatabaseName = "postgres"
-			}
-			l, err := openLock(&cfg)
+			admin := server.open(t, "")
+			server.exec(t, admin, "CREATE DATABASE "+cfg.DatabaseName)
+			first, err := openSession(&cfg, log.NewNoopLogger())
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer l.close()
-			lock := l.(*pinnedLock)
-			var id int64
-			query := "SELECT pg_backend_pid()"
-			if server.driver != "postgres" {
-				query = "SELECT CONNECTION_ID()"
-			}
-			if err := lock.conn.QueryRowContext(context.Background(), query).Scan(&id); err != nil {
+			defer first.Close()
+			if err := first.lock(log.NewNoopLogger()); err != nil {
 				t.Fatal(err)
 			}
-			kill := fmt.Sprintf("SELECT pg_terminate_backend(%d)", id)
+			// A schema change is running when the database ends the session that holds the lock.
+			running, sessionQuery, kill := "CREATE TABLE inflight AS SELECT 1 AS s FROM pg_sleep(30)",
+				"SELECT pid FROM pg_stat_activity WHERE datname = $1 AND state = 'active' AND query LIKE 'CREATE TABLE%'",
+				"SELECT pg_terminate_backend(%d)"
 			if server.driver != "postgres" {
-				kill = fmt.Sprintf("KILL %d", id)
+				running, sessionQuery, kill = "CREATE TABLE inflight AS SELECT SLEEP(30) AS s",
+					"SELECT ID FROM information_schema.PROCESSLIST WHERE DB = ? AND INFO LIKE 'CREATE TABLE%'", "KILL %d"
 			}
-			server.exec(t, server.open(t, ""), kill)
-			// A pooled connection would answer from a new session here, without the lock.
-			if err := l.alive(); err == nil {
-				t.Fatal("alive = nil after the lock's session ended")
+			done := make(chan error, 1)
+			go func() { done <- first.Exec(running) }()
+			var id int64
+			for deadline := time.Now().Add(10 * time.Second); ; {
+				if admin.QueryRow(sessionQuery, cfg.DatabaseName).Scan(&id) == nil {
+					break
+				}
+				if time.Now().After(deadline) {
+					t.Fatal("the schema change never started")
+				}
+				time.Sleep(50 * time.Millisecond)
+			}
+			server.exec(t, admin, fmt.Sprintf(kill, id))
+			select {
+			case err := <-done:
+				if err == nil {
+					t.Fatal("the running schema change completed after its session ended")
+				}
+			case <-time.After(20 * time.Second):
+				t.Fatal("the running schema change outlived its session")
+			}
+			// The next node takes the lock while the first node still has its connection.
+			next, err := openSession(&cfg, log.NewNoopLogger())
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer next.Close()
+			locked := make(chan error, 1)
+			go func() { locked <- next.lock(log.NewNoopLogger()) }()
+			select {
+			case err := <-locked:
+				if err != nil {
+					t.Fatal(err)
+				}
+			case <-time.After(10 * time.Second):
+				t.Fatal("the next node could not take the lock")
+			}
+			defer func() { _ = next.unlock() }()
+			// The first node cannot change the schema on a new session alongside it.
+			if err := first.Exec("CREATE TABLE after_loss (id INT)"); err == nil {
+				t.Fatal("a schema change ran after the lock's session ended")
+			}
+			tables, err := next.ListTables()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if slices.Contains(tables, "inflight") || slices.Contains(tables, "after_loss") {
+				t.Fatalf("tables = %v, want neither schema change applied", tables)
 			}
 		})
 	}
