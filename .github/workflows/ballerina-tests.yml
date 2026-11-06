@@ -88,7 +88,7 @@ jobs:
       - name: Test schema preparation on PostgreSQL and MySQL
         if: matrix.database == 'postgresql' && matrix.suite == 'smoke'
         working-directory: engine
-        run: go test -count=1 -run 'OnRealDatabases|LimitedToItsDatabases' -v ./internal/sqlschema
+        run: go test -count=1 -v ./internal/sqlschema
       - name: Set up Ballerina (latest)
         uses: ballerina-platform/setup-ballerina@585120e3f0e540bf127376ee6e75d39e8ce6aaa4 # v1.1.5
         with:

@@ -30,7 +30,8 @@ User guide: [Manage the engine with workflow-cli](../user-guide/manage-with-work
 | `-o` | `text` | `text` or `json` (protojson) |
 | `--command-timeout` | `30s` | Limit per command |
 
-Precedence, as in the Temporal CLI: flag, environment variable, profile, default.
+Precedence, as in the Temporal CLI: flag, environment variable, profile, default. The token and the token file are one
+setting (`clientconfig.ReplaceCredential`): a level that sets either replaces both, and within a level the token wins.
 
 ## Behavior
 
@@ -81,7 +82,7 @@ it exists.
 
 | Test | Covers |
 |---|---|
-| `cli/internal/command/command_test.go` | Every command against an in-memory fake engine (bufconn): health per service and exit codes, describe with and without the admin API, namespace create (cache retry, idempotence), describe, list over pages, update, search attributes, profile/environment/flag precedence and the bearer header, `config` commands and file mode, error messages |
+| `cli/internal/command/command_test.go` | Every command against an in-memory fake engine (bufconn): health per service and exit codes, describe with and without the admin API, namespace create (cache retry, idempotence), describe, list over pages, update, search attributes, profile/environment/flag precedence and the bearer header, a token file replacing an earlier level's token, `config` commands and file mode, error messages |
 | `cli/internal/command/workflow_test.go` | `workflow list` over pages with a query and `--limit`, `count`, `describe`, `show` over pages, `signal` payloads, identity and request ID, `describe` and `show` sending `-r`, `cancel` and `terminate` with reasons and run IDs, confirmations on stderr with `-o json`, `task-queue describe` with and without pollers, error messages |
 | `cli/internal/command/operations_test.go` | Reset to the first and last workflow task, of the run looked up first, and to an event ID; batch jobs refused without `--yes`, started for terminate, cancel and signal with their queries, reasons and payloads, listed, described and stopped; schedules created with crons, intervals, input, overlap policy and notes, stored as the engine's structured calendar and described as cron fields with recent runs, paused, unpaused, triggered and deleted; error messages |
 | `cli/internal/command/engine_test.go` | With `WORKFLOW_ENGINE`: on a real `start-dev` engine, a workflow whose first workflow task a test worker completed is reset to it and gets a new running run. It lives in the CLI module because the worker needs the Temporal API, which the tools module does not depend on |

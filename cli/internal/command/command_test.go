@@ -472,6 +472,31 @@ func TestProfilesEnvironmentAndFlags(t *testing.T) {
 	}
 }
 
+func TestAKeyFileReplacesAnEarlierKey(t *testing.T) {
+	tc := newTestCLI(t)
+	file := func(token string) string {
+		path := filepath.Join(t.TempDir(), "token")
+		if err := os.WriteFile(path, []byte(token+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	tc.must("config", "set", "--prop", "apiKey", "--value", "old-profile-token")
+	tc.must("operator", "namespace", "list", "--api-key-file", file("flag-file-token"))
+	tc.env["WORKFLOW_API_KEY_FILE"] = file("env-file-token")
+	tc.must("operator", "namespace", "list")
+	tc.must("operator", "namespace", "list", "--api-key", "flag-token")
+	delete(tc.env, "WORKFLOW_API_KEY_FILE")
+	tc.must("config", "set", "--prop", "apiKeyFile", "--value", file("profile-file-token"))
+	tc.must("config", "delete", "--prop", "apiKey")
+	tc.env["WORKFLOW_API_KEY"] = "env-token"
+	tc.must("operator", "namespace", "list")
+	want := []string{"Bearer flag-file-token", "Bearer env-file-token", "Bearer flag-token", "Bearer env-token"}
+	if got := tc.engine.auth; !slices.Equal(got, want) {
+		t.Fatalf("authorization headers = %v, want %v", got, want)
+	}
+}
+
 func TestRetentionDisplay(t *testing.T) {
 	for d, want := range map[time.Duration]string{720 * time.Hour: "30d", 36 * time.Hour: "36h0m0s"} {
 		if got := duration(durationpb.New(d)); got != want {
