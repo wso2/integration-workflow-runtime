@@ -10,11 +10,14 @@ keywords: [wso2 integrator, workflow runtime, troubleshooting, errors]
 |---|---|---|
 | `no authorizer configured; set one or pass --allow-no-auth for development` | No `[engine.auth]` | Configure your identity provider ([Secure the engine](secure-the-engine.md)), or use `--allow-no-auth` on your own machine only |
 | `unknown runtime configuration keys: engine.logLvl` | A typo in `runtime.toml` | Correct the key; see the [reference](reference/runtime-toml.md) |
+| `engine.logFile logs/engine.log: open logs/engine.log: permission denied` | The engine's user cannot create or write the log file | Give that user write access to the directory, or change `logFile` |
 | `database.password refers to environment variable WORKFLOW_DB_PASSWORD, which is not set` | The variable is missing in the engine's environment | Export it, or set it in the service's environment file |
 | `engine.broadcastAddress is required when engine.bindAddress is 0.0.0.0` | Listening on every interface without saying which address others use | Set `broadcastAddress` to this node's IP |
 | `database.tls is not supported for a sqlite database` | `[database.tls]` with `type = "sqlite"` | Remove `[database.tls]`; SQLite is a local file |
 | `database.tls.serverName is not supported for a postgresql database` | `serverName` with `type = "postgresql"`, which cannot use it | Remove `serverName` and set `host` to the DNS name on the database certificate |
-| `engine.tls.certFile: ... no such file or directory` | A wrong path | Paths are relative to the directory the engine starts in |
+| `engine.tls.certFile: ... no such file or directory` | A wrong path | Relative paths resolve against the runtime's directory (`workflow-runtime` changes to it) |
+| `engine.broadcastAddress "..." must be an IP address or "auto"` | A host name as the address | Use the node's IP, or `auto` |
+| `engine.broadcastAddress "auto": this host has no non-loopback address` | The container or host has no network interface yet | Attach the container to a network |
 | `unable to create the claim mapper: unable to discover the identity provider's key set: ...` | The engine cannot read `<issuer>/.well-known/openid-configuration`, or it names another issuer (a trailing slash counts) | Check `issuer` (it must equal the tokens' `iss` exactly) and the network, or set `jwksUrls` |
 | `engine.auth.jwksUrls: "http://..." must use https` (or the issuer, or a discovered `jwks_uri`) | A key set or discovery document over plain http to another host | Use the provider's https URL |
 | `refused a redirect: "http://..." must use https` (at start, or logged as `unable to refresh the token keys`) | The provider's https URL redirects to plain http | Configure the URL the redirect ends at, if it is https, or fix the provider's redirect |

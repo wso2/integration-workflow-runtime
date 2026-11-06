@@ -1,7 +1,8 @@
-# The runtime's configuration. [runtime] profiles, [engine] and [database] are read by workflow-engine
-# (docs/features/runtime-config.md); the other tables are illustrative until their components arrive.
+# The Workflow Runtime's configuration. Reference: docs/features/runtime-config.md and engine-security.md.
+# Relative paths resolve against the runtime's home directory.
+
 [runtime]
-profiles = ["all"]          # or e.g. ["frontend"], ["history", "matching"], ["worker"]
+profiles = ["all"]          # or split across nodes: ["frontend"], ["history", "matching"], ["worker"]
 
 [engine]
 # Listen on every interface and tell other nodes and clients which address reaches this one.
@@ -9,6 +10,7 @@ profiles = ["all"]          # or e.g. ["frontend"], ["history", "matching"], ["w
 # broadcastAddress = "10.0.0.5"
 # historyShards = 512        # fixed after the first start
 logLevel = "info"
+# logFile = "logs/engine.log"  # created if missing; standard output when not set
 
 # TLS on port 7233 and tokens from your identity provider (docs/features/engine-security.md).
 # [engine.tls]
@@ -29,34 +31,15 @@ logLevel = "info"
 # prometheusAddress = "0.0.0.0:9464"
 
 [database]
-type = "postgresql"         # postgresql | mysql | sqlite
+type = "postgresql"         # postgresql | mysql | sqlite (sqlite: trying out only)
 host = "db.example.com"
 port = 5432
 user = "workflow"
 password = "$env{WORKFLOW_DB_PASSWORD}"
 name = "temporal"
 visibilityName = "temporal_visibility"
+# manageSchema = false      # the engine creates and upgrades the databases unless a DBA does it
 
 # [database.tls]
 # enabled = true
 # caFile = "conf/certs/db-ca.pem"   # the server's certificate is verified (enableHostVerification = true)
-
-[users]
-store = "local"             # "local" (try-out and demos) or "sso" (production); never both
-
-[users.local]
-bootstrapAdmin = "admin"
-
-[users.sso]
-issuer = "https://idp.example.com/oauth2/token"
-clientId = "workflow-runtime"
-groupsClaim = "groups"
-superAdminGroup = "workflow-admins"
-
-[adminPortal]
-enabled = true
-path = "/admin"
-
-[userPortal]
-enabled = true
-path = "/portal"

@@ -43,7 +43,7 @@ applies schema changes.
    ```toml
    [engine]
    bindAddress = "0.0.0.0"
-   broadcastAddress = "10.0.0.5"
+   broadcastAddress = "10.0.0.5"   # or "auto" to use this host's address
    ```
 
 3. For production, add `[engine.tls]` and `[engine.auth]` ([Secure the engine](secure-the-engine.md)).
@@ -57,7 +57,7 @@ applies schema changes.
 Print the configuration the engine generates, with the password hidden:
 
 ```bash
-WORKFLOW_DB_PASSWORD=<password> bin/workflow-engine render-config --runtime-config conf/runtime.toml
+WORKFLOW_DB_PASSWORD=<password> bin/workflow-runtime render-config
 ```
 
 The engine checks every key before it starts. Unknown keys (usually typos), invalid ports, missing files and unset
@@ -67,8 +67,11 @@ The engine checks every key before it starts. Unknown keys (usually typos), inva
 
 ```bash
 export WORKFLOW_DB_PASSWORD=<password>
-bin/workflow-engine start --runtime-config conf/runtime.toml
+bin/workflow-runtime
 ```
+
+`workflow-runtime` works from the runtime's directory, so relative paths in `runtime.toml` resolve against it. See
+[Install the runtime](install.md) for the commands and for running it as a service.
 
 Without `[engine.auth]` the engine refuses to start. Add `--allow-no-auth` only for development on your own
 machine; never expose such an engine on a network.

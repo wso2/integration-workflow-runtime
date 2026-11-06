@@ -10,3 +10,4 @@ in the same commit ([AGENTS.md](../../AGENTS.md#rules-for-every-change)). Start 
 | [Runtime configuration](runtime-config.md) | Available |
 | [Engine security](engine-security.md) | Available |
 | [Database schema](database-schema.md) | Available |
+| [Distribution](distribution.md) | Available |

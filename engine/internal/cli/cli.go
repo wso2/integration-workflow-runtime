@@ -27,6 +27,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -141,7 +142,14 @@ func (c command) start(args []string) error {
 	if len(services) == 0 {
 		return runtimeconfig.ErrNoServices
 	}
-	logger := log.NewZapLogger(log.BuildZapLogger(cfg.Log))
+	logKey := "log.outputFile"
+	if rt != nil {
+		logKey = "engine.logFile"
+	}
+	logger, err := newLogger(cfg.Log, logKey)
+	if err != nil {
+		return err
+	}
 
 	authorizer, err := authorization.GetAuthorizerFromConfig(&cfg.Global.Authorization)
 	if err != nil {
@@ -284,4 +292,23 @@ func defaultServices(cfg *config.Config) []string {
 func hasInternalFrontend(cfg *config.Config) bool {
 	_, ok := cfg.Services[string(primitives.InternalFrontendService)]
 	return ok
+}
+
+// newLogger opens the log file first: Temporal's builder drops the error of a sink it cannot open and returns nil.
+func newLogger(cfg log.Config, key string) (log.Logger, error) {
+	if cfg.OutputFile != "" && !cfg.Stdout {
+		if err := os.MkdirAll(filepath.Dir(cfg.OutputFile), 0o750); err != nil {
+			return nil, fmt.Errorf("%s %s: %w", key, cfg.OutputFile, err)
+		}
+		f, err := os.OpenFile(cfg.OutputFile, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o640) //nolint:gosec // the configured log file
+		if err != nil {
+			return nil, fmt.Errorf("%s %s: %w", key, cfg.OutputFile, err)
+		}
+		_ = f.Close()
+	}
+	zl := log.BuildZapLogger(cfg)
+	if zl == nil {
+		return nil, fmt.Errorf("%s %s: unable to open the log output", key, cfg.OutputFile)
+	}
+	return log.NewZapLogger(zl), nil
 }

@@ -17,7 +17,7 @@ Status: early development. The engine builds and runs; the launcher, Manager and
 | `launcher/` | Starts and supervises components per profile; writes Temporal's configuration from `runtime.toml`; enforces one-minor upgrades | Go |
 | `manager/` | The Manager: administration API, SSO sign-in, roles; serves the portals | Go |
 | `portals/` | Admin Portal and User Portal, static web apps served by the Manager | TypeScript |
-| `distribution/` | Zip and Docker assembly, configuration templates, start scripts | Shell, Docker |
+| `distribution/` | Zip and Docker assembly, configuration templates, the systemd example | Docker |
 | `tests/` | Ballerina smoke and full suites run against the engine binary | Ballerina |
 | `tools/` | The repository's own tools: coverage gate, Ballerina suite runner, script tests | Go |
 | `third-party/` | License inventory and notices for everything we ship | |

@@ -98,6 +98,7 @@ type engineSettings struct {
 	BroadcastAddress string            `toml:"broadcastAddress"`
 	HistoryShards    int32             `toml:"historyShards"`
 	LogLevel         string            `toml:"logLevel"`
+	LogFile          string            `toml:"logFile"`
 	Ports            portsSettings     `toml:"ports"`
 	TLS              engineTLSSettings `toml:"tls"`
 	Auth             authSettings      `toml:"auth"`
@@ -176,6 +177,13 @@ func parse(data []byte, lookupEnv func(string) (string, bool)) (*Runtime, error)
 	}
 	if err := decodeTable(k, "database", &s.Database); err != nil {
 		return nil, err
+	}
+	if s.Engine.BroadcastAddress == autoAddress {
+		ip, err := hostAddress()
+		if err != nil {
+			return nil, fmt.Errorf(`invalid runtime configuration: engine.broadcastAddress "auto": %w`, err)
+		}
+		s.Engine.BroadcastAddress = ip
 	}
 	nodeServices, err := services(k)
 	if err != nil {
@@ -266,9 +274,14 @@ func (s *settings) validate() error {
 	if net.ParseIP(e.BindAddress) == nil {
 		problems = append(problems, fmt.Sprintf("engine.bindAddress %q must be an IP address", e.BindAddress))
 	}
-	if e.BroadcastAddress == "" {
+	switch {
+	case e.BroadcastAddress == "":
 		problems = append(problems, "engine.broadcastAddress is required when engine.bindAddress is 0.0.0.0")
-	} else if ip := net.ParseIP(e.BroadcastAddress); ip != nil && ip.IsUnspecified() {
+	// A broadcast address copied from an invalid bind address is reported once, as the bind address.
+	case net.ParseIP(e.BroadcastAddress) == nil && e.BroadcastAddress != e.BindAddress:
+		problems = append(problems, fmt.Sprintf(`engine.broadcastAddress %q must be an IP address or "auto"`,
+			e.BroadcastAddress))
+	case net.ParseIP(e.BroadcastAddress).IsUnspecified():
 		problems = append(problems, fmt.Sprintf("engine.broadcastAddress %q must be an address other nodes can reach",
 			e.BroadcastAddress))
 	}
@@ -410,7 +423,7 @@ func (s *settings) temporalConfig(password string) *config.Config {
 				visibilityStore: {SQL: s.Database.sqlStore(s.Database.VisibilityName, password)},
 			},
 		},
-		Log: log.Config{Stdout: true, Level: e.LogLevel},
+		Log: e.logConfig(),
 		ClusterMetadata: &cluster.Config{
 			FailoverVersionIncrement: 10,
 			MasterClusterName:        clusterName,
@@ -429,6 +442,14 @@ func (s *settings) temporalConfig(password string) *config.Config {
 			"worker":            {RPC: e.rpc(e.Ports.Worker, 0)},
 		},
 	}
+}
+
+// logConfig writes to standard output, or only to logFile when it is set.
+func (e engineSettings) logConfig() log.Config {
+	if e.LogFile != "" {
+		return log.Config{Level: e.LogLevel, OutputFile: e.LogFile}
+	}
+	return log.Config{Stdout: true, Level: e.LogLevel}
 }
 
 func (e engineSettings) rpc(grpcPort, httpPort int) config.RPC {

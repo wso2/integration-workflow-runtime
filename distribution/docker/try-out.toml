@@ -1,0 +1,10 @@
+# runtime.toml for compose.yml: every service in one container, PostgreSQL from the compose file.
+[engine]
+bindAddress = "0.0.0.0"
+broadcastAddress = "auto"
+
+[database]
+type = "postgresql"
+host = "postgres"
+user = "workflow"
+password = "$env{WORKFLOW_DB_PASSWORD}"

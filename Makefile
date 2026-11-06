@@ -21,7 +21,12 @@ EXE := $(if $(filter windows,$(GOOS)),.exe,)
 OUT := build
 DIST_NAME := wso2-workflow-runtime-$(VERSION)-$(GOOS)-$(GOARCH)
 MIN_COVERAGE ?= 75
-BINARIES := workflow-engine workflow-engine-sql
+BINARIES := workflow-runtime workflow-engine workflow-engine-sql
+# Container image: name, platforms, and extra buildx arguments (--push to publish, --load for a local single platform).
+IMAGE ?= wso2-workflow-runtime
+IMAGE_PLATFORMS ?= linux/amd64,linux/arm64
+IMAGE_ARGS ?=
+comma := ,
 # The platforms build-dist.yml releases; keep the two lists in step.
 RELEASE_PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64
 
@@ -55,7 +60,7 @@ GOOS= GOARCH= GOBIN="$$tmp" go install "$(2)@$(3)"; mv -f "$$tmp/$$(basename "$$
 ln -s "$(notdir $(1))" "$$tmp/link"; mv -f "$$tmp/link" "$$link"
 endef
 
-.PHONY: build engine dist sbom tools vet lint fmt-check test test-coverage test-race licenses license-check \
+.PHONY: build engine dist image sbom tools vet lint fmt-check test test-coverage test-race licenses license-check \
 	vulncheck check test-smoke test-full test-docker install-hooks release clean
 
 build: engine
@@ -65,15 +70,27 @@ engine:
 		-ldflags "-s -w -X main.version=$(VERSION)" -o ../$(OUT)/workflow-engine$(EXE) ./cmd/workflow-engine
 	cd engine && CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -trimpath \
 		-ldflags "-s -w" -o ../$(OUT)/workflow-engine-sql$(EXE) ./cmd/workflow-engine-sql
+	cd engine && CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -trimpath \
+		-ldflags "-s -w -X main.version=$(VERSION)" -o ../$(OUT)/workflow-runtime$(EXE) ./cmd/workflow-runtime
 
 # One distribution directory and zip for GOOS/GOARCH: the layout every release archive uses.
 dist: engine sbom
 	rm -rf dist/$(DIST_NAME) && mkdir -p dist/$(DIST_NAME)/bin dist/$(DIST_NAME)/conf
-	cp $(OUT)/workflow-engine$(EXE) $(OUT)/workflow-engine-sql$(EXE) dist/$(DIST_NAME)/bin/
+	cp $(OUT)/workflow-runtime$(EXE) $(OUT)/workflow-engine$(EXE) $(OUT)/workflow-engine-sql$(EXE) dist/$(DIST_NAME)/bin/
 	cp distribution/conf/runtime.toml dist/$(DIST_NAME)/conf/
+	$(if $(filter linux,$(GOOS)),cp -R distribution/systemd dist/$(DIST_NAME)/,)
+	cp distribution/README.dist.md dist/$(DIST_NAME)/README.md
 	cp -R LICENSE NOTICE third-party dist/$(DIST_NAME)/
 	cp -R $(OUT)/sbom dist/$(DIST_NAME)/
 	cd dist && rm -f $(DIST_NAME).zip && zip -qr $(DIST_NAME).zip $(DIST_NAME)
+
+# The image from the linux distributions of IMAGE_PLATFORMS; `make image IMAGE_PLATFORMS=linux/arm64 IMAGE_ARGS=--load`
+# loads one platform into the local Docker. Releases pass DIST_READY=1 after downloading the zips.
+image:
+	$(if $(DIST_READY),,@for p in $(subst $(comma), ,$(IMAGE_PLATFORMS)); do \
+		$(MAKE) dist GOOS=$${p%/*} GOARCH=$${p#*/} VERSION=$(VERSION) || exit 1; done)
+	docker buildx build --platform $(IMAGE_PLATFORMS) --build-arg VERSION=$(VERSION) \
+		-f distribution/docker/Dockerfile -t $(IMAGE):$(VERSION) $(IMAGE_ARGS) .
 
 # CycloneDX SBOM per binary for GOOS/GOARCH: the modules and standard library linked in, with their licenses.
 sbom: $(CYCLONEDX_GOMOD)

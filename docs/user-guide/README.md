@@ -6,6 +6,9 @@ the Workflow Runtime section of the WSO2 Integrator documentation and move there
 | Page | Covers |
 |---|---|
 | [Workflow Runtime](workflow-runtime.md) | What the runtime is, its parts, and how integrations use it |
+| [Install the runtime](install.md) | The zip, its commands, and running it as a Linux service |
+| [Run in containers](run-in-containers.md) | The container image, Docker Compose, Amazon ECS and Kubernetes |
+| [Deploy on AWS](deploy-on-aws.md) | Database, compute, load balancer and identity choices on AWS |
 | [Configure the runtime](configure.md) | `conf/runtime.toml`: the database, the engine, starting and checking the configuration |
 | [Set up the database](database.md) | PostgreSQL, MySQL, Amazon RDS and Aurora; schema creation and upgrade |
 | [Secure the engine](secure-the-engine.md) | TLS, tokens from your identity provider, and the permission model |

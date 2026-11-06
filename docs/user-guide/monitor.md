@@ -20,8 +20,9 @@ backlogs, persistence calls).
 
 ## Logs
 
-The engine logs JSON to standard output at `logLevel` (`info` by default; `debug`, `warn` or `error`). Collect it
-with your platform's log collector. Refused calls are logged with the reason, which the caller does not see.
+The engine logs JSON to standard output at `logLevel` (`info` by default; `debug`, `warn` or `error`), which
+systemd, Docker and Kubernetes collect. To write to a file instead, set `logFile = "logs/engine.log"` in
+`[engine]`; the engine creates a missing directory and refuses to start when it cannot write the file. Refused calls are logged with the reason, which the caller does not see.
 
 ## Workflows
 
