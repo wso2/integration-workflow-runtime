@@ -25,6 +25,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -69,6 +70,8 @@ var (
 	pluginNames    = map[databaseType]string{typePostgreSQL: "postgres12", typeMySQL: "mysql8", typeSQLite: "sqlite"}
 	defaultDBPorts = map[databaseType]int{typePostgreSQL: 5432, typeMySQL: 3306}
 	logLevels      = []string{"debug", "info", "warn", "error"}
+	// databaseName is what the engine can create on both servers; MySQL's CREATE DATABASE takes the name unquoted.
+	databaseName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,62}$`)
 )
 
 // Runtime is what the engine takes from runtime.toml.
@@ -79,6 +82,8 @@ type Runtime struct {
 	Services []string
 	// Auth configures the identity-provider claim mapper; nil when [engine.auth] is off.
 	Auth *jwtclaims.Settings
+	// ManageSchema is whether the engine creates and upgrades the SQL databases and schemas before it starts.
+	ManageSchema bool
 	// DynamicConfig holds the dynamic settings the configuration needs; nil when it needs none.
 	DynamicConfig dynamicconfig.StaticClient
 }
@@ -119,6 +124,7 @@ type databaseSettings struct {
 	Path           string       `toml:"path"`
 	InMemory       bool         `toml:"inMemory"`
 	MaxConns       int          `toml:"maxConns"`
+	ManageSchema   *bool        `toml:"manageSchema"`
 	TLS            tlsSettings  `toml:"tls"`
 }
 
@@ -187,7 +193,7 @@ func parse(data []byte, lookupEnv func(string) (string, bool)) (*Runtime, error)
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid Temporal configuration: %w", err)
 	}
-	rt := &Runtime{Temporal: *cfg, Services: nodeServices}
+	rt := &Runtime{Temporal: *cfg, Services: nodeServices, ManageSchema: *s.Database.ManageSchema}
 	// Temporal keeps membership (ringpop) in plain text unless this switch is on, even with internode TLS.
 	if s.Engine.TLS.Internode.Enabled {
 		rt.DynamicConfig = dynamicconfig.StaticClient{dynamicconfig.EnableRingpopTLS.Key(): true}
@@ -231,6 +237,10 @@ func (s *settings) applyDefaults() {
 	e.Ports.History = withDefault(e.Ports.History, 7234)
 	e.Ports.Matching = withDefault(e.Ports.Matching, 7235)
 	e.Ports.Worker = withDefault(e.Ports.Worker, 7239)
+	if d.ManageSchema == nil {
+		manage := true
+		d.ManageSchema = &manage
+	}
 
 	if d.Type == typeSQLite {
 		e.HistoryShards = withDefault(e.HistoryShards, 1)
@@ -295,8 +305,19 @@ func (s *settings) validate() error {
 		if !validPort(d.Port) {
 			problems = append(problems, fmt.Sprintf("database.port %d is not a valid port", d.Port))
 		}
-		if d.Name == d.VisibilityName {
+		// Unquoted names are case-insensitive on PostgreSQL, and on MySQL with lower_case_table_names set.
+		if strings.EqualFold(d.Name, d.VisibilityName) {
 			problems = append(problems, "database.name and database.visibilityName must differ")
+		}
+		for _, n := range []struct{ key, value string }{{"name", d.Name}, {"visibilityName", d.VisibilityName}} {
+			if *d.ManageSchema && !databaseName.MatchString(n.value) {
+				problems = append(problems, fmt.Sprintf("database.%s %q must be letters, digits and underscores, "+
+					"starting with a letter or underscore, when the engine manages the schema", n.key, n.value))
+			}
+			if _, reserved := mysqlReservedWords[strings.ToLower(n.value)]; *d.ManageSchema && d.Type == typeMySQL && reserved {
+				problems = append(problems, fmt.Sprintf("database.%s %q is a MySQL reserved word; choose another name, "+
+					"or create the databases yourself and set manageSchema = false", n.key, n.value))
+			}
 		}
 	}
 	if (d.TLS.CertFile == "") != (d.TLS.KeyFile == "") {

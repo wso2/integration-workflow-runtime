@@ -7,6 +7,7 @@ the Workflow Runtime section of the WSO2 Integrator documentation and move there
 |---|---|
 | [Workflow Runtime](workflow-runtime.md) | What the runtime is, its parts, and how integrations use it |
 | [Configure the runtime](configure.md) | `conf/runtime.toml`: the database, the engine, starting and checking the configuration |
+| [Set up the database](database.md) | PostgreSQL, MySQL, Amazon RDS and Aurora; schema creation and upgrade |
 | [Secure the engine](secure-the-engine.md) | TLS, tokens from your identity provider, and the permission model |
 | [Connect an integration](connect-an-integration.md) | Pointing a `ballerina/workflow` integration at the runtime |
 | [Run across several nodes](scale-across-nodes.md) | Profiles, addresses, ports and load balancing |

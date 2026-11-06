@@ -83,6 +83,11 @@ jobs:
             tools/go.sum
       - name: Build the engine
         run: make engine && ./build/workflow-engine version
+      # Both service databases run in every job; one job covers the schema test for both.
+      - name: Test schema preparation on PostgreSQL and MySQL
+        if: matrix.database == 'postgresql' && matrix.suite == 'smoke'
+        working-directory: engine
+        run: go test -count=1 -v ./internal/sqlschema
       - name: Set up Ballerina (latest)
         uses: ballerina-platform/setup-ballerina@585120e3f0e540bf127376ee6e75d39e8ce6aaa4 # v1.1.5
         with:
@@ -110,6 +115,14 @@ jobs:
         run: >-
           go run ./tools/cmd/balsuite ${{ matrix.suite }} --database ${{ matrix.database }}
           --engine build/workflow-engine
+      # A workflow started on the previous Temporal release, with its older schema, finishes on this engine.
+      - name: Upgrade from Temporal 1.30.9 on ${{ matrix.database }}
+        if: matrix.suite == 'smoke' && (matrix.database == 'postgresql' || matrix.database == 'mysql')
+        env:
+          ENGINE_LOG_DIR: build/logs
+        run: >-
+          go run ./tools/cmd/balsuite upgrade --database ${{ matrix.database }}
+          --engine build/workflow-engine --old-temporal 1.30.9
       - name: Upload engine and test logs
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -118,4 +131,5 @@ jobs:
           path: |
             build/logs/
             tests/ballerina/${{ matrix.suite }}/target/report/
+            tests/ballerina/upgrade/target/report/
           if-no-files-found: ignore

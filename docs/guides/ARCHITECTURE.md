@@ -46,7 +46,8 @@ housekeeping; integration workers never connect to it.
   (Temporal's no-op claim mapper grants every caller system-admin claims), unless `--allow-no-auth` is given, which
   is for development and tests only. Production uses Temporal's JWT authorizer trusting the Manager's keys, over
   TLS.
-- `workflow-engine-sql` creates and upgrades Temporal's schema, built from the same Temporal version.
+- `start` creates Temporal's databases and brings their schemas up to date before the services start, with the
+  schema tool built from the same Temporal version; `workflow-engine-sql` is that tool, for DBAs who apply it by hand.
 
 ## Profiles
 

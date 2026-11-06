@@ -83,3 +83,29 @@ func TestRenderHidesPasswordsWithoutChangingTheConfiguration(t *testing.T) {
 		}
 	}
 }
+
+func TestManageSchemaDefaultsToOn(t *testing.T) {
+	for toml, want := range map[string]bool{
+		"[database]\ntype = \"postgresql\"\nhost = \"db\"\n":                       true,
+		"[database]\ntype = \"postgresql\"\nhost = \"db\"\nmanageSchema = false\n": false,
+		"[database]\ntype = \"sqlite\"\ninMemory = true\n":                         true,
+	} {
+		rt, err := parse([]byte(toml), noEnv)
+		if err != nil {
+			t.Fatalf("parse(%q): %v", toml, err)
+		}
+		if rt.ManageSchema != want {
+			t.Errorf("parse(%q).ManageSchema = %v, want %v", toml, rt.ManageSchema, want)
+		}
+	}
+}
+
+func TestDatabaseNamesTheEngineCannotCreate(t *testing.T) {
+	bad := "[database]\ntype = \"mysql\"\nhost = \"db\"\nname = \"temporal-main\"\n"
+	if _, err := parse([]byte(bad), noEnv); err == nil || !strings.Contains(err.Error(), "database.name \"temporal-main\"") {
+		t.Fatalf("parse = %v, want the database name refused", err)
+	}
+	if _, err := parse([]byte(bad+"manageSchema = false\n"), noEnv); err != nil {
+		t.Fatalf("parse with manageSchema = false: %v, want the name accepted", err)
+	}
+}

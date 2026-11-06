@@ -3,12 +3,49 @@ version: "2"
 linters:
   default: standard
   enable:
+    - depguard
     - gosec
     - misspell
     - unparam
     - usetesting
     - wastedassign
   settings:
+    depguard:
+      rules:
+        # Our own SQL lives in internal/sqlschema; see AGENTS.md. Registering Temporal's plugins stays allowed.
+        sql-boundary:
+          files:
+            - $all
+            - "!$test"
+            - "!**/internal/sqlschema/*.go"
+            - "!**/cmd/workflow-engine-sql/*.go"
+          deny:
+            - pkg: database/sql
+              desc: run SQL from internal/sqlschema
+            - pkg: github.com/jmoiron/sqlx
+              desc: run SQL from internal/sqlschema
+            - pkg: github.com/lib/pq
+              desc: run SQL from internal/sqlschema
+            - pkg: github.com/jackc/pgx
+              desc: run SQL from internal/sqlschema
+            - pkg: github.com/go-sql-driver/mysql
+              desc: run SQL from internal/sqlschema
+            - pkg: modernc.org/sqlite
+              desc: run SQL from internal/sqlschema
+            - pkg: go.temporal.io/server/tools/sql
+              desc: run SQL from internal/sqlschema
+            - pkg: go.temporal.io/server/tools/common/schema
+              desc: manage Temporal's schema from internal/sqlschema
+            - pkg: go.temporal.io/server/common/persistence/sql$
+              desc: run SQL from internal/sqlschema
+            - pkg: go.temporal.io/server/common/persistence/sql/sqlplugin$
+              desc: run SQL from internal/sqlschema
+            - pkg: go.temporal.io/server/common/persistence/sql/sqlplugin/mysql/session
+              desc: run SQL from internal/sqlschema
+            - pkg: go.temporal.io/server/common/persistence/sql/sqlplugin/postgresql/session
+              desc: run SQL from internal/sqlschema
+            - pkg: go.temporal.io/server/common/persistence/sql/sqlplugin/postgresql/driver
+              desc: run SQL from internal/sqlschema
     usetesting:
       os-temp-dir: true
     staticcheck:

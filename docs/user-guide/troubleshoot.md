@@ -28,4 +28,6 @@ keywords: [wso2 integrator, workflow runtime, troubleshooting, errors]
 | `rule for "...": grant write, not worker` | A rule with `role = "worker"` | Use `write`; it lets an integration's workers poll |
 | Client: `Request unauthorized` | The token maps to no role, or failed a check | Read the engine log: it names the reason (expired, issuer, unknown key, no matching group); check `rolesClaim` and the rules |
 | Client: `x509: certificate is not trusted` or `certificate is valid for ..., not ...` | The client does not trust the CA, or the certificate lacks the address the client uses | Give the client the CA (`authCaCert`, `--tls-ca-path`); reissue the certificate with the right DNS name or IP |
-| `unable to read DB schema version` or `database "temporal" does not exist` | The databases or schemas are missing | Create them ([Configure the runtime](configure.md#choose-a-database)) |
+| `unable to prepare the database schema: ...` | The engine could not reach the server, create a database, or apply the schema | Check `[database]`, the network and the user's rights ([Set up the database](database.md)) |
+| `unable to read DB schema version` or `database "temporal" does not exist` | `manageSchema = false` and the schema is missing or outdated | Apply it with the schema tool ([Set up the database](database.md#when-a-dba-applies-schema-changes)) |
+| `database.name "..." must be letters, digits and underscores` | A name the engine cannot create on MySQL | Rename the database, or set `manageSchema = false` |

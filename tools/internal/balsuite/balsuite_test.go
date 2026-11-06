@@ -19,7 +19,6 @@ package balsuite
 import (
 	"bytes"
 	"context"
-	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -125,18 +124,6 @@ func TestRunRemovesTheTemporaryLogDirectory(t *testing.T) {
 	}
 }
 
-func TestRunRunsPrepareBeforeTheEngine(t *testing.T) {
-	o := options(t, servingTemporal, idleEngine, "#!/bin/sh\nexit 0\n")
-	o.Prepare = func(context.Context) error { return errors.New("schema setup failed") }
-	var stderr bytes.Buffer
-	if code := Run(context.Background(), o, &bytes.Buffer{}, &stderr); code != 1 {
-		t.Fatalf("Run = %d, want 1", code)
-	}
-	if !strings.Contains(stderr.String(), "schema setup failed") {
-		t.Fatalf("stderr = %q", stderr.String())
-	}
-}
-
 func TestRunFailsWhenTheEngineExitsEarly(t *testing.T) {
 	o := options(t, "#!/bin/sh\nexit 1\n", "#!/bin/sh\nexit 7\n", "#!/bin/sh\nexit 0\n")
 	var stderr bytes.Buffer
@@ -224,7 +211,8 @@ func TestRunQuietReportsAMissingCommand(t *testing.T) {
 
 func TestRunBalTestReportsAnUnstartableCommand(t *testing.T) {
 	var stderr bytes.Buffer
-	if code := runBalTest(filepath.Join(t.TempDir(), "absent"), t.TempDir(), time.Second, &stderr); code != 1 {
+	absent := filepath.Join(t.TempDir(), "absent")
+	if code := runBalTest(context.Background(), absent, t.TempDir(), time.Second, &stderr); code != 1 {
 		t.Fatalf("runBalTest = %d, want 1", code)
 	}
 }

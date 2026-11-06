@@ -18,21 +18,9 @@ configuration in memory, so passwords never reach the disk. Every key is listed 
 | MySQL 8.0.17 or later | Production |
 | SQLite (a file, or memory) | Trying out and development only: one connection, one node |
 
-The runtime uses two databases on the same server: `temporal` (workflow state) and `temporal_visibility`
-(search). Create them and their schemas once with the schema tool shipped next to the engine:
-
-```bash
-export SQL_PASSWORD='<password>'   # read by the tool, so the password stays out of the command line
-sql() { bin/workflow-engine-sql --plugin postgres12 --ep db.example.com -p 5432 -u workflow "$@"; }
-sql --db temporal create-database
-sql --db temporal_visibility create-database
-sql --db temporal setup-schema -v 0.0
-sql --db temporal update-schema --schema-name postgresql/v12/temporal
-sql --db temporal_visibility setup-schema -v 0.0
-sql --db temporal_visibility update-schema --schema-name postgresql/v12/visibility
-```
-
-For MySQL use `--plugin mysql8`, port 3306 and the schema names `mysql/v8/temporal` and `mysql/v8/visibility`.
+The runtime uses two databases on one server and creates them, and their schemas, on start. See
+[Set up the database](database.md) for the user's rights, Amazon RDS and Aurora, and installations where a DBA
+applies schema changes.
 
 ## Write the configuration
 

@@ -16,6 +16,8 @@
 
 // Command balsuite runs a Ballerina suite against the engine started from tests/engine/runtime-<database>.toml:
 // balsuite <smoke|full> --engine build/workflow-engine [--database sqlite|postgresql|mysql]
+// balsuite upgrade --engine build/workflow-engine --database postgresql|mysql [--old-temporal 1.30.9] runs a workflow
+// across an upgrade from that Temporal release to the engine.
 package main
 
 import (
@@ -23,7 +25,10 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"slices"
+	"syscall"
 	"time"
 
 	"github.com/wso2/integration-workflow-runtime/tools/internal/balsuite"
@@ -42,11 +47,13 @@ func run(args []string) int {
 	temporal := flags.String("temporal", envOr("TEMPORAL_CLI", "temporal"), "Temporal CLI")
 	startup := flags.Duration("startup-timeout", 90*time.Second, "limit for the engine to become SERVING")
 	testTimeout := flags.Duration("test-timeout", 30*time.Minute, "limit for `bal test`")
+	docker := flags.String("docker", envOr("DOCKER", "docker"), "docker command (upgrade only)")
+	oldTemporal := flags.String("old-temporal", "1.30.9", "Temporal release the upgrade starts from (upgrade only)")
 	flags.Usage = func() {
-		fmt.Fprintln(os.Stderr, "usage: balsuite <smoke|full> --engine <workflow-engine> [--database sqlite|postgresql|mysql] [flags]")
+		fmt.Fprintln(os.Stderr, "usage: balsuite <smoke|full|upgrade> --engine <workflow-engine> [--database sqlite|postgresql|mysql] [flags]")
 		flags.PrintDefaults()
 	}
-	if len(args) == 0 || (args[0] != "smoke" && args[0] != "full") {
+	if len(args) == 0 || !slices.Contains([]string{"smoke", "full", balsuite.UpgradeSuite}, args[0]) {
 		flags.Usage()
 		return 2
 	}
@@ -57,11 +64,9 @@ func run(args []string) int {
 		fmt.Fprintln(os.Stderr, "--engine is required")
 		return 2
 	}
-	if *database != "sqlite" {
-		if _, ok := balsuite.SQLDatabases[*database]; !ok {
-			fmt.Fprintf(os.Stderr, "unknown database %q\n", *database)
-			return 2
-		}
+	if !slices.Contains([]string{"sqlite", "postgresql", "mysql"}, *database) {
+		fmt.Fprintf(os.Stderr, "unknown database %q\n", *database)
+		return 2
 	}
 	enginePath, err := filepath.Abs(*engine)
 	if err != nil {
@@ -73,6 +78,24 @@ func run(args []string) int {
 		fmt.Fprintln(os.Stderr, err)
 		return 2
 	}
+	if args[0] == balsuite.UpgradeSuite {
+		// Ctrl-C or SIGTERM cancels the run, and RunUpgrade still removes the old server and the databases.
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		return balsuite.RunUpgrade(ctx, balsuite.UpgradeOptions{
+			Database:       *database,
+			Root:           rootPath,
+			Engine:         enginePath,
+			Bal:            *bal,
+			Temporal:       *temporal,
+			Docker:         *docker,
+			OldVersion:     *oldTemporal,
+			Password:       os.Getenv("WORKFLOW_TEST_DB_PASSWORD"),
+			LogDir:         os.Getenv("ENGINE_LOG_DIR"),
+			StartupTimeout: *startup,
+			TestTimeout:    *testTimeout,
+		}, os.Stdout, os.Stderr)
+	}
 	runtimeConfig := filepath.Join(rootPath, "tests", "engine", "runtime-"+*database+".toml")
 	return balsuite.Run(context.Background(), balsuite.Options{
 		Suite:          args[0],
@@ -80,7 +103,6 @@ func run(args []string) int {
 		Root:           rootPath,
 		Engine:         enginePath,
 		EngineArgs:     []string{"--runtime-config", runtimeConfig, "--allow-no-auth"},
-		Prepare:        func(ctx context.Context) error { return balsuite.CreateSQLSchemas(ctx, *database, enginePath) },
 		Bal:            *bal,
 		Temporal:       *temporal,
 		LogDir:         os.Getenv("ENGINE_LOG_DIR"),
