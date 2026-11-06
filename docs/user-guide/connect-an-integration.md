@@ -41,7 +41,8 @@ Start the integration. Its workers connect at start; a wrong address, an untrust
 the needed roles stops them with an error naming the cause.
 
 :::tip
-For an engine started with `--allow-no-auth` on your own machine, leave out `authApiKey` and `authCaCert`.
+For a development engine ([Quick start](quick-start.md)) or one started with `--allow-no-auth`, leave out
+`authApiKey` and `authCaCert`.
 :::
 
 Tokens expire. Give the integration a token whose lifetime covers its run, or a way to refresh it, per your

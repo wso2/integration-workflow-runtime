@@ -61,6 +61,7 @@ func newTestCommand(server temporal.Server, factoryErr error) (command, *bytes.B
 			return server, factoryErr
 		},
 		prepareSchema: func(config.Persistence, log.Logger) error { return nil },
+		devNamespaces: func(config.Persistence, []string) error { return nil },
 	}
 	return c, stdout, stderr
 }
@@ -504,5 +505,69 @@ func TestStartNamesALogFileItCannotOpen(t *testing.T) {
 		if err := startWithLogFile(t, logFile); err == nil || !strings.Contains(err.Error(), "engine.logFile "+logFile) {
 			t.Errorf("%s: start = %v, want an error naming engine.logFile", name, err)
 		}
+	}
+}
+
+func TestStartDev(t *testing.T) {
+	server := &fakeServer{}
+	c, _, stderr := newTestCommand(server, nil)
+	var created []string
+	c.devNamespaces = func(p config.Persistence, names []string) error {
+		if server.started {
+			t.Error("the namespaces were created after the server started")
+		}
+		if p.DataStores[p.DefaultStore].SQL.PluginName != "sqlite" {
+			t.Errorf("store = %+v", p.DataStores[p.DefaultStore].SQL)
+		}
+		created = names
+		return nil
+	}
+	if code := c.run([]string{"start-dev", "--port", "18233", "--namespace", "orders"}); code != 0 || !server.started {
+		t.Fatalf("exit code = %d, started = %v, stderr = %s", code, server.started, stderr.String())
+	}
+	if !slices.Equal(created, []string{"default", "orders"}) {
+		t.Fatalf("namespaces = %v", created)
+	}
+	if !strings.Contains(stderr.String(), "Development engine on 127.0.0.1:18233") || !strings.Contains(stderr.String(), "in memory") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
+func TestStartDevCreatesTheDatabaseDirectory(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "data", "nested")
+	c, _, stderr := newTestCommand(&fakeServer{}, nil)
+	if code := c.run([]string{"start-dev", "--db-file", filepath.Join(dir, "dev.db")}); code != 0 {
+		t.Fatalf("exit code = %d, stderr = %s", code, stderr.String())
+	}
+	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+		t.Fatalf("the --db-file directory was not created: %v", err)
+	}
+	blocker := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(blocker, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c, _, stderr = newTestCommand(&fakeServer{}, nil)
+	if code := c.run([]string{"start-dev", "--db-file", filepath.Join(blocker, "dev.db")}); code != 1 ||
+		!strings.Contains(stderr.String(), "unable to create the directory of --db-file") {
+		t.Fatalf("a file as the directory: exit code = %d, stderr = %q", code, stderr.String())
+	}
+}
+
+func TestStartDevErrors(t *testing.T) {
+	c, _, stderr := newTestCommand(&fakeServer{}, nil)
+	c.devNamespaces = func(config.Persistence, []string) error { return errors.New("disk full") }
+	if code := c.run([]string{"start-dev", "--db-file", filepath.Join(t.TempDir(), "dev.db")}); code != 1 ||
+		!strings.Contains(stderr.String(), "unable to create the namespaces: disk full") {
+		t.Fatalf("exit code = %d, stderr = %q", code, stderr.String())
+	}
+	c, _, _ = newTestCommand(&fakeServer{}, nil)
+	if code := c.run([]string{"start-dev", "--ip", "localhost"}); code != 1 {
+		t.Fatalf("a host name as the IP: exit code = %d", code)
+	}
+	if code := c.run([]string{"start-dev", "--bogus"}); code != 1 {
+		t.Fatalf("unknown flag: exit code = %d", code)
+	}
+	if code := c.run([]string{"start-dev", "-h"}); code != 0 {
+		t.Fatalf("help: exit code = %d", code)
 	}
 }

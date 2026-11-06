@@ -6,6 +6,7 @@ the Workflow Runtime section of the WSO2 Integrator documentation and move there
 | Page | Covers |
 |---|---|
 | [Workflow Runtime](workflow-runtime.md) | What the runtime is, its parts, and how integrations use it |
+| [Quick start](quick-start.md) | A development engine on your machine, and an integration connected to it |
 | [Install the runtime](install.md) | The zip, its commands, and running it as a Linux service |
 | [Run in containers](run-in-containers.md) | The container image, Docker Compose, Amazon ECS and Kubernetes |
 | [Deploy on AWS](deploy-on-aws.md) | Database, compute, load balancer and identity choices on AWS |

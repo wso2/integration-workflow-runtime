@@ -49,6 +49,7 @@ import (
 
 const usageText = `usage: workflow-engine version
        workflow-engine start (--runtime-config <runtime.toml> | --config-file <temporal.yaml>) [--service <name>]... [--allow-no-auth]
+       workflow-engine start-dev [--ip <address>] [--port <port>] [--db-file <file>] [--namespace <name>]... [--log-level <level>]
        workflow-engine render-config --runtime-config <runtime.toml>`
 
 // serverFactory builds the server for the services this node runs; tests record the services.
@@ -60,19 +61,22 @@ func newTemporalServer(services []string, opts ...temporal.ServerOption) (tempor
 
 type schemaPreparer func(p config.Persistence, logger log.Logger) error
 
+type namespaceCreator func(p config.Persistence, names []string) error
+
 type command struct {
 	version       string
 	stdout        io.Writer
 	stderr        io.Writer
 	newServer     serverFactory
 	prepareSchema schemaPreparer
+	devNamespaces namespaceCreator
 }
 
 // Main runs the command with the given arguments and returns the process exit code.
 func Main(version string, args []string) int {
 	c := command{
 		version: version, stdout: os.Stdout, stderr: os.Stderr,
-		newServer: newTemporalServer, prepareSchema: sqlschema.Prepare,
+		newServer: newTemporalServer, prepareSchema: sqlschema.Prepare, devNamespaces: createDevNamespaces,
 	}
 	return c.run(args)
 }
@@ -88,6 +92,8 @@ func (c command) run(args []string) int {
 		return 0
 	case "start":
 		return c.exitCode(c.start(args[1:]))
+	case "start-dev":
+		return c.exitCode(c.startDev(args[1:]))
 	case "render-config":
 		return c.exitCode(c.renderConfig(args[1:]))
 	default:
@@ -142,25 +148,83 @@ func (c command) start(args []string) error {
 	if len(services) == 0 {
 		return runtimeconfig.ErrNoServices
 	}
+	prepare := func(logger log.Logger) error {
+		if rt != nil && rt.ManageSchema {
+			if err := c.prepareSchema(cfg.Persistence, logger); err != nil {
+				return fmt.Errorf("unable to prepare the database schema: %w", err)
+			}
+		}
+		return nil
+	}
+	return c.serve(cfg, rt, services, explicit, *allowNoAuth, prepare)
+}
+
+// startDev runs every service on SQLite with no authorization and creates the "default" namespace, like Temporal's
+// own development server. It is for one developer's machine only.
+func (c command) startDev(args []string) error {
+	flags := flag.NewFlagSet("start-dev", flag.ContinueOnError)
+	flags.SetOutput(c.stderr)
+	ip := flags.String("ip", "127.0.0.1", "address to listen on; keep 127.0.0.1 unless others must reach this engine")
+	port := flags.Int("port", 7233, "frontend port; the other services use the next ports up to port+10")
+	dbFile := flags.String("db-file", "", "keep the data in this SQLite file; in memory and lost on exit when empty")
+	logLevel := flags.String("log-level", "warn", "debug, info, warn or error")
+	var namespaces serviceList
+	flags.Var(&namespaces, "namespace", "namespace to create besides default, repeatable")
+	if err := flags.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
+		return err
+	}
+	rt, err := runtimeconfig.Dev(runtimeconfig.DevOptions{IP: *ip, Port: *port, DBFile: *dbFile, LogLevel: *logLevel})
+	if err != nil {
+		return err
+	}
+	// SQLite creates the file but not its directory, and a fresh distribution has no data/.
+	if *dbFile != "" {
+		if err := os.MkdirAll(filepath.Dir(*dbFile), 0o750); err != nil {
+			return fmt.Errorf("unable to create the directory of --db-file %s: %w", *dbFile, err)
+		}
+	}
+	names := append([]string{"default"}, namespaces...)
+	storage := "in memory"
+	if *dbFile != "" {
+		storage = "in " + *dbFile
+	}
+	_, _ = fmt.Fprintf(c.stderr, "Development engine on %s:%d (namespaces %s; data %s; no TLS or authorization)\n",
+		*ip, *port, strings.Join(names, ", "), storage)
+	prepare := func(log.Logger) error {
+		if err := c.devNamespaces(rt.Temporal.Persistence, names); err != nil {
+			return fmt.Errorf("unable to create the namespaces: %w", err)
+		}
+		return nil
+	}
+	return c.serve(&rt.Temporal, rt, rt.Services, false, true, prepare)
+}
+
+// serve checks the security settings, runs prepare, and starts Temporal's services; explicit is a --service list.
+func (c command) serve(cfg *config.Config, rt *runtimeconfig.Runtime, services []string, explicit, allowNoAuth bool,
+	prepare func(log.Logger) error) error {
 	logKey := "log.outputFile"
 	if rt != nil {
 		logKey = "engine.logFile"
 	}
-	logger, err := newLogger(cfg.Log, logKey)
+	zl, err := newLogger(cfg.Log, logKey)
 	if err != nil {
 		return err
 	}
+	logger := newQuietLogger(zl)
 
 	authorizer, err := authorization.GetAuthorizerFromConfig(&cfg.Global.Authorization)
 	if err != nil {
 		return fmt.Errorf("unable to create the authorizer: %w", err)
 	}
 	// Secure by default: an open frontend is refused unless explicitly asked for.
-	if authorization.IsNoopAuthorizer(authorizer) && !*allowNoAuth {
+	if authorization.IsNoopAuthorizer(authorizer) && !allowNoAuth {
 		return errors.New("no authorizer configured; set one or pass --allow-no-auth for development")
 	}
 	// Without a claim mapper Temporal grants every caller system-admin claims, so the authorizer would admit anyone.
-	if strings.TrimSpace(cfg.Global.Authorization.ClaimMapper) == "" && !*allowNoAuth {
+	if strings.TrimSpace(cfg.Global.Authorization.ClaimMapper) == "" && !allowNoAuth {
 		return errors.New("no claim mapper configured; an authorizer needs one (for example claimMapper: default)")
 	}
 	// With an authorizer on, history and worker reach the frontend only through the internal frontend; without it
@@ -176,10 +240,8 @@ func (c command) start(args []string) error {
 	if err != nil {
 		return fmt.Errorf("unable to create the audience mapper: %w", err)
 	}
-	if rt != nil && rt.ManageSchema {
-		if err := c.prepareSchema(cfg.Persistence, logger); err != nil {
-			return fmt.Errorf("unable to prepare the database schema: %w", err)
-		}
+	if err := prepare(logger); err != nil {
+		return err
 	}
 
 	// Profiles keep the internal frontend with the frontend; a --service list can drop it, which another node may cover.
@@ -311,4 +373,8 @@ func newLogger(cfg log.Config, key string) (log.Logger, error) {
 		return nil, fmt.Errorf("%s %s: unable to open the log output", key, cfg.OutputFile)
 	}
 	return log.NewZapLogger(zl), nil
+}
+
+func createDevNamespaces(p config.Persistence, names []string) error {
+	return sqlschema.CreateDevNamespaces(p, runtimeconfig.ClusterName, names)
 }

@@ -14,7 +14,7 @@ Read [docs/guides/ARCHITECTURE.md](docs/guides/ARCHITECTURE.md) before changing 
 |---|---|---|
 | Engine | `engine/` | Our Go binary that embeds Temporal's server (frontend, history, matching, worker) as a library, pinned in `engine/go.mod` |
 | Engine endpoint | `engine/` (planned) | The integrations' one port (7233): gRPC to Temporal's frontend, `/runtime/...` HTTPS to the Manager |
-| Launcher | `launcher/` (planned) | Starts components per profile, writes Temporal's configuration from `conf/runtime.toml`, enforces one-minor upgrades |
+| Launcher | `engine/cmd/workflow-runtime` | `bin/workflow-runtime`, the command customers run: finds the runtime's home and starts the engine from `conf/runtime.toml` (`dev` for development mode). Supervision, restart and the one-minor upgrade guard are planned |
 | Manager | `manager/` (planned) | Go service: engine administration, Workflow Management API, SSO sign-in, roles; serves both portals |
 | Portals | `portals/` (planned) | Admin Portal and User Portal, static TypeScript apps served by the Manager |
 | Distribution | `distribution/` | Zip and Docker layout, `conf/runtime.toml` |
@@ -115,7 +115,7 @@ These are requirements, not suggestions. A change that misses one is not done.
 
 ### Ballerina suites
 
-- `go run ./tools/cmd/balsuite <smoke|full> --engine build/workflow-engine [--database sqlite|postgresql|mysql]`
+- `go run ./tools/cmd/balsuite <smoke|full> --engine build/workflow-engine [--database sqlite|postgresql|mysql|dev]`
   starts the engine from `tests/engine/runtime-<database>.toml` (ports 17xxx, `--allow-no-auth`), creating the SQL
   schemas first for PostgreSQL and MySQL; then it creates the `default` namespace and the `WorkflowKind` search
   attribute, runs `bal test` in the suite, and stops the engine.

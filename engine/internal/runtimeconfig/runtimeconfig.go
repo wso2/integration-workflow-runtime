@@ -289,6 +289,9 @@ func (s *settings) validate() error {
 		problems = append(problems, "engine.historyShards must be at least 1")
 	}
 	problems = append(problems, e.Ports.problems()...)
+	if d.Type == typePostgreSQL || d.Type == typeMySQL {
+		problems = append(problems, e.Ports.membershipRangeProblems()...)
+	}
 	problems = append(problems, e.TLS.problems()...)
 	problems = append(problems, e.Auth.problems()...)
 	problems = append(problems, e.securityProblems()...)
@@ -354,6 +357,26 @@ func (s *settings) validate() error {
 		return errors.New("invalid runtime configuration: " + strings.Join(problems, "; "))
 	}
 	return nil
+}
+
+// maxSQLMembershipPort is the largest port Temporal's PostgreSQL and MySQL schemas store (rpc_port is SMALLINT).
+const maxSQLMembershipPort = 32767
+
+func (p portsSettings) membershipRangeProblems() []string {
+	var problems []string
+	for _, n := range []struct {
+		name string
+		port int
+	}{
+		{"frontend", p.Frontend}, {"internalFrontend", p.InternalFrontend}, {"history", p.History},
+		{"matching", p.Matching}, {"worker", p.Worker},
+	} {
+		if m := n.port - membershipPortOffset; m > maxSQLMembershipPort {
+			problems = append(problems, fmt.Sprintf("engine.ports.%s %d: its membership port %d is above %d, the largest "+
+				"port Temporal's PostgreSQL and MySQL schemas store", n.name, n.port, m, maxSQLMembershipPort))
+		}
+	}
+	return problems
 }
 
 func (p portsSettings) problems() []string {

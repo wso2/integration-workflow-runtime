@@ -354,3 +354,47 @@ func TestBroadcastAddressAuto(t *testing.T) {
 		t.Errorf("hostname: err = %v", err)
 	}
 }
+
+func TestDev(t *testing.T) {
+	rt, err := Dev(DevOptions{IP: "127.0.0.1", Port: 8233, LogLevel: "warn"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(rt.Services, engineServices) || rt.Auth != nil {
+		t.Errorf("services = %v, auth = %v", rt.Services, rt.Auth)
+	}
+	c := rt.Temporal
+	if c.Services["frontend"].RPC.GRPCPort != 8233 || c.Services["history"].RPC.GRPCPort != 8234 ||
+		c.Services["frontend"].RPC.HTTPPort != 8243 || c.Log.Level != "warn" {
+		t.Errorf("services = %+v, log = %+v", c.Services, c.Log)
+	}
+	if db := c.Persistence.DataStores[defaultStore].SQL; db.PluginName != "sqlite" || db.ConnectAttributes["mode"] != "memory" {
+		t.Errorf("in-memory store = %+v", db)
+	}
+	file, err := Dev(DevOptions{IP: "127.0.0.1", Port: 7233, DBFile: "data/dev.db", LogLevel: "info"})
+	if err != nil || file.Temporal.Persistence.DataStores[defaultStore].SQL.DatabaseName != "data/dev.db" {
+		t.Fatalf("file store: %v, %v", file, err)
+	}
+	all, err := Dev(DevOptions{IP: "0.0.0.0", Port: 7233, LogLevel: "info"})
+	if err != nil || net.ParseIP(all.Temporal.Global.Membership.BroadcastAddress) == nil {
+		t.Fatalf("every interface: %v, %v", all, err)
+	}
+	if _, err := Dev(DevOptions{IP: "localhost", Port: 7233, LogLevel: "info"}); err == nil {
+		t.Error("a host name was accepted as the IP")
+	}
+	if _, err := Dev(DevOptions{IP: "127.0.0.1", Port: 70000, LogLevel: "info"}); err == nil {
+		t.Error("an invalid port was accepted")
+	}
+}
+
+func TestMembershipPortsFitTheSQLSchemas(t *testing.T) {
+	ports := "[engine.ports]\nfrontend = 33233\nfrontendHttp = 33243\ninternalFrontend = 33236\nhistory = 33234\n" +
+		"matching = 33235\nworker = 33239\n"
+	_, err := parse([]byte(ports+"[database]\ntype = \"postgresql\"\nhost = \"db\"\n"), noEnv)
+	if err == nil || !strings.Contains(err.Error(), "engine.ports.history 33234: its membership port 32934 is above 32767") {
+		t.Fatalf("postgresql: err = %v", err)
+	}
+	if _, err := parse([]byte(ports+sqliteDB), noEnv); err != nil {
+		t.Fatalf("sqlite does not limit the port: %v", err)
+	}
+}

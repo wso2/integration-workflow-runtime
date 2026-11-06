@@ -16,6 +16,7 @@ keywords: [wso2 integrator, workflow runtime, troubleshooting, errors]
 | `database.tls is not supported for a sqlite database` | `[database.tls]` with `type = "sqlite"` | Remove `[database.tls]`; SQLite is a local file |
 | `database.tls.serverName is not supported for a postgresql database` | `serverName` with `type = "postgresql"`, which cannot use it | Remove `serverName` and set `host` to the DNS name on the database certificate |
 | `engine.tls.certFile: ... no such file or directory` | A wrong path | Relative paths resolve against the runtime's directory (`workflow-runtime` changes to it) |
+| `engine.ports.<service> <port>: its membership port <port> is above 32767` | Temporal's PostgreSQL and MySQL schemas store membership ports (each service port minus 300) in a 16-bit column | Use service ports at or below 33067 |
 | `engine.broadcastAddress "..." must be an IP address or "auto"` | A host name as the address | Use the node's IP, or `auto` |
 | `engine.broadcastAddress "auto": this host has no non-loopback address` | The container or host has no network interface yet | Attach the container to a network |
 | `unable to create the claim mapper: unable to discover the identity provider's key set: ...` | The engine cannot read `<issuer>/.well-known/openid-configuration`, or it names another issuer (a trailing slash counts) | Check `issuer` (it must equal the tokens' `iss` exactly) and the network, or set `jwksUrls` |

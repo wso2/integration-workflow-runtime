@@ -53,7 +53,7 @@ node with a different `profiles` and its own `broadcastAddress`.
 | `historyShards` | 512 (1 for SQLite) | Temporal history shards. **Cannot be changed after the first start** |
 | `logLevel` | `info` | `debug`, `info`, `warn` or `error` |
 | `logFile` | standard output | Write the log to this file instead; a missing directory is created, and a file the engine cannot write stops the start |
-| `[engine.ports]` `frontend`, `frontendHttp`, `internalFrontend`, `history`, `matching`, `worker` | 7233, 7243, 7236, 7234, 7235, 7239 | Service ports; each gRPC service's membership port is its port minus 300 (6933, 6936, …) |
+| `[engine.ports]` `frontend`, `frontendHttp`, `internalFrontend`, `history`, `matching`, `worker` | 7233, 7243, 7236, 7234, 7235, 7239 | Service ports; each gRPC service's membership port is its port minus 300 (6933, 6936, …), at most 32767 on PostgreSQL and MySQL |
 | `[engine.tls]`, `[engine.auth]` | off | TLS and identity-provider tokens; see [engine security](engine-security.md) |
 | `[engine.metrics]` `prometheusAddress` | off | `host:port` serving Prometheus metrics at `/metrics` |
 

@@ -41,6 +41,12 @@ Arguments after the image are passed to `workflow-runtime`, for example `--allow
 engine without authentication must not be reachable from other machines, so publish its port on loopback only:
 `-p 127.0.0.1:7233:7233`.
 
+For a throwaway development engine with no configuration at all:
+
+```bash
+docker run --rm -p 127.0.0.1:7233:7233 <image>:<version> dev --ip 0.0.0.0
+```
+
 ## Try it with Docker Compose
 
 The source repository's `distribution/docker/compose.yml` runs the runtime with PostgreSQL on one machine, without

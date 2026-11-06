@@ -36,7 +36,8 @@ components and are ignored by the engine.
 | `matching` | `7235` | Matching service |
 | `worker` | `7239` | Worker service |
 
-Each gRPC service also uses a membership port 300 below its port (6933, 6936, 6934, 6935, 6939).
+Each gRPC service also uses a membership port 300 below its port (6933, 6936, 6934, 6935, 6939). On PostgreSQL and
+MySQL, membership ports must be at most 32767, so service ports at most 33067.
 
 ### `[engine.tls]`
 

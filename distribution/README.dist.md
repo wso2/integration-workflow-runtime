@@ -20,6 +20,9 @@ Temporal server.
    temporal operator search-attribute create --namespace default --name WorkflowKind --type Keyword $OPTS
    ```
 
+To try it on your own machine first, run `bin/workflow-runtime dev`: an in-memory engine with the `default`
+namespace and no authentication, on `localhost:7233`.
+
 Without `[engine.auth]` the engine refuses to start; `bin/workflow-runtime start --allow-no-auth` is for trying out
 only. `bin/workflow-runtime render-config` prints the generated configuration, password hidden.
 
