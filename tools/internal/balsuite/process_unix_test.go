@@ -20,6 +20,7 @@ package balsuite
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -35,13 +36,35 @@ func TestRunBalTestKillsTheProcessGroupOnTimeout(t *testing.T) {
 	marker := filepath.Join(dir, "child.pid")
 	bal := script(t, dir, "bal", "#!/bin/sh\nsleep 30 &\necho $! > "+marker+"\nwait\n")
 	var stderr bytes.Buffer
-	if code := runBalTest(bal, dir, 3*time.Second, &stderr); code != exitCodeTimeout {
+	if code := runBalTest(context.Background(), bal, dir, 3*time.Second, &stderr); code != exitCodeTimeout {
 		t.Fatalf("runBalTest = %d, want %d", code, exitCodeTimeout)
 	}
 	if !strings.Contains(stderr.String(), "did not finish within 3s") {
 		t.Fatalf("stderr = %q", stderr.String())
 	}
-	pid, err := os.ReadFile(marker)
+	waitUntilGone(t, marker)
+}
+
+func TestRunBalTestKillsTheProcessGroupWhenCanceled(t *testing.T) {
+	dir := t.TempDir()
+	marker := filepath.Join(dir, "child.pid")
+	bal := script(t, dir, "bal", "#!/bin/sh\nsleep 30 &\necho $! > "+marker+"\nwait\n")
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	var stderr bytes.Buffer
+	if code := runBalTest(ctx, bal, dir, time.Minute, &stderr); code != exitCodeCanceled {
+		t.Fatalf("runBalTest = %d, want %d", code, exitCodeCanceled)
+	}
+	if !strings.Contains(stderr.String(), "the run was canceled") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+	waitUntilGone(t, marker)
+}
+
+// waitUntilGone fails unless the process whose ID the fake bal wrote to marker ends.
+func waitUntilGone(t *testing.T, marker string) {
+	t.Helper()
+	pid, err := os.ReadFile(marker) //nolint:gosec // a test file
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,5 +78,24 @@ func TestRunBalTestKillsTheProcessGroupOnTimeout(t *testing.T) {
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	t.Fatalf("child %d of the timed-out bal test is still running", child)
+	t.Fatalf("child %d of the stopped bal test is still running", child)
+}
+
+func TestDockerRunRemovesTheContainerWhenCanceled(t *testing.T) {
+	dir := t.TempDir()
+	calls := filepath.Join(dir, "calls")
+	docker := script(t, dir, "docker", "#!/bin/sh\necho \"$*\" >> "+calls+"\ncase \"$1\" in run) sleep 30;; esac\n")
+	r := &upgradeRun{o: UpgradeOptions{Docker: docker}, container: "workflow-upgrade-old-test", stderr: &bytes.Buffer{}}
+	ctx, cancel := context.WithCancel(context.Background()) // as SIGINT does; a deadline reads as a timeout
+	defer time.AfterFunc(time.Second, cancel).Stop()
+	if res := r.dockerRun(ctx, nil, "busybox", "true"); res.code == 0 {
+		t.Fatal("dockerRun = 0 for a canceled run")
+	}
+	got, err := os.ReadFile(calls) //nolint:gosec // a test file
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(got), "rm -f workflow-upgrade-old-test-1") {
+		t.Fatalf("docker calls = %q, want the canceled container removed", got)
+	}
 }

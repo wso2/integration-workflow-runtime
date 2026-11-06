@@ -40,6 +40,8 @@ const (
 	cliTimeout      = 15 * time.Second
 	logTailLines    = 80
 	exitCodeTimeout = 124
+	// exitCodeCanceled is a shell's code for a run stopped by SIGINT.
+	exitCodeCanceled = 130
 	// stopTimeout is how long a terminated engine gets before it is killed.
 	stopTimeout = 30 * time.Second
 	// namespaceTimeout bounds the wait for the created namespace to become available.
@@ -201,8 +203,10 @@ func ensureNamespace(ctx context.Context, temporal string, timeout time.Duration
 	return nil
 }
 
-// runBalTest runs `bal test`; on timeout the whole process group dies, since `bal` leaves its JVM running otherwise.
-func runBalTest(bal string, suiteDir string, timeout time.Duration, stderr io.Writer, args ...string) int {
+// runBalTest runs `bal test`; on timeout or cancellation the whole process group dies, since `bal` leaves its JVM
+// running otherwise.
+func runBalTest(ctx context.Context, bal string, suiteDir string, timeout time.Duration, stderr io.Writer,
+	args ...string) int {
 	cmd := exec.Command(bal, append([]string{"test"}, args...)...)
 	cmd.Dir = suiteDir
 	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
@@ -221,6 +225,11 @@ func runBalTest(bal string, suiteDir string, timeout time.Duration, stderr io.Wr
 		<-exited
 		_, _ = fmt.Fprintf(stderr, "error: bal test did not finish within %.0fs\n", timeout.Seconds())
 		return exitCodeTimeout
+	case <-ctx.Done():
+		_ = killProcessGroup(cmd)
+		<-exited
+		_, _ = fmt.Fprintln(stderr, "error: bal test stopped: the run was canceled")
+		return exitCodeCanceled
 	}
 }
 
@@ -287,7 +296,7 @@ func Run(ctx context.Context, o Options, stdout, stderr io.Writer) int {
 			}
 		}
 		_, _ = fmt.Fprintf(stdout, "workflow-engine SERVING on %s (%s); running the %s suite\n", Address, o.Database, o.Suite)
-		return runBalTest(o.Bal, suiteDir, o.TestTimeout, stderr)
+		return runBalTest(ctx, o.Bal, suiteDir, o.TestTimeout, stderr)
 	}()
 	engine.stop()
 	if code != 0 {
