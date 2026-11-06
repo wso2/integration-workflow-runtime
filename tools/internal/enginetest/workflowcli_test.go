@@ -76,7 +76,7 @@ func TestWorkflowCLIOnADevEngine(t *testing.T) {
 	binary := engineBinary(t)
 	w := newWorkflowCLI(t)
 	base := freeBase(t)
-	start(t, binary, base, nil, "start-dev", "--port", strconv.Itoa(base))
+	e := start(t, binary, base, nil, "start-dev", "--port", strconv.Itoa(base))
 	addr := []string{"--address", fmt.Sprintf("127.0.0.1:%d", base)}
 	cli := func(args ...string) string { return w.must(append(args, addr...)...) }
 
@@ -92,6 +92,33 @@ func TestWorkflowCLIOnADevEngine(t *testing.T) {
 	cli("operator", "namespace", "update", "-n", "orders", "--retention", "48h", "--description", "Orders")
 	w.mustContain(cli("operator", "namespace", "list"), "default", "orders", "2d", "Orders")
 	w.mustContain(cli("operator", "namespace", "list", "-o", "json"), `"name": "orders"`)
+
+	// Workflows waiting on a task queue no worker polls, as an integration's are while it is down.
+	for _, id := range []string{"order-1", "order-2", "order-3"} {
+		e.startTagged("orders", "Order", "orders", id, `WorkflowKind="orders.Order"`)
+	}
+	kind := []string{"workflow", "list", "-n", "orders", "-q", `WorkflowKind="orders.Order"`}
+	var out string
+	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(time.Second) {
+		if out = cli(kind...); strings.Count(out, "Running") == 3 {
+			break
+		}
+	}
+	w.mustContain(out, "order-1", "order-2", "order-3", "Order")
+	w.mustContain(cli("workflow", "count", "-n", "orders"), "Total: 3")
+	w.mustContain(cli("workflow", "describe", "-n", "orders", "-w", "order-1"), "Task queue               orders",
+		"Status                   Running")
+	cli("workflow", "signal", "-n", "orders", "-w", "order-1", "--name", "approval", "-i", `{"approved":true}`)
+	w.mustContain(cli("workflow", "show", "-n", "orders", "-w", "order-1"), "WorkflowExecutionStarted",
+		"WorkflowExecutionSignaled")
+	cli("workflow", "cancel", "-n", "orders", "-w", "order-2", "--reason", "withdrawn")
+	w.mustContain(cli("workflow", "show", "-n", "orders", "-w", "order-2"), "WorkflowExecutionCancelRequested")
+	cli("workflow", "terminate", "-n", "orders", "-w", "order-3", "--reason", "stuck")
+	w.mustContain(cli("workflow", "describe", "-n", "orders", "-w", "order-3"), "Terminated")
+	if out, err := w.run(append([]string{"workflow", "terminate", "-n", "orders", "-w", "order-3"}, addr...)...); err == nil {
+		t.Errorf("a closed workflow was terminated again:\n%s", out)
+	}
+	w.mustContain(cli("task-queue", "describe", "-n", "orders", "-t", "orders"), "No worker has polled")
 }
 
 // TestWorkflowCLIOnASecuredEngine reaches a secured engine through a profile, with tokens of different roles, and
@@ -110,7 +137,7 @@ func TestWorkflowCLIOnASecuredEngine(t *testing.T) {
 	}
 	admin := tokenFile("admin", map[string]any{"sub": "ops", "groups": []any{"workflow-admins"}})
 	app := tokenFile("app", map[string]any{"sub": "orders-app", "groups": []any{"orders-app"}})
-	start(t, binary, se.base, []string{"--tls-ca-path", ca, "--api-key", strings.TrimSpace(readFile(t, admin))},
+	eng := start(t, binary, se.base, []string{"--tls-ca-path", ca, "--api-key", strings.TrimSpace(readFile(t, admin))},
 		"start", "--runtime-config", se.config)
 
 	for prop, value := range map[string]string{
@@ -128,13 +155,25 @@ func TestWorkflowCLIOnASecuredEngine(t *testing.T) {
 	w.mustContain(w.must("operator", "cluster", "describe", "--profile", "ops"), "internal-frontend", "history",
 		"matching", "worker")
 	w.mustContain(w.must("operator", "namespace", "create", "--profile", "ops", "-n", "orders"), "created")
+	w.must("operator", "namespace", "create", "--profile", "ops", "-n", "billing")
 	w.mustContain(w.must("operator", "search-attribute", "list", "--profile", "app"), "WorkflowKind")
 	w.mustContain(w.must("operator", "namespace", "describe", "--profile", "app"), "orders")
+	// The app reads a workflow the admin started in its namespace, not only an empty one.
+	eng.startTagged("orders", "Order", "orders", "secured-1", `WorkflowKind="orders.Order"`)
+	var count string
+	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(time.Second) {
+		if count = w.must("workflow", "count", "--profile", "app"); strings.Contains(count, "Total: 1") {
+			break
+		}
+	}
+	w.mustContain(count, "Total: 1")
+	w.mustContain(w.must("task-queue", "describe", "--profile", "app", "-t", "orders"), "No worker has polled")
 
 	refused := map[string][]string{
-		"an app creating a namespace": {"operator", "namespace", "create", "--profile", "app", "-n", "billing"},
-		"an app changing retention":   {"operator", "namespace", "update", "--profile", "app", "--retention", "1h"},
-		"no token":                    {"operator", "namespace", "list", "--address", fmt.Sprintf("127.0.0.1:%d", se.base), "--tls-ca-path", ca},
+		"an app creating a namespace":      {"operator", "namespace", "create", "--profile", "app", "-n", "billing"},
+		"an app changing retention":        {"operator", "namespace", "update", "--profile", "app", "--retention", "1h"},
+		"an app listing another namespace": {"workflow", "list", "--profile", "app", "-n", "billing"},
+		"no token":                         {"operator", "namespace", "list", "--address", fmt.Sprintf("127.0.0.1:%d", se.base), "--tls-ca-path", ca},
 	}
 	for name, args := range refused {
 		if out, err := w.run(args...); err == nil || !strings.Contains(out, "Request unauthorized") {
@@ -178,4 +217,22 @@ func readFile(t *testing.T, path string) string {
 		t.Fatal(err)
 	}
 	return string(b)
+}
+
+// startTagged starts a workflow with a search attribute, retrying while the engine's namespace cache does not yet know
+// an attribute just added to the namespace (refreshed every few seconds).
+func (e *engine) startTagged(namespace, workflowType, taskQueue, id, attribute string) {
+	e.t.Helper()
+	args := []string{"workflow", "start", "--namespace", namespace, "--type", workflowType, "--task-queue", taskQueue,
+		"--workflow-id", id, "--search-attribute", attribute}
+	var out string
+	var err error
+	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(time.Second) {
+		if out, err = e.temporal(args...); err == nil || !strings.Contains(out, "no mapping defined for search attribute") {
+			break
+		}
+	}
+	if err != nil {
+		e.t.Fatalf("temporal %s: %v\n%s", strings.Join(args, " "), err, out)
+	}
 }

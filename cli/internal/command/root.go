@@ -82,9 +82,10 @@ func (e exitError) Error() string { return fmt.Sprintf("exit status %d", int(e))
 
 func (c *cli) root() *cobra.Command {
 	root := &cobra.Command{
-		Use:           "workflow-cli",
-		Short:         "Operate a WSO2 Workflow Runtime engine",
-		Long:          "workflow-cli manages a Workflow Runtime engine: its cluster, namespaces and search attributes.",
+		Use:   "workflow-cli",
+		Short: "Operate a WSO2 Workflow Runtime engine",
+		Long: "workflow-cli manages a Workflow Runtime engine: its cluster, namespaces and search attributes, the\n" +
+			"workflows integrations run, and the task queues their workers poll.",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
@@ -103,7 +104,7 @@ func (c *cli) root() *cobra.Command {
 	f.StringVarP(&c.output, "output", "o", outputText, "output format: text or json")
 	f.DurationVar(&c.timeout, "command-timeout", 30*time.Second, "limit for each command")
 
-	root.AddCommand(c.versionCommand(), c.operatorCommand(), c.configCommand())
+	root.AddCommand(c.versionCommand(), c.operatorCommand(), c.workflowCommand(), c.taskQueueCommand(), c.configCommand())
 	return root
 }
 

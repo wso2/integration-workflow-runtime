@@ -20,7 +20,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -240,9 +239,5 @@ func (c *cli) namespaceUpdateCommand() *cobra.Command {
 
 // namespaceState shows NAMESPACE_STATE_REGISTERED as Registered.
 func namespaceState(info *namespacepb.NamespaceInfo) string {
-	s := strings.TrimPrefix(info.GetState().String(), "NAMESPACE_STATE_")
-	if s == "" {
-		return ""
-	}
-	return s[:1] + strings.ToLower(s[1:])
+	return enumName(info.GetState().String(), "NAMESPACE_STATE_")
 }

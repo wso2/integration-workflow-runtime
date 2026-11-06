@@ -64,7 +64,12 @@ bin/workflow-cli operator namespace list
 bin/workflow-cli operator namespace create --namespace orders   # another namespace, with WorkflowKind
 ```
 
-The Integration Control Plane (ICP) shows the workflows themselves ([Monitor the runtime](monitor.md)).
+Once the integration has run, list its workflows and look at one:
+
+```bash
+bin/workflow-cli workflow list
+bin/workflow-cli workflow show --workflow-id <id>
+```
 
 ## Next steps
 
