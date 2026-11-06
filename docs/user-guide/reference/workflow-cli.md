@@ -50,6 +50,10 @@ A token is sent only over TLS, or in plain text only to a loopback address.
 
 Each setting comes from, in order: the flag, its environment variable, the profile, the default.
 
+The token and the token file count as one setting: a flag or environment variable that gives either one replaces
+both from the levels below, so `--api-key-file` is used even when the profile holds an `apiKey`. When one level
+gives both, the token wins.
+
 | Profile property | Environment variable | Flag |
 |---|---|---|
 | `address` | `WORKFLOW_ADDRESS` | `--address` |

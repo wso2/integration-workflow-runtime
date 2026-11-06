@@ -40,7 +40,7 @@ workflow-cli operator namespace list --profile staging
 ```
 
 A flag wins over an environment variable (`WORKFLOW_ADDRESS`, `WORKFLOW_API_KEY` and so on), which wins over the
-profile. The profile file is `<your configuration directory>/wso2-workflow/cli.toml` (`~/.config` on Linux,
+profile; a token or token file given at one level replaces both from the levels below. The profile file is `<your configuration directory>/wso2-workflow/cli.toml` (`~/.config` on Linux,
 `~/Library/Application Support` on macOS, `%AppData%` on Windows), readable by you only. See the
 [workflow-cli reference](reference/workflow-cli.md) for every setting.
 

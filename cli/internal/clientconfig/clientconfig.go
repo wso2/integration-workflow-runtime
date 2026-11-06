@@ -227,7 +227,23 @@ func (f *File) Apply(profile string, s *Settings) error {
 			return fmt.Errorf("profile %q: %w", profile, err)
 		}
 	}
+	prefix := "profile." + profile + "."
+	ReplaceCredential(s, f.k.Exists(prefix+"apiKey"), f.k.Exists(prefix+"apiKeyFile"))
 	return nil
+}
+
+// ReplaceCredential makes a layer that set the key or the key file replace both, so a later layer's file is not
+// shadowed by an earlier layer's key; key and file say which of the two the layer set.
+func ReplaceCredential(s *Settings, key, file bool) {
+	if !key && !file {
+		return
+	}
+	if !key {
+		s.APIKey = ""
+	}
+	if !file {
+		s.APIKeyFile = ""
+	}
 }
 
 // Get returns one property of a profile, empty when unset.
@@ -316,12 +332,15 @@ func EnvVar(property string) string { return envVars[property] }
 
 // ApplyEnv sets on s every property whose environment variable is set and not empty.
 func ApplyEnv(s *Settings, lookupEnv func(string) (string, bool)) error {
+	set := map[string]bool{}
 	for _, p := range properties {
 		if v, ok := lookupEnv(envVars[p.name]); ok && v != "" {
 			if err := p.set(s, v); err != nil {
 				return fmt.Errorf("%s: %w", envVars[p.name], err)
 			}
+			set[p.name] = true
 		}
 	}
+	ReplaceCredential(s, set["apiKey"], set["apiKeyFile"])
 	return nil
 }
