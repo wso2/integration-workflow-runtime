@@ -181,11 +181,22 @@ func TestWorkflowReset(t *testing.T) {
 	for args, want := range map[string]int64{
 		"--type FirstWorkflowTask": 4, "--type LastWorkflowTask": 9, "--event-id 7": 7,
 	} {
+		tc.engine.workflows.runIDs = nil
 		out := tc.must(append([]string{"workflow", "reset", "-w", "order-1", "--reason", "fixed"}, strings.Fields(args)...)...)
 		r := tc.engine.ops.resets[len(tc.engine.ops.resets)-1]
 		if r.GetWorkflowTaskFinishEventId() != want || r.GetReason() != "fixed" || r.GetRequestId() == "" ||
 			!strings.Contains(out, "the new run is run-reset") {
 			t.Errorf("%s: reset to %d (%s), want %d", args, r.GetWorkflowTaskFinishEventId(), out, want)
+		}
+		// With --type, the run is looked up once (empty ID), then its history and the reset name it.
+		if strings.HasPrefix(args, "--type") {
+			if got := tc.engine.workflows.runIDs; len(got) < 2 || got[0] != "" ||
+				slices.ContainsFunc(got[1:], func(id string) bool { return id != "run-1" }) {
+				t.Errorf("%s: run IDs read = %v, want the current run looked up, then run-1", args, got)
+			}
+			if r.GetWorkflowExecution().GetRunId() != "run-1" {
+				t.Errorf("%s: reset run = %q, want run-1", args, r.GetWorkflowExecution().GetRunId())
+			}
 		}
 	}
 	tc.engine.workflows.events = tc.engine.workflows.events[:1]
@@ -194,7 +205,7 @@ func TestWorkflowReset(t *testing.T) {
 		"workflow reset -w order-1 --reason x":                          "give --type or --event-id",
 		"workflow reset -w order-1 --reason x --type Mid":               `must be FirstWorkflowTask or LastWorkflowTask`,
 		"workflow reset -w order-1 --type FirstWorkflowTask":            `required flag(s) "reason" not set`,
-		"workflow reset -w missing --reason x --type LastWorkflowTask":  "unable to read the history of workflow missing",
+		"workflow reset -w missing --reason x --type LastWorkflowTask":  "unable to find the current run of workflow missing",
 	} {
 		if code, _, errOut := tc.run(strings.Fields(args)...); code != 1 || !strings.Contains(errOut, want) {
 			t.Errorf("%s = %d %q, want %q", args, code, errOut, want)
