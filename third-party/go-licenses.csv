@@ -108,11 +108,11 @@ github.com/jackc/puddle/v2,https://github.com/jackc/puddle/blob/v2.2.2/LICENSE,M
 github.com/jmoiron/sqlx,https://github.com/jmoiron/sqlx/blob/v1.4.0/LICENSE,MIT
 github.com/josharian/intern,https://github.com/josharian/intern/blob/v1.0.0/license.md,MIT
 github.com/json-iterator/go,https://github.com/json-iterator/go/blob/v1.1.12/LICENSE,MIT
-github.com/klauspost/compress,https://github.com/klauspost/compress/blob/v1.18.7/LICENSE,Apache-2.0
-github.com/klauspost/compress,https://github.com/klauspost/compress/blob/v1.18.7/LICENSE,BSD-3-Clause
-github.com/klauspost/compress,https://github.com/klauspost/compress/blob/v1.18.7/LICENSE,MIT
-github.com/klauspost/compress/internal/snapref,https://github.com/klauspost/compress/blob/v1.18.7/internal/snapref/LICENSE,BSD-3-Clause
-github.com/klauspost/compress/zstd/internal/xxhash,https://github.com/klauspost/compress/blob/v1.18.7/zstd/internal/xxhash/LICENSE.txt,MIT
+github.com/klauspost/compress,https://github.com/klauspost/compress/blob/v1.20.2/LICENSE,Apache-2.0
+github.com/klauspost/compress,https://github.com/klauspost/compress/blob/v1.20.2/LICENSE,BSD-3-Clause
+github.com/klauspost/compress,https://github.com/klauspost/compress/blob/v1.20.2/LICENSE,MIT
+github.com/klauspost/compress/internal/snapref,https://github.com/klauspost/compress/blob/v1.20.2/internal/snapref/LICENSE,BSD-3-Clause
+github.com/klauspost/compress/zstd/internal/xxhash,https://github.com/klauspost/compress/blob/v1.20.2/zstd/internal/xxhash/LICENSE.txt,MIT
 github.com/knadh/koanf/maps,https://github.com/knadh/koanf/blob/maps/v0.1.2/maps/LICENSE,MIT
 github.com/knadh/koanf/parsers/toml/v2,https://github.com/knadh/koanf/blob/parsers/toml/v2.2.2/parsers/toml/LICENSE,MIT
 github.com/knadh/koanf/providers/confmap,https://github.com/knadh/koanf/blob/providers/confmap/v1.0.1/providers/confmap/LICENSE,MIT
