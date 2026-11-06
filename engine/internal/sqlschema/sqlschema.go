@@ -21,11 +21,18 @@ package sqlschema
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"errors"
 	"fmt"
+	"net"
 	"path"
 	"slices"
+	"sync"
+	"sync/atomic"
+	"time"
 
+	"github.com/go-sql-driver/mysql"
+	"github.com/jmoiron/sqlx"
 	"go.temporal.io/server/common/config"
 	"go.temporal.io/server/common/log"
 	"go.temporal.io/server/common/log/tag"
@@ -55,12 +62,17 @@ var schemaDirs = map[string]string{
 	"mysql8":         "mysql/v8",
 }
 
-// lockStatements take and release a lock held by the session that took it: server-wide on MySQL, and per database
-// on PostgreSQL, where the nodes of one engine all take it in the same workflow database.
+// lockStatements try for, and release, a lock held by the session that took it: per database on PostgreSQL, and
+// server-wide on MySQL, where a node holds it for one database at a time. The try returns 1 once the lock is taken.
 var lockStatements = map[string][2]string{
-	"postgresql/v12": {"SELECT pg_advisory_lock(hashtext($1))", "SELECT pg_advisory_unlock(hashtext($1))"},
-	"mysql/v8":       {"SELECT GET_LOCK(?, -1)", "SELECT RELEASE_LOCK(?)"},
+	"postgresql/v12": {"SELECT CASE WHEN pg_try_advisory_lock(hashtext($1)) THEN 1 ELSE 0 END",
+		"SELECT pg_advisory_unlock(hashtext($1))"},
+	"mysql/v8": {"SELECT GET_LOCK(?, 0)", "SELECT RELEASE_LOCK(?)"},
 }
+
+// lockRetry is how long a node waits between tries for the lock. Waiting inside a lock call instead would hold a
+// transaction open, and PostgreSQL's CREATE INDEX CONCURRENTLY in the holder's migration waits for it: a deadlock.
+var lockRetry = 500 * time.Millisecond
 
 // conn is what Prepare needs from a database connection; Temporal's schema tool connection provides it.
 type conn interface {
@@ -71,15 +83,15 @@ type conn interface {
 
 type opener func(cfg *config.SQL, logger log.Logger) (conn, error)
 
-// sessionLock runs statements on one database session, so a lock it takes is held until that session ends.
-type sessionLock interface {
-	exec(stmt string, args ...any) error
-	// alive fails once the session has ended, and with it the lock.
-	alive() error
-	close()
+// session runs a store's schema lock and its schema changes on one database session.
+type session interface {
+	conn
+	// lock waits until it holds the schema lock.
+	lock(logger log.Logger) error
+	unlock() error
 }
 
-type lockOpener func(cfg *config.SQL) (sessionLock, error)
+type sessionOpener func(cfg *config.SQL, logger log.Logger) (session, error)
 
 type store struct {
 	sql    *config.SQL
@@ -90,55 +102,49 @@ type store struct {
 // empty database, and applies the schema versions this binary ships. Stores that are not PostgreSQL or MySQL are
 // left alone: SQLite creates its own schema.
 func Prepare(p config.Persistence, logger log.Logger) error {
-	return prepare(p, openConnection, openLock, logger)
+	return prepare(p, openConnection, openSession, logger)
 }
 
 func openConnection(cfg *config.SQL, logger log.Logger) (conn, error) {
 	return sqltool.NewConnection(cfg, logger)
 }
 
-func prepare(p config.Persistence, open opener, openLock lockOpener, logger log.Logger) (err error) {
+func prepare(p config.Persistence, open opener, openSession sessionOpener, logger log.Logger) error {
 	stores := sqlStores(p)
 	if len(stores) == 0 {
 		return nil
 	}
 	createErrs := createDatabases(stores, open, logger)
-	// The lock lives in the workflow database, which every node can open, so the runtime needs no other database.
-	first := *stores[0].sql
-	first.MaxConns, first.MaxIdleConns, first.MaxConnLifetime = 1, 1, 0
-	lock, err := openLock(&first)
-	if err != nil {
-		return errors.Join(fmt.Errorf("unable to connect to database %s: %w", first.DatabaseName, err), createErrs[0])
+	for i, s := range stores {
+		if err := prepareLocked(s, createErrs[i], openSession, logger); err != nil {
+			return err
+		}
 	}
-	defer lock.close()
-	statements := lockStatements[schemaDirs[first.PluginName]]
-	if err := lock.exec(statements[0], lockName); err != nil {
-		return fmt.Errorf("unable to take the schema lock in database %s: %w", first.DatabaseName, err)
+	return nil
+}
+
+// prepareLocked prepares a store while holding the schema lock in its database. The lock and the schema changes share
+// one session that is never replaced, so when the session ends, the lock and every change still running end with it.
+func prepareLocked(s store, createErr error, openSession sessionOpener, logger log.Logger) (err error) {
+	name := s.sql.DatabaseName
+	db, err := openSession(s.sql, logger)
+	if err != nil {
+		return errors.Join(fmt.Errorf("unable to connect to database %s: %w", name, err), createErr)
+	}
+	defer db.Close()
+	if err := db.lock(logger); err != nil {
+		return errors.Join(fmt.Errorf("unable to take the schema lock in database %s: %w", name, err), createErr)
 	}
 	defer func() {
-		if unlockErr := lock.exec(statements[1], lockName); unlockErr != nil {
+		if unlockErr := db.unlock(); unlockErr != nil && err == nil {
 			logger.Warn("Unable to release the schema lock; it is released when the connection closes", tag.Error(unlockErr))
 		}
 	}()
-	opened, err := open(&first, logger)
-	if err != nil {
-		return errors.Join(fmt.Errorf("unable to connect to database %s: %w", first.DatabaseName, err), createErrs[0])
-	}
-	defer opened.Close()
-	db := guarded{opened, lock}
-	if err := prepareStore(db, stores[0], createErrs[0], logger); err != nil {
+	if err := prepareStore(db, s, createErr, logger); err != nil {
+		if db.Exec("SELECT 1") != nil {
+			return fmt.Errorf("lost the schema lock in database %s: %w", name, err)
+		}
 		return err
-	}
-	for i, s := range stores[1:] {
-		other, err := open(s.sql, logger)
-		if err != nil {
-			return errors.Join(fmt.Errorf("unable to connect to database %s: %w", s.sql.DatabaseName, err), createErrs[i+1])
-		}
-		err = prepareStore(guarded{other, lock}, s, createErrs[i+1], logger)
-		other.Close()
-		if err != nil {
-			return err
-		}
 	}
 	return nil
 }
@@ -224,102 +230,178 @@ func hasVersion(db conn, tables []string) (bool, error) {
 	return true, nil
 }
 
-// guarded checks that the schema lock is still held before each schema change, so a node whose lock session ended
-// stops instead of migrating alongside the node that took the lock next.
-type guarded struct {
-	conn
-	lock sessionLock
+// errSessionEnded refuses a new connection in place of a schema session that ended: it would not hold the lock.
+var errSessionEnded = errors.New("the database session that held the schema lock ended")
+
+// singleSession is Temporal's schema tool connection over a pool of one connection that is never replaced; the lock
+// queries go through the same pool, so they run on the same session.
+type singleSession struct {
+	*sqltool.Connection
+	db         *sqlx.DB
+	statements [2]string
 }
 
-func (g guarded) held() error {
-	if err := g.lock.alive(); err != nil {
-		return fmt.Errorf("lost the schema lock: %w", err)
-	}
-	return nil
-}
-
-func (g guarded) Exec(stmt string, args ...any) error {
-	if err := g.held(); err != nil {
-		return err
-	}
-	return g.conn.Exec(stmt, args...)
-}
-
-func (g guarded) CreateSchemaVersionTables() error {
-	if err := g.held(); err != nil {
-		return err
-	}
-	return g.conn.CreateSchemaVersionTables()
-}
-
-func (g guarded) UpdateSchemaVersion(newVersion, minCompatibleVersion string) error {
-	if err := g.held(); err != nil {
-		return err
-	}
-	return g.conn.UpdateSchemaVersion(newVersion, minCompatibleVersion)
-}
-
-func (g guarded) WriteSchemaUpdateLog(oldVersion, newVersion, manifestMD5, desc string) error {
-	if err := g.held(); err != nil {
-		return err
-	}
-	return g.conn.WriteSchemaUpdateLog(oldVersion, newVersion, manifestMD5, desc)
-}
-
-func (g guarded) DropAllTables() error {
-	if err := g.held(); err != nil {
-		return err
-	}
-	return g.conn.DropAllTables()
-}
-
-// pinnedLock holds one physical connection. database/sql retries a pooled statement on a new connection when the old
-// one breaks, which would drop the lock unnoticed; a pinned connection reports the break instead.
-type pinnedLock struct {
-	db   *sql.DB
-	conn *sql.Conn
-}
-
-// openLock connects as Temporal's plugin does, so the lock uses the same address, credentials and TLS.
-func openLock(cfg *config.SQL) (sessionLock, error) {
-	var db *sql.DB
-	switch cfg.PluginName {
-	case "postgres12", "postgres12_pgx":
-		var d pgdriver.Driver = &pgdriver.PQDriver{}
-		if cfg.PluginName == "postgres12_pgx" {
-			d = &pgdriver.PGXDriver{}
+// openSession connects through Temporal's schema tool on one database session.
+func openSession(cfg *config.SQL, logger log.Logger) (session, error) {
+	single := *cfg
+	single.MaxConns, single.MaxIdleConns, single.MaxConnLifetime = 1, 1, 0
+	var mu sync.Mutex
+	var db *sqlx.DB
+	var connectErr error
+	// Temporal calls Connect again to refresh a broken pool; refusing that keeps the schema tool off a new session.
+	single.Connect = func(c *config.SQL) (*sqlx.DB, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		if db != nil {
+			return nil, errSessionEnded
 		}
-		s, err := pgsession.NewSession(cfg, d, resolver.NewNoopResolver())
-		if err != nil {
-			return nil, err
-		}
-		db = s.DB.DB
-	case "mysql8":
-		s, err := mysqlsession.NewSession(sqlplugin.DbKindMain, cfg, resolver.NewNoopResolver())
-		if err != nil {
-			return nil, err
-		}
-		db = s.DB.DB
-	default:
-		return nil, fmt.Errorf("no schema lock for plugin %s", cfg.PluginName)
+		db, connectErr = connectOnce(c)
+		return db, connectErr
 	}
-	c, err := db.Conn(context.Background())
+	c, err := sqltool.NewConnection(&single, logger)
 	if err != nil {
-		_ = db.Close()
 		return nil, err
 	}
-	return &pinnedLock{db: db, conn: c}, nil
+	mu.Lock()
+	defer mu.Unlock()
+	if db == nil {
+		c.Close()
+		return nil, connectErr
+	}
+	return &singleSession{Connection: c, db: db, statements: lockStatements[schemaDirs[cfg.PluginName]]}, nil
 }
 
-func (l *pinnedLock) exec(stmt string, args ...any) error {
-	_, err := l.conn.ExecContext(context.Background(), stmt, args...)
+func (s *singleSession) lock(logger log.Logger) error {
+	for waited := false; ; waited = true {
+		var taken int
+		if err := s.db.QueryRow(s.statements[0], lockName).Scan(&taken); err != nil {
+			return err
+		}
+		if taken == 1 {
+			return nil
+		}
+		if !waited {
+			logger.Info("Waiting for another node to finish preparing the schema")
+		}
+		time.Sleep(lockRetry)
+	}
+}
+
+func (s *singleSession) unlock() error {
+	_, err := s.db.Exec(s.statements[1], lockName)
 	return err
 }
 
-// alive runs a statement rather than a ping: a driver without a ping reports every connection as alive.
-func (l *pinnedLock) alive() error { return l.exec("SELECT 1") }
+// connectOnce connects as Temporal's plugin does, so the session uses the same address, credentials and TLS, in a
+// pool that opens a single connection.
+func connectOnce(cfg *config.SQL) (*sqlx.DB, error) {
+	c := *cfg
+	c.Connect = nil
+	switch c.PluginName {
+	case "postgres12", "postgres12_pgx":
+		d := onceDriver{Driver: &pgdriver.PQDriver{}, name: "postgres"}
+		if c.PluginName == "postgres12_pgx" {
+			d = onceDriver{Driver: &pgdriver.PGXDriver{}, name: "pgx"}
+		}
+		s, err := pgsession.NewSession(&c, d, resolver.NewNoopResolver())
+		if err != nil {
+			return nil, err
+		}
+		return s.DB, nil
+	case "mysql8":
+		c.ConnectProtocol = onceNetwork(c.ConnectProtocol)
+		s, err := mysqlsession.NewSession(sqlplugin.DbKindUnknown, &c, resolver.NewNoopResolver())
+		if err != nil {
+			return nil, err
+		}
+		return s.DB, nil
+	default:
+		return nil, fmt.Errorf("no schema lock for plugin %s", c.PluginName)
+	}
+}
 
-func (l *pinnedLock) close() {
-	_ = l.conn.Close()
-	_ = l.db.Close()
+// onceDriver opens PostgreSQL pools over a onceConnector; Temporal's driver still classifies the errors.
+type onceDriver struct {
+	pgdriver.Driver
+	name string
+}
+
+func (d onceDriver) CreateConnection(dsn string) (*sqlx.DB, error) {
+	pool, err := sql.Open(d.name, dsn)
+	if err != nil {
+		return nil, err
+	}
+	drv := pool.Driver()
+	_ = pool.Close()
+	var connector driver.Connector = dsnConnector{drv: drv, dsn: dsn}
+	if dc, ok := drv.(driver.DriverContext); ok {
+		if connector, err = dc.OpenConnector(dsn); err != nil {
+			return nil, err
+		}
+	}
+	return sqlx.NewDb(sql.OpenDB(&onceConnector{Connector: connector}), d.name), nil
+}
+
+// CreateRefreshableConnection resolves the address once: a single session never needs a refreshed password.
+func (d onceDriver) CreateRefreshableConnection(buildDSN func() (string, error)) (*sqlx.DB, error) {
+	dsn, err := buildDSN()
+	if err != nil {
+		return nil, err
+	}
+	return d.CreateConnection(dsn)
+}
+
+// dsnConnector opens connections for a driver without its own connector, as database/sql does.
+type dsnConnector struct {
+	drv driver.Driver
+	dsn string
+}
+
+func (c dsnConnector) Connect(context.Context) (driver.Conn, error) { return c.drv.Open(c.dsn) }
+func (c dsnConnector) Driver() driver.Driver                        { return c.drv }
+
+// onceConnector hands out one connection. database/sql replaces a broken connection with a new one, which would be a
+// new session without the schema lock.
+type onceConnector struct {
+	driver.Connector
+	mu   sync.Mutex
+	used bool
+}
+
+func (c *onceConnector) Connect(ctx context.Context) (driver.Conn, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.used {
+		return nil, errSessionEnded
+	}
+	conn, err := c.Connector.Connect(ctx)
+	c.used = err == nil
+	return conn, err
+}
+
+var onceNetworks atomic.Uint64
+
+// onceNetwork registers a MySQL network that dials once, so the driver cannot replace a session that ended.
+func onceNetwork(protocol string) string {
+	if protocol == "" {
+		protocol = "tcp"
+	}
+	name := fmt.Sprintf("workflow-schema-%d", onceNetworks.Add(1))
+	var mu sync.Mutex
+	used := false
+	mysql.RegisterDialContext(name, func(ctx context.Context, addr string) (net.Conn, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		if used {
+			return nil, errSessionEnded
+		}
+		// The driver adds MySQL's default port only on its own tcp network.
+		if _, _, err := net.SplitHostPort(addr); err != nil && protocol == "tcp" {
+			addr = net.JoinHostPort(addr, "3306")
+		}
+		c, err := (&net.Dialer{}).DialContext(ctx, protocol, addr)
+		used = err == nil
+		return c, err
+	})
+	return name
 }
