@@ -22,6 +22,7 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
+	commonpb "go.temporal.io/api/common/v1"
 	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/api/workflowservice/v1"
 )
@@ -58,6 +59,12 @@ func (c *cli) workflowResetCommand() *cobra.Command {
 			defer func() { _ = conn.Close() }()
 			client := workflowservice.NewWorkflowServiceClient(conn)
 			if resetType != "" {
+				// The event belongs to one run: pin it, or a run started after the history read gets the reset.
+				if e.runID == "" {
+					if e.runID, err = currentRun(ctx, client, s.Namespace, e.workflowID); err != nil {
+						return err
+					}
+				}
 				if eventID, err = resetPoint(ctx, client, s.Namespace, e, resetType); err != nil {
 					return err
 				}
@@ -83,6 +90,18 @@ func (c *cli) workflowResetCommand() *cobra.Command {
 	cmd.Flags().StringVar(&reason, "reason", "", "why, recorded in both runs (required)")
 	_ = cmd.MarkFlagRequired("reason")
 	return cmd
+}
+
+// currentRun returns the run ID of the workflow's latest run.
+func currentRun(ctx context.Context, client workflowservice.WorkflowServiceClient, namespace, workflowID string) (string,
+	error) {
+	res, err := client.DescribeWorkflowExecution(ctx, &workflowservice.DescribeWorkflowExecutionRequest{
+		Namespace: namespace, Execution: &commonpb.WorkflowExecution{WorkflowId: workflowID},
+	})
+	if err != nil {
+		return "", fmt.Errorf("unable to find the current run of workflow %s: %w", workflowID, err)
+	}
+	return res.GetWorkflowExecutionInfo().GetExecution().GetRunId(), nil
 }
 
 // resetPoint finds the first or last completed workflow task in the run's history.
