@@ -41,10 +41,22 @@ type fakeConn struct {
 	listErr   error
 	readErr   error
 	execErr   map[string]error
+	// endAfter ends the session during that Exec call, as if the database ended it while the statement ran.
+	endAfter int
+	ended    bool
+	afterEnd []string
 }
 
 func (f *fakeConn) Exec(stmt string, _ ...any) error {
+	if f.ended {
+		f.afterEnd = append(f.afterEnd, stmt)
+		return driver.ErrBadConn
+	}
 	f.execs = append(f.execs, stmt)
+	if len(f.execs) == f.endAfter {
+		f.ended = true
+		return driver.ErrBadConn
+	}
 	for prefix, err := range f.execErr {
 		if strings.HasPrefix(stmt, prefix) {
 			return err
@@ -56,6 +68,9 @@ func (f *fakeConn) Exec(stmt string, _ ...any) error {
 func (f *fakeConn) DropAllTables() error { return nil }
 
 func (f *fakeConn) CreateSchemaVersionTables() error {
+	if f.ended {
+		return driver.ErrBadConn
+	}
 	for _, table := range []string{versionTable, historyTable} {
 		if !slices.Contains(f.tables, table) {
 			f.tables = append(f.tables, table)
@@ -65,6 +80,9 @@ func (f *fakeConn) CreateSchemaVersionTables() error {
 }
 
 func (f *fakeConn) ReadSchemaVersion() (string, error) {
+	if f.ended {
+		return "", driver.ErrBadConn
+	}
 	if f.readErr != nil {
 		return "", f.readErr
 	}
@@ -74,21 +92,31 @@ func (f *fakeConn) ReadSchemaVersion() (string, error) {
 	return f.version, nil
 }
 
-// schemaExecs leaves out the lock statements, which run on the workflow database's connection.
+// schemaExecs leaves out the lock statements, which run on the same session as the schema changes.
 func (f *fakeConn) schemaExecs() []string {
-	return slices.DeleteFunc(slices.Clone(f.execs), func(stmt string) bool {
-		return strings.Contains(stmt, "_LOCK(") || strings.Contains(stmt, "advisory_")
-	})
+	return slices.DeleteFunc(slices.Clone(f.execs), isLockStatement)
+}
+
+func isLockStatement(stmt string) bool {
+	return strings.Contains(stmt, "_LOCK(") || strings.Contains(stmt, "advisory_")
 }
 
 func (f *fakeConn) UpdateSchemaVersion(newVersion string, _ string) error {
+	if f.ended {
+		return driver.ErrBadConn
+	}
 	f.version = newVersion
 	return nil
 }
 
-func (f *fakeConn) WriteSchemaUpdateLog(string, string, string, string) error { return nil }
-func (f *fakeConn) Close()                                                    { f.closed = true }
-func (f *fakeConn) Type() string                                              { return "sql" }
+func (f *fakeConn) WriteSchemaUpdateLog(string, string, string, string) error {
+	if f.ended {
+		return driver.ErrBadConn
+	}
+	return nil
+}
+func (f *fakeConn) Close()       { f.closed = true }
+func (f *fakeConn) Type() string { return "sql" }
 
 func (f *fakeConn) CreateDatabase(name string) error {
 	f.created = append(f.created, name)
@@ -97,42 +125,11 @@ func (f *fakeConn) CreateDatabase(name string) error {
 
 func (f *fakeConn) ListTables() ([]string, error) { return f.tables, f.listErr }
 
-// fakeLock is the workflow database session that holds the schema lock; it ends after alive calls when lives is set.
-type fakeLock struct {
-	execs   []string
-	execErr map[string]error
-	openErr error
-	lives   int
-	checks  int
-	closed  bool
-}
-
-func (l *fakeLock) exec(stmt string, _ ...any) error {
-	l.execs = append(l.execs, stmt)
-	for prefix, err := range l.execErr {
-		if strings.HasPrefix(stmt, prefix) {
-			return err
-		}
-	}
-	return nil
-}
-
-func (l *fakeLock) alive() error {
-	l.checks++
-	if l.lives > 0 && l.checks > l.lives {
-		return driver.ErrBadConn
-	}
-	return nil
-}
-
-func (l *fakeLock) close() { l.closed = true }
-
 type fakeServer struct {
-	conns   map[string]*fakeConn
-	lock    *fakeLock
-	locked  []*config.SQL
-	openErr map[string]error
-	opened  []*config.SQL
+	conns    map[string]*fakeConn
+	openErr  map[string]error
+	opened   []*config.SQL
+	sessions []*config.SQL
 }
 
 func newFakeServer() *fakeServer {
@@ -140,15 +137,31 @@ func newFakeServer() *fakeServer {
 		"":                    {name: ""},
 		"temporal":            {name: "temporal"},
 		"temporal_visibility": {name: "temporal_visibility"},
-	}, lock: &fakeLock{}, openErr: map[string]error{}}
+	}, openErr: map[string]error{}}
 }
 
-func (s *fakeServer) openLock(cfg *config.SQL) (sessionLock, error) {
-	s.locked = append(s.locked, cfg)
-	if s.lock.openErr != nil {
-		return nil, s.lock.openErr
+// fakeSession is the single session a store's lock and schema changes share; its lock statements are recorded with
+// the schema statements.
+type fakeSession struct {
+	*fakeConn
+	statements [2]string
+}
+
+func (f fakeSession) lock(log.Logger) error { return f.Exec(f.statements[0], lockName) }
+func (f fakeSession) unlock() error         { return f.Exec(f.statements[1], lockName) }
+
+func (s *fakeServer) openSession(cfg *config.SQL, logger log.Logger) (session, error) {
+	s.sessions = append(s.sessions, cfg)
+	c, err := s.open(cfg, logger)
+	if err != nil {
+		return nil, err
 	}
-	return s.lock, nil
+	//revive:disable-next-line:unchecked-type-assertion
+	return fakeSession{c.(*fakeConn), lockStatements[schemaDirs[cfg.PluginName]]}, nil
+}
+
+func (s *fakeServer) prepare(p config.Persistence) error {
+	return prepare(p, s.open, s.openSession, log.NewNoopLogger())
 }
 
 func (s *fakeServer) open(cfg *config.SQL, _ log.Logger) (conn, error) {
@@ -175,27 +188,29 @@ func persistence(plugin string) config.Persistence {
 
 func TestPrepareSetsUpEmptyDatabases(t *testing.T) {
 	for plugin, want := range map[string]struct{ lock, unlock, version, visibility string }{
-		"postgres12":     {"SELECT pg_advisory_lock", "SELECT pg_advisory_unlock", pgschema.Version, pgschema.VisibilityVersion},
-		"postgres12_pgx": {"SELECT pg_advisory_lock", "SELECT pg_advisory_unlock", pgschema.Version, pgschema.VisibilityVersion},
+		"postgres12":     {"SELECT CASE WHEN pg_try_advisory_lock", "SELECT pg_advisory_unlock", pgschema.Version, pgschema.VisibilityVersion},
+		"postgres12_pgx": {"SELECT CASE WHEN pg_try_advisory_lock", "SELECT pg_advisory_unlock", pgschema.Version, pgschema.VisibilityVersion},
 		"mysql8":         {"SELECT GET_LOCK", "SELECT RELEASE_LOCK", mysqlschema.Version, mysqlschema.VisibilityVersion},
 	} {
 		t.Run(plugin, func(t *testing.T) {
 			s := newFakeServer()
-			if err := prepare(persistence(plugin), s.open, s.openLock, log.NewNoopLogger()); err != nil {
+			if err := s.prepare(persistence(plugin)); err != nil {
 				t.Fatalf("prepare = %v", err)
 			}
 			server, main, vis := s.conns[""], s.conns["temporal"], s.conns["temporal_visibility"]
 			if !slices.Equal(server.created, []string{"temporal", "temporal_visibility"}) {
 				t.Errorf("created = %v, want both databases", server.created)
 			}
-			lock := s.lock.execs
-			if len(server.execs) != 0 || len(lock) != 2 || !strings.HasPrefix(lock[0], want.lock) ||
-				!strings.HasPrefix(lock[1], want.unlock) || !s.lock.closed {
-				t.Errorf("statements = %v on the server, %v on the lock session; want the lock taken, released and "+
-					"closed", server.execs, lock)
+			if len(server.execs) != 0 {
+				t.Errorf("statements = %v on the server connection, want none", server.execs)
 			}
-			if s.lock.checks == 0 {
-				t.Error("the schema changes never checked the lock")
+			for _, c := range []*fakeConn{main, vis} {
+				first, last := c.execs[0], c.execs[len(c.execs)-1]
+				if n := len(slices.DeleteFunc(slices.Clone(c.execs), func(s string) bool { return !isLockStatement(s) })); n != 2 ||
+					!strings.HasPrefix(first, want.lock) || !strings.HasPrefix(last, want.unlock) {
+					t.Errorf("%s: first %q, last %q, %d lock statements; want the schema changes inside the lock on "+
+						"their own session", c.name, first, last, n)
+				}
 			}
 			if main.version != want.version || vis.version != want.visibility {
 				t.Errorf("versions = %s, %s, want %s, %s", main.version, vis.version, want.version, want.visibility)
@@ -209,8 +224,9 @@ func TestPrepareSetsUpEmptyDatabases(t *testing.T) {
 			if c := s.opened[0]; c.DatabaseName != "" || c.MaxConns != 1 || c.MaxIdleConns != 1 || c.MaxConnLifetime != 0 {
 				t.Errorf("server connection = %+v, want one connection to the default database", c)
 			}
-			if c := s.locked[0]; c.DatabaseName != "temporal" || c.MaxConns != 1 || c.MaxConnLifetime != 0 {
-				t.Errorf("lock connection = %+v, want one connection to the workflow database", c)
+			if len(s.sessions) != 2 || s.sessions[0].DatabaseName != "temporal" ||
+				s.sessions[1].DatabaseName != "temporal_visibility" {
+				t.Errorf("sessions = %v, want one for each database", s.sessions)
 			}
 		})
 	}
@@ -222,7 +238,7 @@ func TestPrepareLeavesCurrentDatabasesAlone(t *testing.T) {
 	s.conns["temporal"].version = pgschema.Version
 	s.conns["temporal_visibility"].tables = []string{versionTable, historyTable}
 	s.conns["temporal_visibility"].version = pgschema.VisibilityVersion
-	if err := prepare(persistence("postgres12"), s.open, s.openLock, log.NewNoopLogger()); err != nil {
+	if err := s.prepare(persistence("postgres12")); err != nil {
 		t.Fatalf("prepare = %v", err)
 	}
 	for _, name := range []string{"temporal", "temporal_visibility"} {
@@ -238,7 +254,7 @@ func TestPrepareAppliesOnlyNewerVersions(t *testing.T) {
 	s.conns["temporal"].version = "1.18"
 	s.conns["temporal_visibility"].tables = []string{versionTable, historyTable}
 	s.conns["temporal_visibility"].version = pgschema.VisibilityVersion
-	if err := prepare(persistence("postgres12"), s.open, s.openLock, log.NewNoopLogger()); err != nil {
+	if err := s.prepare(persistence("postgres12")); err != nil {
 		t.Fatalf("prepare = %v", err)
 	}
 	if got := s.conns["temporal"].version; got != pgschema.Version {
@@ -252,7 +268,7 @@ func TestPrepareAppliesOnlyNewerVersions(t *testing.T) {
 func TestPrepareUsesDatabasesItCannotCreate(t *testing.T) {
 	s := newFakeServer()
 	s.conns[""].createErr = errors.New("permission denied to create database")
-	if err := prepare(persistence("postgres12"), s.open, s.openLock, log.NewNoopLogger()); err != nil {
+	if err := s.prepare(persistence("postgres12")); err != nil {
 		t.Fatalf("prepare = %v, want the existing databases used", err)
 	}
 	if s.conns["temporal"].version != pgschema.Version {
@@ -263,7 +279,7 @@ func TestPrepareUsesDatabasesItCannotCreate(t *testing.T) {
 func TestPrepareWorksWithoutTheMaintenanceDatabase(t *testing.T) {
 	s := newFakeServer()
 	s.openErr[""] = errors.New(`permission denied for database "postgres"`)
-	if err := prepare(persistence("postgres12"), s.open, s.openLock, log.NewNoopLogger()); err != nil {
+	if err := s.prepare(persistence("postgres12")); err != nil {
 		t.Fatalf("prepare = %v, want the DBA-created databases used", err)
 	}
 	if s.conns["temporal"].version != pgschema.Version || s.conns["temporal_visibility"].version != pgschema.VisibilityVersion {
@@ -279,7 +295,7 @@ func TestPrepareResumesAnInterruptedSetup(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			s := newFakeServer()
 			s.conns["temporal"].tables = slices.Clone(tables)
-			if err := prepare(persistence("postgres12"), s.open, s.openLock, log.NewNoopLogger()); err != nil {
+			if err := s.prepare(persistence("postgres12")); err != nil {
 				t.Fatalf("prepare = %v", err)
 			}
 			main := s.conns["temporal"]
@@ -296,7 +312,7 @@ func TestPrepareSkipsStoresWithoutASchemaHere(t *testing.T) {
 		"cassandra": {DefaultStore: "default", DataStores: map[string]config.DataStore{"default": {}}},
 	} {
 		s := newFakeServer()
-		if err := prepare(p, s.open, s.openLock, log.NewNoopLogger()); err != nil || len(s.opened) != 0 {
+		if err := s.prepare(p); err != nil || len(s.opened) != 0 {
 			t.Errorf("%s: prepare = %v after %d connections, want nil and none", name, err, len(s.opened))
 		}
 	}
@@ -311,10 +327,11 @@ func TestPrepareErrors(t *testing.T) {
 	}{
 		{"server and database unreachable", func(s *fakeServer) { s.openErr[""], s.openErr["temporal"] = boom, boom },
 			"unable to connect to the database server to create databases: boom"},
-		{"lock refused", func(s *fakeServer) { s.lock.execErr = map[string]error{"SELECT pg_advisory_lock": boom} },
-			"unable to take the schema lock in database temporal: boom"},
-		{"lock unreachable", func(s *fakeServer) { s.lock.openErr = boom }, "unable to connect to database temporal: boom"},
-		{"lock lost", func(s *fakeServer) { s.lock.lives = 1 }, "lost the schema lock: driver: bad connection"},
+		{"lock refused", func(s *fakeServer) {
+			s.conns["temporal"].execErr = map[string]error{"SELECT CASE WHEN pg_try_advisory_lock": boom}
+		}, "unable to take the schema lock in database temporal: boom"},
+		{"lock lost", func(s *fakeServer) { s.conns["temporal_visibility"].endAfter = 2 },
+			"lost the schema lock in database temporal_visibility"},
 		{"database unreachable", func(s *fakeServer) { s.openErr["temporal"] = boom }, "unable to connect to database temporal: boom"},
 		{"visibility unreachable", func(s *fakeServer) { s.openErr["temporal_visibility"] = boom },
 			"unable to connect to database temporal_visibility: boom"},
@@ -335,7 +352,7 @@ func TestPrepareErrors(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			s := newFakeServer()
 			tt.breakIt(s)
-			err := prepare(persistence("postgres12"), s.open, s.openLock, log.NewNoopLogger())
+			err := s.prepare(persistence("postgres12"))
 			if err == nil || !strings.Contains(err.Error(), tt.want) {
 				t.Fatalf("prepare = %v, want %q", err, tt.want)
 			}
@@ -345,25 +362,33 @@ func TestPrepareErrors(t *testing.T) {
 
 func TestPrepareKeepsGoingWhenTheUnlockFails(t *testing.T) {
 	s := newFakeServer()
-	s.lock.execErr = map[string]error{"SELECT pg_advisory_unlock": errors.New("connection reset")}
-	if err := prepare(persistence("postgres12"), s.open, s.openLock, log.NewNoopLogger()); err != nil {
+	s.conns["temporal"].execErr = map[string]error{"SELECT pg_advisory_unlock": errors.New("connection reset")}
+	if err := s.prepare(persistence("postgres12")); err != nil {
 		t.Fatalf("prepare = %v, want nil: the lock goes with the connection", err)
 	}
 }
 
 func TestPrepareStopsWhenTheLockSessionEnds(t *testing.T) {
-	for _, lives := range []int{1, 5} {
+	// The session ends while the first schema statement runs, or a few statements later.
+	for _, endAfter := range []int{2, 6} {
 		s := newFakeServer()
-		s.lock.lives = lives
-		err := prepare(persistence("postgres12"), s.open, s.openLock, log.NewNoopLogger())
-		if err == nil || !strings.Contains(err.Error(), "lost the schema lock") {
-			t.Fatalf("lives %d: prepare = %v, want the lost lock reported", lives, err)
+		main := s.conns["temporal"]
+		main.endAfter = endAfter
+		err := s.prepare(persistence("postgres12"))
+		if err == nil || !strings.Contains(err.Error(), "lost the schema lock in database temporal") {
+			t.Fatalf("end after %d: prepare = %v, want the lost lock reported", endAfter, err)
 		}
-		if n := len(s.conns["temporal"].schemaExecs()); n >= lives {
-			t.Errorf("lives %d: %d schema statements ran, want fewer than the checks the session survived", lives, n)
+		if len(main.execs) != endAfter || slices.ContainsFunc(main.afterEnd, func(stmt string) bool {
+			return stmt != "SELECT 1" && !strings.HasPrefix(stmt, "SELECT pg_advisory_unlock")
+		}) {
+			t.Errorf("end after %d: ran %d statements, then tried %v; want no schema change after the session ended",
+				endAfter, len(main.execs), main.afterEnd)
 		}
-		if len(s.conns["temporal_visibility"].execs) != 0 {
-			t.Errorf("lives %d: the visibility schema changed without the lock", lives)
+		if len(s.sessions) != 1 || len(s.conns["temporal_visibility"].execs) != 0 {
+			t.Errorf("end after %d: the visibility database was prepared after the lost lock", endAfter)
+		}
+		if !main.closed {
+			t.Errorf("end after %d: the session was left open", endAfter)
 		}
 	}
 }
