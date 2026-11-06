@@ -22,11 +22,15 @@ The databases are the ones `[database]` names (`name`, `visibilityName`); see
 - Runs on every `workflow-engine start --runtime-config`; a database that is already current is left unchanged.
 - Uses Temporal's own schema tool and the schema files embedded in the binary, the same ones `workflow-engine-sql`
   uses, so the engine and its schema always come from one Temporal version.
-- Nodes started together take turns: each takes a lock in the workflow database (PostgreSQL advisory lock, MySQL
-  `GET_LOCK`) while it prepares the schema. A node that stops releases the lock with its connection.
-- The lock is held on one pinned connection, and every schema change first checks that its session is still open.
-  If the database ends that session, the node stops with "lost the schema lock" instead of migrating alongside the
-  node that takes the lock next.
+- Nodes started together take turns: each takes a lock in the database it prepares (PostgreSQL advisory lock, MySQL
+  `GET_LOCK`), first the workflow database and then the visibility database. A node that stops releases the lock
+  with its connection.
+- A waiting node tries for the lock every half second instead of blocking in the lock call. A blocked call holds a
+  transaction open, and PostgreSQL's `CREATE INDEX CONCURRENTLY` in the visibility schema waits for every open
+  transaction in its database, so the two nodes would deadlock.
+- The lock and that database's schema changes run on one database session, which is never replaced. If the database
+  ends the session, the lock and any schema change still running end with it, and every later statement fails: the
+  node stops with "lost the schema lock" and cannot migrate alongside the node that takes the lock next.
 - Databases are created through the server's maintenance database (`postgres` on PostgreSQL). A user that cannot
   reach it, or cannot create databases, works with databases a DBA created and needs no other database.
 - A setup interrupted after creating the version tables but before recording the first version is finished on the
@@ -53,8 +57,8 @@ Refusing to skip a Temporal minor version on upgrade (Workflow Runtime 0.3), Cas
 
 | Test | Covers |
 |---|---|
-| `engine/internal/sqlschema/sqlschema_test.go` | Empty, current and older databases, databases the user cannot create, no maintenance database, an interrupted setup, every failure, the lock statements per database, a lock session that ends part-way |
-| `engine/internal/sqlschema/sqlschema_db_test.go` | On PostgreSQL and MySQL: three nodes starting together on new databases, then a second start; an interrupted setup; databases at schema 1.0 holding a namespace, a workflow and its visibility row, upgraded with the rows kept; a role limited to its two DBA-created databases; the lock session killed by the server is reported, not replaced. Runs when `WORKFLOW_TEST_DB_PASSWORD` is set; CI runs the whole package in the PostgreSQL smoke job |
+| `engine/internal/sqlschema/sqlschema_test.go` | Empty, current and older databases, databases the user cannot create, no maintenance database, an interrupted setup, every failure, the lock taken around each database's schema changes on its own session, a session that ends during a schema change or part-way through |
+| `engine/internal/sqlschema/sqlschema_db_test.go` | On PostgreSQL and MySQL: three nodes starting together on new databases, then a second start; an interrupted setup; databases at schema 1.0 holding a namespace, a workflow and its visibility row, upgraded with the rows kept; a role limited to its two DBA-created databases; a schema change running when the server ends its session is rolled back, the next node takes the lock, and the first node cannot run another statement on a new session. Runs when `WORKFLOW_TEST_DB_PASSWORD` is set; CI runs the whole package in the PostgreSQL smoke job |
 | `engine/internal/runtimeconfig/testdata/config/*mysql-reserved*` | A MySQL reserved word as a database name, refused only when the engine manages the schema |
 | `engine/internal/cli/cli_test.go` | The schema prepared before the server starts, a failure stopping the start, `manageSchema = false` and `--config-file` skipping it |
 | `tests/ballerina` on PostgreSQL and MySQL | The suites start from empty databases with no schema step in the runner |
