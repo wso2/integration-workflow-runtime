@@ -46,7 +46,8 @@ setting (`clientconfig.ReplaceCredential`): a level that sets either replaces bo
   (`NotFound`, `Unavailable`). An existing namespace (`AlreadyExists`) is reported and left unchanged, and the
   attribute is still ensured; the engine skips attributes that exist.
 - `workflow list` and `count` take Temporal's visibility query; `list` pages through 100 at a time up to `--limit`
-  (100; 0 for all). `show` pages through the whole history. `signal` encodes each `--input` as a `json/plain`
+  (100; 0 for all). `show` pages through the whole history; responses up to 128 MiB are accepted, as in the
+  Temporal Go SDK, since one history page can hold 256 events of up to 2 MiB each. `signal` encodes each `--input` as a `json/plain`
   payload after checking it is JSON; `signal` and `cancel` send a fresh request ID, and every change carries the
   identity `workflow-cli@<host>`, which the workflow's history records.
 - `task-queue describe` calls `DescribeTaskQueue` once for workflow and once for activity tasks and lists their
@@ -73,7 +74,7 @@ it exists.
 | Test | Covers |
 |---|---|
 | `cli/internal/command/command_test.go` | Every command against an in-memory fake engine (bufconn): health per service and exit codes, describe with and without the admin API, namespace create (cache retry, idempotence), describe, list over pages, update, search attributes, profile/environment/flag precedence and the bearer header, a token file replacing an earlier level's token, `config` commands and file mode, error messages |
-| `cli/internal/command/workflow_test.go` | `workflow list` over pages with a query and `--limit`, `count`, `describe`, `show` over pages, `signal` payloads, identity and request ID, `describe` and `show` sending `-r`, `cancel` and `terminate` with reasons and run IDs, confirmations on stderr with `-o json`, `task-queue describe` with and without pollers, error messages |
+| `cli/internal/command/workflow_test.go` | `workflow list` over pages with a query and `--limit`, `count`, `describe`, `show` over pages and with a page over 4 MiB, `signal` payloads, identity and request ID, `describe` and `show` sending `-r`, `cancel` and `terminate` with reasons and run IDs, confirmations on stderr with `-o json`, `task-queue describe` with and without pollers, error messages |
 | `cli/internal/command/dial_test.go` | Mutual TLS against a real TLS server, refusal without a client certificate or TLS, token refused in plain text off-loopback, CA, client certificate and key file errors |
 | `cli/internal/clientconfig/clientconfig_test.go` | Profile file parsing, unknown keys, environment variables, TLS on/off rules, writing and deleting properties, profile names that would nest refused with the file left readable |
 | `tools/internal/enginetest/workflowcli_test.go` | Against the real engine: every P0 and P1 command on `start-dev` (workflows started on a task queue no worker polls: listed by `WorkflowKind`, described, signalled, cancelled and terminated, their history shown); on a secured engine, profiles with admin and namespace tokens, refusals, a token never sent in plain text, a namespace token listing only its own namespace and counting a workflow started in it, and the health of each internal port with a node certificate |

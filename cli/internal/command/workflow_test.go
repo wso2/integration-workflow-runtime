@@ -252,6 +252,19 @@ func TestWorkflowDescribeAndShow(t *testing.T) {
 	}
 }
 
+func TestWorkflowShowReadsAHistoryPageOver4MiB(t *testing.T) {
+	tc := newTestCLI(t)
+	big := &commonpb.Payload{Data: []byte(strings.Repeat("x", 5<<20))}
+	tc.engine.workflows.events[2].Attributes = &historypb.HistoryEvent_WorkflowExecutionSignaledEventAttributes{
+		WorkflowExecutionSignaledEventAttributes: &historypb.WorkflowExecutionSignaledEventAttributes{
+			SignalName: "approval", Input: &commonpb.Payloads{Payloads: []*commonpb.Payload{big}}}}
+	var history map[string][]any
+	if err := json.Unmarshal([]byte(tc.must("workflow", "show", "-w", "order-1", "-o", "json")), &history); err != nil ||
+		len(history["events"]) != 3 {
+		t.Fatalf("json history = %d events, %v", len(history["events"]), err)
+	}
+}
+
 func TestWorkflowSignalCancelTerminate(t *testing.T) {
 	tc := newTestCLI(t)
 	out := tc.must("workflow", "signal", "-w", "order-1", "--name", "approval", "-i", `{ "approved": true }`, "-i", `"ann"`)
