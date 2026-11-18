@@ -18,6 +18,7 @@ package sqlschema
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"slices"
@@ -318,6 +319,9 @@ func dropDatabase(t *testing.T, cfg config.SQL) {
 
 func TestASchemaChangeEndsWithItsLockSession(t *testing.T) {
 	for _, server := range realServers(t) {
+		if server.driver != "postgres" {
+			continue // MySQL holds the lock on a session of its own; see TestMySQLStopsWhenItsLockSessionEnds.
+		}
 		t.Run(server.plugin, func(t *testing.T) {
 			cfg := *server.stores(t, server.admin, server.password).DataStores["default"].SQL
 			admin := server.open(t, "")
@@ -331,18 +335,12 @@ func TestASchemaChangeEndsWithItsLockSession(t *testing.T) {
 				t.Fatal(err)
 			}
 			// A schema change is running when the database ends the session that holds the lock.
-			running, sessionQuery, kill := "CREATE TABLE inflight AS SELECT 1 AS s FROM pg_sleep(30)",
-				"SELECT pid FROM pg_stat_activity WHERE datname = $1 AND state = 'active' AND query LIKE 'CREATE TABLE%'",
-				"SELECT pg_terminate_backend(%d)"
-			if server.driver != "postgres" {
-				running, sessionQuery, kill = "CREATE TABLE inflight AS SELECT SLEEP(30) AS s",
-					"SELECT ID FROM information_schema.PROCESSLIST WHERE DB = ? AND INFO LIKE 'CREATE TABLE%'", "KILL %d"
-			}
 			done := make(chan error, 1)
-			go func() { done <- first.Exec(running) }()
+			go func() { done <- first.Exec("CREATE TABLE inflight AS SELECT 1 AS s FROM pg_sleep(30)") }()
 			var id int64
 			for deadline := time.Now().Add(10 * time.Second); ; {
-				if admin.QueryRow(sessionQuery, cfg.DatabaseName).Scan(&id) == nil {
+				if admin.QueryRow("SELECT pid FROM pg_stat_activity WHERE datname = $1 AND state = 'active' AND "+
+					"query LIKE 'CREATE TABLE%'", cfg.DatabaseName).Scan(&id) == nil {
 					break
 				}
 				if time.Now().After(deadline) {
@@ -350,7 +348,7 @@ func TestASchemaChangeEndsWithItsLockSession(t *testing.T) {
 				}
 				time.Sleep(50 * time.Millisecond)
 			}
-			server.exec(t, admin, fmt.Sprintf(kill, id))
+			server.exec(t, admin, fmt.Sprintf("SELECT pg_terminate_backend(%d)", id))
 			select {
 			case err := <-done:
 				if err == nil {
@@ -386,6 +384,48 @@ func TestASchemaChangeEndsWithItsLockSession(t *testing.T) {
 			}
 			if slices.Contains(tables, "inflight") || slices.Contains(tables, "after_loss") {
 				t.Fatalf("tables = %v, want neither schema change applied", tables)
+			}
+		})
+	}
+}
+
+func TestMySQLStopsWhenItsLockSessionEnds(t *testing.T) {
+	for _, server := range realServers(t) {
+		if server.driver != "mysql" {
+			continue
+		}
+		t.Run(server.plugin, func(t *testing.T) {
+			cfg := *server.stores(t, server.admin, server.password).DataStores["default"].SQL
+			admin := server.open(t, "")
+			server.exec(t, admin, "CREATE DATABASE "+cfg.DatabaseName)
+			first, err := openSession(&cfg, log.NewNoopLogger())
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer first.Close()
+			if err := first.lock(log.NewNoopLogger()); err != nil {
+				t.Fatal(err)
+			}
+			var id int64
+			if err := admin.QueryRow("SELECT IS_USED_LOCK(?)", lockName).Scan(&id); err != nil {
+				t.Fatal(err)
+			}
+			server.exec(t, admin, fmt.Sprintf("KILL %d", id))
+			// The schema tool's own connection is still open, but no change runs once the lock's session ended.
+			if err := first.Exec("CREATE TABLE after_loss (id INT)"); err == nil || !errors.Is(err, errSessionEnded) {
+				t.Fatalf("Exec after the lock's session ended = %v, want %v", err, errSessionEnded)
+			}
+			next, err := openSession(&cfg, log.NewNoopLogger())
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer next.Close()
+			if err := next.lock(log.NewNoopLogger()); err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = next.unlock() }()
+			if tables, err := next.ListTables(); err != nil || slices.Contains(tables, "after_loss") {
+				t.Fatalf("tables = %v, %v; want the change refused", tables, err)
 			}
 		})
 	}
