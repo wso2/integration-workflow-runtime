@@ -14,7 +14,7 @@
 # limitations under the License.
 
 # Toolchain for running the CI gates and the Ballerina suites, matching the GitHub Actions jobs.
-ARG GO_VERSION=1.26.10
+ARG GO_VERSION=1.26.11
 
 FROM eclipse-temurin:25-jre AS jre
 

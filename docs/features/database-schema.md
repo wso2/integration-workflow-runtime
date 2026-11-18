@@ -30,7 +30,8 @@ The databases are the ones `[database]` names (`name`, `visibilityName`); see
   transaction in its database, so the two nodes would deadlock.
 - The lock and that database's schema changes run on one database session, which is never replaced. If the database
   ends the session, the lock and any schema change still running end with it, and every later statement fails: the
-  node stops with "lost the schema lock" and cannot migrate alongside the node that takes the lock next.
+  node stops with "lost the schema lock" and cannot migrate alongside the node that takes the lock next. MySQL gets
+  its single session from a dial function registered with the MySQL driver that connects once.
 - Databases are created through the server's maintenance database (`postgres` on PostgreSQL). A user that cannot
   reach it, or cannot create databases, works with databases a DBA created and needs no other database.
 - A setup interrupted after creating the version tables but before recording the first version is finished on the
@@ -58,7 +59,7 @@ Refusing to skip a Temporal minor version on upgrade (Workflow Runtime 0.3), Cas
 | Test | Covers |
 |---|---|
 | `engine/internal/sqlschema/sqlschema_test.go` | Empty, current and older databases, databases the user cannot create, no maintenance database, an interrupted setup, every failure, the lock taken around each database's schema changes on its own session, a session that ends during a schema change or part-way through |
-| `engine/internal/sqlschema/sqlschema_db_test.go` | On PostgreSQL and MySQL: three nodes starting together on new databases, then a second start; an interrupted setup; databases at schema 1.0 holding a namespace, a workflow and its visibility row, upgraded with the rows kept; a role limited to its two DBA-created databases; a schema change running when the server ends its session is rolled back, the next node takes the lock, and the first node cannot run another statement on a new session. Runs when `WORKFLOW_TEST_DB_PASSWORD` is set; CI runs the whole package in the PostgreSQL smoke job |
+| `engine/internal/sqlschema/sqlschema_db_test.go` | On PostgreSQL and MySQL: three nodes starting together on new databases, then a second start; an interrupted setup; databases at schema 1.0 holding a namespace, a workflow and its visibility row, upgraded with the rows kept; a role limited to its two DBA-created databases; on PostgreSQL, a schema change running when the server ends its session is rolled back, the next node takes the lock, and the first node cannot run another statement on a new session; on MySQL, the session is killed, and the node cannot run another statement on a new one. Runs when `WORKFLOW_TEST_DB_PASSWORD` is set; CI runs the whole package in the PostgreSQL smoke job |
 | `engine/internal/runtimeconfig/testdata/config/*mysql-reserved*` | A MySQL reserved word as a database name, refused only when the engine manages the schema |
 | `engine/internal/cli/cli_test.go` | The schema prepared before the server starts, a failure stopping the start, `manageSchema = false` and `--config-file` skipping it |
 | `tests/ballerina` on PostgreSQL and MySQL | The suites start from empty databases with no schema step in the runner |
