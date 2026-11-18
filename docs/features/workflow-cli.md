@@ -46,7 +46,8 @@ setting (`clientconfig.ReplaceCredential`): a level that sets either replaces bo
   (`NotFound`, `Unavailable`). An existing namespace (`AlreadyExists`) is reported and left unchanged, and the
   attribute is still ensured; the engine skips attributes that exist.
 - `workflow list` and `count` take Temporal's visibility query; `list` pages through 100 at a time up to `--limit`
-  (100; 0 for all). `show` pages through the whole history. `signal` encodes each `--input` as a `json/plain`
+  (100; 0 for all). `show` pages through the whole history; responses up to 128 MiB are accepted, as in the
+  Temporal Go SDK, since one history page can hold 256 events of up to 2 MiB each. `signal` encodes each `--input` as a `json/plain`
   payload after checking it is JSON; `signal` and `cancel` send a fresh request ID, and every change carries the
   identity `workflow-cli@<host>`, which the workflow's history records.
 - `signal`, `cancel` and `terminate` with `--query` count the matches, and only with `--yes` call
@@ -89,7 +90,7 @@ it exists.
 | Test | Covers |
 |---|---|
 | `cli/internal/command/command_test.go` | Every command against an in-memory fake engine (bufconn): health per service and exit codes, describe with and without the admin API, namespace create (cache retry, idempotence), describe, list over pages, update, search attributes, profile/environment/flag precedence and the bearer header, a token file replacing an earlier level's token, `config` commands and file mode, error messages |
-| `cli/internal/command/workflow_test.go` | `workflow list` over pages with a query and `--limit`, `count`, `describe`, `show` over pages, `signal` payloads, identity and request ID, `describe` and `show` sending `-r`, `cancel` and `terminate` with reasons and run IDs, confirmations on stderr with `-o json`, `task-queue describe` with and without pollers, error messages |
+| `cli/internal/command/workflow_test.go` | `workflow list` over pages with a query and `--limit`, `count`, `describe`, `show` over pages and with a page over 4 MiB, `signal` payloads, identity and request ID, `describe` and `show` sending `-r`, `cancel` and `terminate` with reasons and run IDs, confirmations on stderr with `-o json`, `task-queue describe` with and without pollers, error messages |
 | `cli/internal/command/operations_test.go` | Reset to the first and last workflow task, of the run looked up first, and to an event ID; batch jobs refused without `--yes`, started for terminate, cancel and signal with their queries, reasons and payloads, listed, described and stopped; schedules created with crons, intervals, input, overlap policy and notes, stored as the engine's structured calendar and described as cron fields with recent runs, paused, unpaused, triggered and deleted; error messages |
 | `cli/internal/command/admin_test.go` | Shard describe and close; dead-letter queues listed (with and without queues), read with `--limit` and the default clusters, merged and purged only with `--yes` up to the last or a given message (message 0 included), the job token as JSON, jobs described and cancelled; error messages |
 | `cli/internal/command/engine_test.go` | With `WORKFLOW_ENGINE`: on a real `start-dev` engine, a workflow whose first workflow task a test worker completed is reset to it and gets a new running run. It lives in the CLI module because the worker needs the Temporal API, which the tools module does not depend on |

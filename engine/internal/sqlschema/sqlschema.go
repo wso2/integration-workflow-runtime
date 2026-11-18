@@ -238,15 +238,17 @@ var errSessionEnded = errors.New("the database session that held the schema lock
 type singleSession struct {
 	*sqltool.Connection
 	db         *sqlx.DB
+	release    func()
 	statements [2]string
 }
 
-// openSession connects through Temporal's schema tool on one database session.
+// openSession connects through Temporal's schema tool, so the lock and the schema changes share one database session.
 func openSession(cfg *config.SQL, logger log.Logger) (session, error) {
 	single := *cfg
 	single.MaxConns, single.MaxIdleConns, single.MaxConnLifetime = 1, 1, 0
 	var mu sync.Mutex
 	var db *sqlx.DB
+	var release func()
 	var connectErr error
 	// Temporal calls Connect again to refresh a broken pool; refusing that keeps the schema tool off a new session.
 	single.Connect = func(c *config.SQL) (*sqlx.DB, error) {
@@ -255,7 +257,7 @@ func openSession(cfg *config.SQL, logger log.Logger) (session, error) {
 		if db != nil {
 			return nil, errSessionEnded
 		}
-		db, connectErr = connectOnce(c)
+		db, release, connectErr = connectOnce(c)
 		return db, connectErr
 	}
 	c, err := sqltool.NewConnection(&single, logger)
@@ -268,13 +270,31 @@ func openSession(cfg *config.SQL, logger log.Logger) (session, error) {
 		c.Close()
 		return nil, connectErr
 	}
-	return &singleSession{Connection: c, db: db, statements: lockStatements[schemaDirs[cfg.PluginName]]}, nil
+	return &singleSession{Connection: c, db: db, release: release,
+		statements: lockStatements[schemaDirs[cfg.PluginName]]}, nil
+}
+
+func (s *singleSession) Close() {
+	s.Connection.Close()
+	s.release()
 }
 
 func (s *singleSession) lock(logger log.Logger) error {
+	return waitForLock(logger, func() (taken int, err error) {
+		return taken, s.db.QueryRow(s.statements[0], lockName).Scan(&taken)
+	})
+}
+
+func (s *singleSession) unlock() error {
+	_, err := s.db.Exec(s.statements[1], lockName)
+	return err
+}
+
+// waitForLock tries for the lock until try reports it taken.
+func waitForLock(logger log.Logger, try func() (int, error)) error {
 	for waited := false; ; waited = true {
-		var taken int
-		if err := s.db.QueryRow(s.statements[0], lockName).Scan(&taken); err != nil {
+		taken, err := try()
+		if err != nil {
 			return err
 		}
 		if taken == 1 {
@@ -287,14 +307,9 @@ func (s *singleSession) lock(logger log.Logger) error {
 	}
 }
 
-func (s *singleSession) unlock() error {
-	_, err := s.db.Exec(s.statements[1], lockName)
-	return err
-}
-
 // connectOnce connects as Temporal's plugin does, so the session uses the same address, credentials and TLS, in a
-// pool that opens a single connection.
-func connectOnce(cfg *config.SQL) (*sqlx.DB, error) {
+// pool that opens a single connection. The returned function releases what the connection registered.
+func connectOnce(cfg *config.SQL) (*sqlx.DB, func(), error) {
 	c := *cfg
 	c.Connect = nil
 	switch c.PluginName {
@@ -305,19 +320,41 @@ func connectOnce(cfg *config.SQL) (*sqlx.DB, error) {
 		}
 		s, err := pgsession.NewSession(&c, d, resolver.NewNoopResolver())
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		return s.DB, nil
+		return s.DB, func() {}, nil
 	case "mysql8":
-		c.ConnectProtocol = onceNetwork(c.ConnectProtocol)
+		network, release := onceNetwork(c.ConnectProtocol)
+		c.ConnectProtocol = network
 		s, err := mysqlsession.NewSession(sqlplugin.DbKindUnknown, &c, resolver.NewNoopResolver())
 		if err != nil {
-			return nil, err
+			release()
+			return nil, nil, err
 		}
-		return s.DB, nil
+		return s.DB, release, nil
 	default:
-		return nil, fmt.Errorf("no schema lock for plugin %s", c.PluginName)
+		return nil, nil, fmt.Errorf("no schema lock for plugin %s", c.PluginName)
 	}
+}
+
+// networkCount names the MySQL networks that onceNetwork registers.
+var networkCount atomic.Uint64
+
+// onceNetwork registers a MySQL network that dials once. database/sql replaces a broken connection with a new one,
+// which would be a new session without the schema lock; the second dial fails instead.
+func onceNetwork(protocol string) (network string, release func()) {
+	if protocol == "" {
+		protocol = "tcp"
+	}
+	network = fmt.Sprintf("workflow-schema-%d", networkCount.Add(1))
+	var dialed atomic.Bool
+	mysql.RegisterDialContext(network, func(ctx context.Context, addr string) (net.Conn, error) {
+		if !dialed.CompareAndSwap(false, true) {
+			return nil, errSessionEnded
+		}
+		return (&net.Dialer{}).DialContext(ctx, protocol, addr)
+	})
+	return network, func() { mysql.DeregisterDialContext(network) }
 }
 
 // onceDriver opens PostgreSQL pools over a onceConnector; Temporal's driver still classifies the errors.
@@ -377,31 +414,4 @@ func (c *onceConnector) Connect(ctx context.Context) (driver.Conn, error) {
 	conn, err := c.Connector.Connect(ctx)
 	c.used = err == nil
 	return conn, err
-}
-
-var onceNetworks atomic.Uint64
-
-// onceNetwork registers a MySQL network that dials once, so the driver cannot replace a session that ended.
-func onceNetwork(protocol string) string {
-	if protocol == "" {
-		protocol = "tcp"
-	}
-	name := fmt.Sprintf("workflow-schema-%d", onceNetworks.Add(1))
-	var mu sync.Mutex
-	used := false
-	mysql.RegisterDialContext(name, func(ctx context.Context, addr string) (net.Conn, error) {
-		mu.Lock()
-		defer mu.Unlock()
-		if used {
-			return nil, errSessionEnded
-		}
-		// The driver adds MySQL's default port only on its own tcp network.
-		if _, _, err := net.SplitHostPort(addr); err != nil && protocol == "tcp" {
-			addr = net.JoinHostPort(addr, "3306")
-		}
-		c, err := (&net.Dialer{}).DialContext(ctx, protocol, addr)
-		used = err == nil
-		return c, err
-	})
-	return name
 }
