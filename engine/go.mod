@@ -2,10 +2,10 @@ module github.com/wso2/integration-workflow-runtime/engine
 
 go 1.26.8
 
-toolchain go1.26.10
+toolchain go1.26.11
 
 require (
-	github.com/go-sql-driver/mysql v1.9.3
+	github.com/go-sql-driver/mysql v1.10.1
 	github.com/go-viper/mapstructure/v2 v2.5.0
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/jackc/pgx/v5 v5.10.0
