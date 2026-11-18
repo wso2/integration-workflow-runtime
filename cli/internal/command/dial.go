@@ -43,6 +43,10 @@ func dial(s clientconfig.Settings) (*grpc.ClientConn, error) {
 	return grpc.NewClient(s.Address, opts...)
 }
 
+// maxResponseSize matches the Temporal Go SDK: a history page holds up to 256 events of up to 2 MiB each, far above
+// gRPC's default 4 MiB.
+const maxResponseSize = 128 << 20
+
 func dialOptions(s clientconfig.Settings) ([]grpc.DialOption, error) {
 	if _, _, err := net.SplitHostPort(s.Address); err != nil {
 		return nil, fmt.Errorf("address %q must be host:port", s.Address)
@@ -55,7 +59,8 @@ func dialOptions(s clientconfig.Settings) ([]grpc.DialOption, error) {
 		}
 		transport = credentials.NewTLS(cfg)
 	}
-	opts := []grpc.DialOption{grpc.WithTransportCredentials(transport)}
+	opts := []grpc.DialOption{grpc.WithTransportCredentials(transport),
+		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(maxResponseSize))}
 
 	key, err := apiKey(s)
 	if err != nil {
