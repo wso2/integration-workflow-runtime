@@ -571,3 +571,21 @@ func TestStartDevErrors(t *testing.T) {
 		t.Fatalf("help: exit code = %d", code)
 	}
 }
+
+func TestNewLoggerLeavesStreamsAndURLsToZap(t *testing.T) {
+	t.Chdir(t.TempDir())
+	for _, output := range []string{"stderr", "stdout"} {
+		if _, err := newLogger(log.Config{OutputFile: output, Level: "info"}, "log.outputFile"); err != nil {
+			t.Errorf("%s: %v", output, err)
+		}
+		if _, err := os.Stat(output); !os.IsNotExist(err) {
+			t.Errorf("%s: a file named %s was created (%v)", output, output, err)
+		}
+	}
+	for path, want := range map[string]bool{"logs/engine.log": true, `C:\logs\engine.log`: true,
+		"file:///var/log/engine.log": false, "stderr": false, "": false} {
+		if got := isLogFilePath(path); got != want {
+			t.Errorf("isLogFilePath(%q) = %v, want %v", path, got, want)
+		}
+	}
+}

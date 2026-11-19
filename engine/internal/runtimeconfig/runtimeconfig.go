@@ -163,6 +163,11 @@ func Render(cfg *config.Config) ([]byte, error) {
 }
 
 func parse(data []byte, lookupEnv func(string) (string, bool)) (*Runtime, error) {
+	return parseOn(data, lookupEnv, net.InterfaceAddrs)
+}
+
+// parseOn parses with the environment variables and network interfaces it is given.
+func parseOn(data []byte, lookupEnv func(string) (string, bool), interfaceAddrs func() ([]net.Addr, error)) (*Runtime, error) {
 	values, err := toml.Parser().Unmarshal(data)
 	if err != nil {
 		return nil, fmt.Errorf("invalid runtime configuration: %w", err)
@@ -179,7 +184,7 @@ func parse(data []byte, lookupEnv func(string) (string, bool)) (*Runtime, error)
 		return nil, err
 	}
 	if s.Engine.BroadcastAddress == autoAddress {
-		ip, err := hostAddress()
+		ip, err := hostAddress(interfaceAddrs)
 		if err != nil {
 			return nil, fmt.Errorf(`invalid runtime configuration: engine.broadcastAddress "auto": %w`, err)
 		}
@@ -321,8 +326,8 @@ func (s *settings) validate() error {
 		if !validPort(d.Port) {
 			problems = append(problems, fmt.Sprintf("database.port %d is not a valid port", d.Port))
 		}
-		// Unquoted names are case-insensitive on PostgreSQL, and on MySQL with lower_case_table_names set.
-		if strings.EqualFold(d.Name, d.VisibilityName) {
+		// MySQL folds database names to lower case when lower_case_table_names is set; PostgreSQL keeps them as written.
+		if d.Name == d.VisibilityName || (d.Type == typeMySQL && strings.EqualFold(d.Name, d.VisibilityName)) {
 			problems = append(problems, "database.name and database.visibilityName must differ")
 		}
 		for _, n := range []struct{ key, value string }{{"name", d.Name}, {"visibilityName", d.VisibilityName}} {
