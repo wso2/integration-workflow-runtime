@@ -16,7 +16,7 @@ Manager (API server) and portals are being built.
 |---|---|---|
 | `engine/` | Temporal's services in our own binary (`workflow-engine`) and the schema tool (`workflow-engine-sql`) | Go |
 | `cli/` | `workflow-cli`, the operators' command line client of the engine | Go |
-| `launcher/` | Notes on the launcher, `bin/workflow-runtime` (its code is in `engine/cmd/workflow-runtime`) | Docs |
+| `engine/internal/launcher` | `workflow-runtime`: finds the runtime home and hands the command to `workflow-engine`, or starts development mode (notes in `launcher/`) | Go |
 | `manager/` | The Manager: administration API, SSO sign-in, roles; serves the portals | Go |
 | `portals/` | Admin Portal and User Portal, static web apps served by the Manager | TypeScript |
 | `distribution/` | Zip and Docker assembly, configuration templates, the systemd example | Docker |
@@ -28,7 +28,9 @@ Manager (API server) and portals are being built.
 Documentation: [architecture](docs/guides/ARCHITECTURE.md), [developing](docs/guides/DEVELOPING.md),
 [testing](docs/guides/TESTING.md), [features](docs/features/README.md), [decisions](docs/decisions/).
 
-Installing and running the runtime: the [user guide](docs/user-guide/README.md).
+Installing and running the runtime: the [user guide](docs/user-guide/README.md). For a local engine with nothing to
+configure, run `bin/workflow-runtime dev` from a distribution, or `build/workflow-engine start-dev` after `make build`
+(see [DEVELOPING.md](docs/guides/DEVELOPING.md)).
 Contributors and coding agents: read [AGENTS.md](AGENTS.md) first.
 
 ## Build

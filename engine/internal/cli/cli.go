@@ -26,6 +26,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -358,7 +359,7 @@ func hasInternalFrontend(cfg *config.Config) bool {
 
 // newLogger opens the log file first: Temporal's builder drops the error of a sink it cannot open and returns nil.
 func newLogger(cfg log.Config, key string) (log.Logger, error) {
-	if cfg.OutputFile != "" && !cfg.Stdout {
+	if !cfg.Stdout && isLogFilePath(cfg.OutputFile) {
 		if err := os.MkdirAll(filepath.Dir(cfg.OutputFile), 0o750); err != nil {
 			return nil, fmt.Errorf("%s %s: %w", key, cfg.OutputFile, err)
 		}
@@ -377,4 +378,14 @@ func newLogger(cfg log.Config, key string) (log.Logger, error) {
 
 func createDevNamespaces(p config.Persistence, names []string) error {
 	return sqlschema.CreateDevNamespaces(p, runtimeconfig.ClusterName, names)
+}
+
+// isLogFilePath reports whether zap treats the output as a file path, not a stream (stdout, stderr) or a sink URL.
+func isLogFilePath(output string) bool {
+	if output == "" || output == "stdout" || output == "stderr" {
+		return false
+	}
+	u, err := url.Parse(output)
+	// A one-letter scheme is a Windows drive, as zap reads it.
+	return err != nil || len(u.Scheme) <= 1
 }

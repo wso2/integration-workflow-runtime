@@ -15,15 +15,32 @@ named after its version, so a version bump in the `Makefile` installs the new on
 
 ## Layout
 
-The repository is a Go workspace (`go.work`). Each component is its own module (`engine/` today; `launcher/` and
-`manager/` as they arrive), so `make` targets loop over the workspace modules. `tools/` is the module for the
+The repository is a Go workspace (`go.work`). Each component is its own module (`engine/`, which also holds the
+launcher; `cli/` for `workflow-cli`, which imports no server code; `manager/` as it arrives), so `make` targets loop over the workspace modules. `tools/` is the module for the
 repository's own tools: the coverage gate (`covercheck`), the Ballerina suite runner (`balsuite`) and the tests
 of the shell scripts in `.github/scripts`.
 
 ## Build and run
 
+The quickest engine for local work is development mode: every service on SQLite, no TLS or authorization, and the
+`default` namespace with the `WorkflowKind` search attribute already created, like `temporal server start-dev`.
+
 ```sh
-make build                                  # build/workflow-engine, build/workflow-engine-sql
+make build
+./build/workflow-engine start-dev           # frontend on 127.0.0.1:7233, in memory
+./build/workflow-engine start-dev --port 17233 --db-file data/dev.db --namespace orders --log-level info
+```
+
+`--ip` (default `127.0.0.1`) and `--port` (default 7233; the other services take the next ports up to `--port`+10)
+set where it listens, `--db-file` keeps the data in a SQLite file instead of memory, `--namespace` adds namespaces
+besides `default` (repeatable) and `--log-level` defaults to `warn`. In a distribution, `bin/workflow-runtime dev`
+runs the same with the same flags.
+
+To run the engine as it runs in production, from a runtime configuration:
+
+```sh
+make build                                  # build/workflow-runtime, workflow-engine, workflow-engine-sql, workflow-cli
+make cli                                    # only build/workflow-cli
 ./build/workflow-engine version
 ./build/workflow-engine render-config --runtime-config tests/engine/runtime-sqlite.toml   # inspect the generated config
 ./build/workflow-engine start --runtime-config tests/engine/runtime-sqlite.toml --allow-no-auth
@@ -31,15 +48,33 @@ make build                                  # build/workflow-engine, build/workf
 
 `tests/engine/runtime-sqlite.toml` runs every service in one process on in-memory SQLite, on ports 17233 (frontend
 gRPC), 17243 (frontend HTTP), 17234, 17235 and 17239. The PostgreSQL and MySQL variants expect a database on 15432
-or 13306 and the password in `WORKFLOW_TEST_DB_PASSWORD`; see [TESTING.md](TESTING.md). Point the Temporal CLI at `localhost:17233` to inspect it:
+or 13306 and the password in `WORKFLOW_TEST_DB_PASSWORD`; see [TESTING.md](TESTING.md). These configurations create no namespace: use `workflow-cli` to check health
+and create one with the `WorkflowKind` search attribute:
 
 ```sh
-temporal operator cluster health --address localhost:17233
-temporal operator namespace create --namespace default --address localhost:17233
+./build/workflow-cli operator cluster health --address localhost:17233
+./build/workflow-cli operator namespace create --namespace default --address localhost:17233
 ```
+
+The [workflow-cli reference](../user-guide/reference/workflow-cli.md) lists every command.
 
 `--allow-no-auth` is for development and tests only: without it the engine refuses to start unless an
 authorizer is configured.
+
+## Distribution and image
+
+```sh
+make dist                                   # dist/wso2-workflow-runtime-<version>-<os>-<arch>.zip for GOOS/GOARCH
+make image IMAGE_PLATFORMS=linux/arm64 IMAGE_ARGS=--load   # build the linux zip, then load the image locally
+```
+
+`IMAGE` names the image, `IMAGE_PLATFORMS` lists its platforms (default `linux/amd64,linux/arm64`) and `IMAGE_ARGS`
+passes extra `docker buildx` arguments, such as `--push`. In an unzipped distribution, `bin/workflow-runtime` starts
+the engine from `conf/runtime.toml`, or from the file `WORKFLOW_RUNTIME_CONFIG` names, and passes `render-config`,
+`version` and the engine's flags through. In `runtime.toml`, `engine.logFile` writes the log to a file instead of
+standard output, and `engine.broadcastAddress = "auto"` advertises the host's own address, as a container needs; see
+the [runtime.toml reference](../user-guide/reference/runtime-toml.md) and
+[distribution](../features/distribution.md).
 
 ## Checks
 

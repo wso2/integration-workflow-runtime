@@ -17,9 +17,11 @@
 package sqlschema
 
 import (
+	"context"
 	"database/sql"
 	"database/sql/driver"
 	"errors"
+	"net"
 	"slices"
 	"strings"
 	"testing"
@@ -390,5 +392,22 @@ func TestPrepareStopsWhenTheLockSessionEnds(t *testing.T) {
 		if !main.closed {
 			t.Errorf("end after %d: the session was left open", endAfter)
 		}
+	}
+}
+
+func TestMySQLDialRefusesASecondConnection(t *testing.T) {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = l.Close() }()
+	dial := dialOnce("tcp")
+	c, err := dial(context.Background(), l.Addr().String())
+	if err != nil {
+		t.Fatalf("first dial = %v, want a connection", err)
+	}
+	defer func() { _ = c.Close() }()
+	if _, err := dial(context.Background(), l.Addr().String()); !errors.Is(err, errSessionEnded) {
+		t.Fatalf("second dial = %v, want %v", err, errSessionEnded)
 	}
 }

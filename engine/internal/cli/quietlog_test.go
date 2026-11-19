@@ -65,8 +65,12 @@ func TestQuietLoggerDowngradesTransientStartupErrors(t *testing.T) {
 func TestQuietLoggerKeepsTheCallersSourcePosition(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "engine.log")
 	l := newQuietLogger(log.NewZapLogger(log.BuildZapLogger(log.Config{Level: "debug", OutputFile: file})))
-	if _, ok := l.(quietLogger); !ok {
-		t.Fatal("not a quiet logger")
+	// Temporal builds component loggers with log.With, so those must keep the caller's position too.
+	with := log.With(l, tag.NewStringTag("component", "test"))
+	for _, q := range []log.Logger{l, with} {
+		if _, ok := q.(quietLogger); !ok {
+			t.Fatalf("%T is not a quiet logger", q)
+		}
 	}
 	_, _, line, _ := runtime.Caller(0)
 	l.Info("info")
@@ -74,6 +78,9 @@ func TestQuietLoggerKeepsTheCallersSourcePosition(t *testing.T) {
 	l.Debug("debug")
 	l.Error("error")
 	l.Error("transient", tag.Error(shard.ErrShardStatusUnknown))
+	with.Info("with info")
+	with.Error("with error")
+	with.Error("with transient", tag.Error(shard.ErrShardStatusUnknown))
 	data, err := os.ReadFile(file)
 	if err != nil {
 		t.Fatal(err)
@@ -84,13 +91,16 @@ func TestQuietLoggerKeepsTheCallersSourcePosition(t *testing.T) {
 		if err := json.Unmarshal([]byte(entry), &e); err != nil {
 			t.Fatalf("%v: %s", err, entry)
 		}
-		got = append(got, fmt.Sprintf("%s %s", e["msg"], filepath.Base(fmt.Sprint(e[tag.LoggingCallAtKey]))))
+		got = append(got, fmt.Sprintf("%s %s %s", e["msg"], e["level"],
+			filepath.Base(fmt.Sprint(e[tag.LoggingCallAtKey]))))
 	}
 	want := []string{}
-	for i, msg := range []string{"info", "warn", "debug", "error", "transient"} {
-		want = append(want, fmt.Sprintf("%s quietlog_test.go:%d", msg, line+1+i))
+	for i, m := range []struct{ msg, level string }{{"info", "info"}, {"warn", "warn"}, {"debug", "debug"},
+		{"error", "error"}, {"transient", "debug"}, {"with info", "info"}, {"with error", "error"},
+		{"with transient", "debug"}} {
+		want = append(want, fmt.Sprintf("%s %s quietlog_test.go:%d", m.msg, m.level, line+1+i))
 	}
 	if !slices.Equal(got, want) {
-		t.Fatalf("logged at %v, want %v", got, want)
+		t.Fatalf("logged %v, want %v", got, want)
 	}
 }
