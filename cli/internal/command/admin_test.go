@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 
@@ -38,6 +39,7 @@ type adminState struct {
 	purges  []*adminservice.PurgeDLQTasksRequest
 	merges  []*adminservice.MergeDLQTasksRequest
 	cancels []*adminservice.CancelDLQJobRequest
+	pages   []string // the page tokens ListQueues received
 	empty   bool
 }
 
@@ -62,16 +64,23 @@ func (f adminFake) CloseShard(ctx context.Context, r *adminservice.CloseShardReq
 	return &adminservice.CloseShardResponse{}, nil
 }
 
-func (f adminFake) ListQueues(ctx context.Context, _ *adminservice.ListQueuesRequest) (*adminservice.ListQueuesResponse,
+// ListQueues returns one queue per page, so the transfer queue that merge and purge look up is on the second page.
+func (f adminFake) ListQueues(ctx context.Context, r *adminservice.ListQueuesRequest) (*adminservice.ListQueuesResponse,
 	error) {
 	f.record(ctx)
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.admin.pages = append(f.admin.pages, string(r.GetNextPageToken()))
 	if f.admin.empty {
 		return &adminservice.ListQueuesResponse{}, nil
 	}
+	if len(r.GetNextPageToken()) == 0 {
+		return &adminservice.ListQueuesResponse{NextPageToken: []byte("page-2"),
+			Queues: []*adminservice.ListQueuesResponse_QueueInfo{
+				{QueueName: "2_active_active_def", MessageCount: 0, LastMessageId: 9}}}, nil
+	}
 	return &adminservice.ListQueuesResponse{Queues: []*adminservice.ListQueuesResponse_QueueInfo{
-		{QueueName: "1_active_active_abc", MessageCount: 3, LastMessageId: 42},
-		{QueueName: "2_active_active_def", MessageCount: 0, LastMessageId: 9},
-	}}, nil
+		{QueueName: "1_active_active_abc", MessageCount: 3, LastMessageId: 42}}}, nil
 }
 
 func (f adminFake) GetDLQTasks(ctx context.Context, r *adminservice.GetDLQTasksRequest) (*adminservice.GetDLQTasksResponse,
@@ -129,6 +138,14 @@ func TestShards(t *testing.T) {
 			t.Errorf("shard describe lacks %q:\n%s", want, out)
 		}
 	}
+	var shard []map[string]any
+	if err := json.Unmarshal([]byte(tc.must("admin", "shard", "describe", "--shard-id", "12", "-o", "json")),
+		&shard); err != nil || len(shard) != 2 || shard[1]["address"] != "10.0.0.21:7234" {
+		t.Fatalf("json shard describe = %v, %v", shard, err)
+	}
+	if info, _ := shard[0]["shardInfo"].(map[string]any); info["shardId"] != float64(12) {
+		t.Fatalf("json shard info = %v", shard[0])
+	}
 	tc.must("admin", "shard", "close", "--shard-id", "12")
 	if c := tc.engine.admin.closed; len(c) != 1 || c[0] != 12 {
 		t.Fatalf("closed = %v", c)
@@ -143,6 +160,20 @@ func TestDeadLetterQueues(t *testing.T) {
 			t.Errorf("dlq list lacks %q:\n%s", want, out)
 		}
 	}
+	if p := tc.engine.admin.pages; !slices.Equal(p, []string{"", "page-2"}) {
+		t.Fatalf("dlq list read pages %q, want both", p)
+	}
+	var queues []map[string]any
+	if err := json.Unmarshal([]byte(tc.must("admin", "dlq", "list", "-o", "json")), &queues); err != nil ||
+		len(queues) != 2 || queues[1]["queueName"] != "1_active_active_abc" {
+		t.Fatalf("json dlq list = %v, %v", queues, err)
+	}
+	var tasks map[string]any
+	if err := json.Unmarshal([]byte(tc.must("admin", "dlq", "read", "--dlq-type", "transfer", "-o", "json")),
+		&tasks); err != nil || len(tasks["dlqTasks"].([]any)) != 1 {
+		t.Fatalf("json dlq read = %v, %v", tasks, err)
+	}
+	tc.engine.admin.reads = nil
 	out = tc.must("admin", "dlq", "read", "--dlq-type", "transfer", "--limit", "5")
 	if r := tc.engine.admin.reads[0]; r.GetPageSize() != 5 || r.GetDlqKey().GetTaskCategory() != 1 ||
 		r.GetDlqKey().GetSourceCluster() != "active" || r.GetDlqKey().GetTargetCluster() != "active" {
@@ -188,6 +219,11 @@ func TestDeadLetterQueues(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("job describe lacks %q:\n%s", want, out)
 		}
+	}
+	var job map[string]any
+	if err := json.Unmarshal([]byte(tc.must("admin", "dlq", "job", "describe", "--job-token", token, "-o", "json")),
+		&job); err != nil || job["operationType"] != "DLQ_OPERATION_TYPE_MERGE" || job["messagesProcessed"] != "3" {
+		t.Fatalf("json job describe = %v, %v", job, err)
 	}
 	tc.must("admin", "dlq", "job", "cancel", "--job-token", token, "--reason", "wrong queue")
 	if c := tc.engine.admin.cancels[0]; string(c.GetJobToken()) != "merge-job" || c.GetReason() != "wrong queue" {
