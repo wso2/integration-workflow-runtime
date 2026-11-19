@@ -163,6 +163,11 @@ func Render(cfg *config.Config) ([]byte, error) {
 }
 
 func parse(data []byte, lookupEnv func(string) (string, bool)) (*Runtime, error) {
+	return parseOn(data, lookupEnv, net.InterfaceAddrs)
+}
+
+// parseOn parses with the environment variables and network interfaces it is given.
+func parseOn(data []byte, lookupEnv func(string) (string, bool), interfaceAddrs func() ([]net.Addr, error)) (*Runtime, error) {
 	values, err := toml.Parser().Unmarshal(data)
 	if err != nil {
 		return nil, fmt.Errorf("invalid runtime configuration: %w", err)
@@ -179,7 +184,7 @@ func parse(data []byte, lookupEnv func(string) (string, bool)) (*Runtime, error)
 		return nil, err
 	}
 	if s.Engine.BroadcastAddress == autoAddress {
-		ip, err := hostAddress()
+		ip, err := hostAddress(interfaceAddrs)
 		if err != nil {
 			return nil, fmt.Errorf(`invalid runtime configuration: engine.broadcastAddress "auto": %w`, err)
 		}

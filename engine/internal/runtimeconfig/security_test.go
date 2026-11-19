@@ -325,10 +325,12 @@ func TestLogFile(t *testing.T) {
 }
 
 func TestBroadcastAddressAuto(t *testing.T) {
-	saved := interfaceAddrs
-	t.Cleanup(func() { interfaceAddrs = saved })
+	t.Parallel()
 	ipnet := func(s string) net.Addr { ip, n, _ := net.ParseCIDR(s); n.IP = ip; return n }
-	toml := "[engine]\nbindAddress = \"0.0.0.0\"\nbroadcastAddress = \"auto\"\n" + sqliteDB
+	addrsOf := func(list []net.Addr, err error) func() ([]net.Addr, error) {
+		return func() ([]net.Addr, error) { return list, err }
+	}
+	toml := []byte("[engine]\nbindAddress = \"0.0.0.0\"\nbroadcastAddress = \"auto\"\n" + sqliteDB)
 	for addrs, want := range map[string]struct {
 		list []net.Addr
 		ip   string
@@ -336,17 +338,19 @@ func TestBroadcastAddressAuto(t *testing.T) {
 		"ipv4": {[]net.Addr{ipnet("127.0.0.1/8"), ipnet("fe80::1/64"), ipnet("10.1.2.3/16")}, "10.1.2.3"},
 		"ipv6": {[]net.Addr{ipnet("127.0.0.1/8"), ipnet("2001:db8::5/64")}, "2001:db8::5"},
 	} {
-		interfaceAddrs = func() ([]net.Addr, error) { return want.list, nil }
-		if got := mustParseRuntime(t, toml).Temporal.Global.Membership.BroadcastAddress; got != want.ip {
+		rt, err := parseOn(toml, noEnv, addrsOf(want.list, nil))
+		if err != nil {
+			t.Fatalf("%s: %v", addrs, err)
+		}
+		if got := rt.Temporal.Global.Membership.BroadcastAddress; got != want.ip {
 			t.Errorf("%s: broadcast = %q, want %q", addrs, got, want.ip)
 		}
 	}
-	interfaceAddrs = func() ([]net.Addr, error) { return []net.Addr{ipnet("127.0.0.1/8")}, nil }
-	if _, err := parse([]byte(toml), noEnv); err == nil || !strings.Contains(err.Error(), "no non-loopback address") {
+	loopback := addrsOf([]net.Addr{ipnet("127.0.0.1/8")}, nil)
+	if _, err := parseOn(toml, noEnv, loopback); err == nil || !strings.Contains(err.Error(), "no non-loopback address") {
 		t.Errorf("err = %v", err)
 	}
-	interfaceAddrs = func() ([]net.Addr, error) { return nil, errors.New("boom") }
-	if _, err := parse([]byte(toml), noEnv); err == nil {
+	if _, err := parseOn(toml, noEnv, addrsOf(nil, errors.New("boom"))); err == nil {
 		t.Error("an interface error was ignored")
 	}
 	if _, err := parse([]byte("[engine]\nbroadcastAddress = \"runtime\"\n"+sqliteDB), noEnv); err == nil ||
