@@ -12,12 +12,12 @@ portals, packaging and updates.
 |---|---|---|
 | Engine | Temporal's four services (frontend, history, matching, worker) in our Go binary, `workflow-engine` | Builds and runs |
 | Engine endpoint | The integrations' one port (7233): gRPC to Temporal's frontend, `/runtime/...` HTTPS to the Manager | Planned |
-| Launcher | Starts the components of a profile, writes Temporal's configuration from `conf/runtime.toml`, supervises and restarts | Planned |
+| Launcher | The `workflow-runtime` command in `engine/internal/launcher`: finds the runtime home from its own location, works from there and hands the command to `workflow-engine` (on Linux and macOS by replacing itself). Restarts are left to systemd or the container runtime | Builds and runs |
 | Manager | Go service: engine administration, the Workflow Management API, SSO sign-in, roles; serves the portals | Planned |
 | Admin Portal | UI for administrators and operators, at `/admin` | Planned |
 | User Portal | Business users' human-task inbox, at `/portal` | Planned |
 | Runtime DB | The Manager's data: integrations, definitions and versions, users, roles, audit | Planned |
-| Temporal persistence | Temporal's data: workflow state, history, task queues, visibility | Configured by the launcher |
+| Temporal persistence | Temporal's data: workflow state, history, task queues, visibility | Configured from `conf/runtime.toml` |
 
 ## How the pieces connect
 
