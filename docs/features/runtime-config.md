@@ -27,7 +27,7 @@ other, not both.
 | `port` | 5432 (PostgreSQL), 3306 (MySQL) | Database port |
 | `user`, `password` | empty | Credentials. `password` is a literal or `$env{NAME}` (read from the environment) |
 | `name` | `temporal` | Database for Temporal's workflow state |
-| `visibilityName` | `temporal_visibility` | Database for Temporal's visibility (instance lists and search); must differ from `name` |
+| `visibilityName` | `temporal_visibility` | Database for Temporal's visibility (instance lists and search); must differ from `name`, ignoring case on MySQL, where `lower_case_table_names` can fold names |
 | `path` | | SQLite only: the database file. Both stores share it, and its schema is created on first start |
 | `inMemory` | false | SQLite only: keep everything in memory (tests and trying out); use instead of `path` |
 | `maxConns` | 20 (1 for SQLite) | Connections per store; must be 1 for an in-memory SQLite database, where each connection would get its own empty database; that one connection is never retired |
