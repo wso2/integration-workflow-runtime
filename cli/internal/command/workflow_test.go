@@ -43,6 +43,7 @@ type workflowState struct {
 	cancels []*workflowservice.RequestCancelWorkflowExecutionRequest
 	ends    []*workflowservice.TerminateWorkflowExecutionRequest
 	queries []string
+	sizes   []int32 // the page sizes list requests asked for
 	runIDs  []string
 	pollers map[enumspb.TaskQueueType][]*taskqueuepb.PollerInfo
 }
@@ -84,11 +85,12 @@ func (f workflowFake) ListWorkflowExecutions(ctx context.Context, r *workflowser
 	defer f.mu.Unlock()
 	w := f.workflows
 	w.queries = append(w.queries, r.GetQuery())
+	w.sizes = append(w.sizes, r.GetPageSize())
 	start := 0
 	if len(r.GetNextPageToken()) > 0 {
 		start = int(r.GetNextPageToken()[0])
 	}
-	end := min(start+2, len(w.infos))
+	end := min(start+2, start+int(r.GetPageSize()), len(w.infos))
 	res := &workflowservice.ListWorkflowExecutionsResponse{Executions: w.infos[start:end]}
 	if end < len(w.infos) {
 		res.NextPageToken = []byte{byte(end)}
@@ -102,6 +104,9 @@ func (f workflowFake) CountWorkflowExecutions(ctx context.Context, r *workflowse
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.workflows.queries = append(f.workflows.queries, r.GetQuery())
+	if f.ops.countErr != nil {
+		return nil, f.ops.countErr
+	}
 	return &workflowservice.CountWorkflowExecutionsResponse{Count: int64(len(f.workflows.infos))}, nil
 }
 
@@ -198,8 +203,17 @@ func TestWorkflowListAndCount(t *testing.T) {
 	if q := tc.engine.workflows.queries; q[0] != `WorkflowKind="orders.Order"` || len(q) != 2 {
 		t.Fatalf("queries = %q, want the query on both pages", q)
 	}
+	tc.engine.workflows.sizes = nil
 	if out := tc.must("workflow", "list", "--limit", "1"); strings.Contains(out, "order-2") {
 		t.Fatalf("--limit 1 listed more:\n%s", out)
+	}
+	if s := tc.engine.workflows.sizes; !slices.Equal(s, []int32{1}) {
+		t.Fatalf("--limit 1 asked for pages of %v, want one page of 1", s)
+	}
+	tc.engine.workflows.sizes = nil
+	tc.must("workflow", "list", "--limit", "3")
+	if s := tc.engine.workflows.sizes; !slices.Equal(s, []int32{3, 1}) {
+		t.Fatalf("--limit 3 asked for pages of %v, want 3 then the 1 still needed", s)
 	}
 	var list []map[string]any
 	if err := json.Unmarshal([]byte(tc.must("workflow", "list", "-o", "json", "--limit", "0")), &list); err != nil ||

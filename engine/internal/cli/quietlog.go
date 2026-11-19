@@ -49,11 +49,27 @@ type quietLogger struct {
 }
 
 func newQuietLogger(l log.Logger) log.Logger {
+	return wrapQuiet(l, time.Now().Add(startupGrace), time.Now)
+}
+
+func wrapQuiet(l log.Logger, until time.Time, now func() time.Time) quietLogger {
 	errs := l
 	if s, ok := l.(log.SkipLogger); ok {
 		errs = s.Skip(1)
 	}
-	return quietLogger{Logger: l, errors: errs, until: time.Now().Add(startupGrace), now: time.Now}
+	return quietLogger{Logger: l, errors: errs, until: until, now: now}
+}
+
+// With keeps the logger underneath doing the tagging, as Temporal's generic wrapper would log its own position.
+func (q quietLogger) With(tags ...tag.Tag) log.Logger {
+	return wrapQuiet(log.With(q.Logger, tags...), q.until, q.now)
+}
+
+func (q quietLogger) Skip(extraSkip int) log.Logger {
+	if s, ok := q.Logger.(log.SkipLogger); ok {
+		return wrapQuiet(s.Skip(extraSkip), q.until, q.now)
+	}
+	return q
 }
 
 func (q quietLogger) Error(msg string, tags ...tag.Tag) {

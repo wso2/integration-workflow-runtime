@@ -84,8 +84,13 @@ func (c *cli) workflowListCommand() *cobra.Command {
 			var all []*workflowpb.WorkflowExecutionInfo
 			var token []byte
 			for limit == 0 || len(all) < limit {
+				// Ask only for the rows still needed, so a small --limit runs a small visibility query.
+				pageSize := 100
+				if limit > 0 {
+					pageSize = min(pageSize, limit-len(all))
+				}
 				res, err := client.ListWorkflowExecutions(ctx, &workflowservice.ListWorkflowExecutionsRequest{
-					Namespace: s.Namespace, Query: query, PageSize: 100, NextPageToken: token,
+					Namespace: s.Namespace, Query: query, PageSize: int32(pageSize), NextPageToken: token, //nolint:gosec // at most 100
 				})
 				if err != nil {
 					return fmt.Errorf("unable to list workflows: %w", err)

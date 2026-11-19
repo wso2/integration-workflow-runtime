@@ -65,11 +65,11 @@ func (c *cli) run(args []string) int {
 	root.SetOut(c.stdout)
 	root.SetErr(c.stderr)
 	if err := root.Execute(); err != nil {
-		_, _ = fmt.Fprintln(c.stderr, "Error:", err)
 		var exit exitError
 		if errors.As(err, &exit) {
 			return int(exit)
 		}
+		_, _ = fmt.Fprintln(c.stderr, "Error:", err)
 		return 1
 	}
 	return 0

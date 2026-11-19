@@ -168,6 +168,14 @@ func TestDialOptionErrors(t *testing.T) {
 	if key, err := apiKey(clientconfig.Settings{APIKeyFile: keyFile}); err != nil || key != "file-token" {
 		t.Errorf("apiKey from a file = %q, %v", key, err)
 	}
+	// A second line would put a newline into the authorization header, which gRPC refuses.
+	twoLines := filepath.Join(t.TempDir(), "token")
+	if err := os.WriteFile(twoLines, []byte("first-token\r\nsecond line\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if key, err := apiKey(clientconfig.Settings{APIKeyFile: twoLines}); err != nil || key != "first-token" {
+		t.Errorf("apiKey from a two-line file = %q, %v, want the first line", key, err)
+	}
 }
 
 func TestDialSendsNothingUntilACall(t *testing.T) {

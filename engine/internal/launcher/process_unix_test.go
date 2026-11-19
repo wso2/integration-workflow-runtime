@@ -20,8 +20,10 @@ package launcher
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"os/signal"
 	"strings"
 	"syscall"
@@ -64,7 +66,11 @@ func TestLauncherBecomesTheEngineProcess(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
 	select {
-	case <-done:
+	case err := <-done:
+		var exit *exec.ExitError
+		if !errors.As(err, &exit) || exit.ExitCode() != 42 {
+			t.Fatalf("wait = %v, want the engine's exit code 42", err)
+		}
 	case <-time.After(10 * time.Second):
 		_ = cmd.Process.Kill()
 		t.Fatal("the engine did not exit on SIGTERM")
