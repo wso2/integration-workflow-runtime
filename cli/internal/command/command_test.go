@@ -286,9 +286,9 @@ func TestClusterHealth(t *testing.T) {
 	if out := tc.must("operator", "cluster", "health"); out != "SERVING\n" {
 		t.Fatalf("frontend health = %q", out)
 	}
-	if code, out, _ := tc.run("operator", "cluster", "health", "--service", "history"); code != 1 ||
-		out != "NOT_SERVING\n" {
-		t.Fatalf("history health = %d %q, want 1 NOT_SERVING", code, out)
+	if code, out, errOut := tc.run("operator", "cluster", "health", "--service", "history"); code != 1 ||
+		out != "NOT_SERVING\n" || errOut != "" {
+		t.Fatalf("history health = %d %q %q, want 1 NOT_SERVING and nothing on stderr", code, out, errOut)
 	}
 	if code, _, errOut := tc.run("operator", "cluster", "health", "--service", "manager"); code != 1 ||
 		!strings.Contains(errOut, "must be one of frontend, history") {

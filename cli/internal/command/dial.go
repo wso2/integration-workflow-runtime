@@ -111,7 +111,8 @@ func apiKey(s clientconfig.Settings) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("unable to read the API key: %w", err)
 	}
-	key := strings.TrimSpace(string(data))
+	line, _, _ := strings.Cut(string(data), "\n")
+	key := strings.TrimSpace(line)
 	if key == "" {
 		return "", fmt.Errorf("%s is empty", s.APIKeyFile)
 	}
