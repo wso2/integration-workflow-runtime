@@ -15,8 +15,8 @@ named after its version, so a version bump in the `Makefile` installs the new on
 
 ## Layout
 
-The repository is a Go workspace (`go.work`). Each component is its own module (`engine/` today, which also holds
-the launcher; `manager/` as it arrives), so `make` targets loop over the workspace modules. `tools/` is the module for the
+The repository is a Go workspace (`go.work`). Each component is its own module (`engine/`, which also holds the
+launcher; `cli/` for `workflow-cli`, which imports no server code; `manager/` as it arrives), so `make` targets loop over the workspace modules. `tools/` is the module for the
 repository's own tools: the coverage gate (`covercheck`), the Ballerina suite runner (`balsuite`) and the tests
 of the shell scripts in `.github/scripts`.
 
@@ -39,7 +39,8 @@ runs the same with the same flags.
 To run the engine as it runs in production, from a runtime configuration:
 
 ```sh
-make build                                  # build/workflow-runtime, build/workflow-engine, build/workflow-engine-sql
+make build                                  # build/workflow-runtime, workflow-engine, workflow-engine-sql, workflow-cli
+make cli                                    # only build/workflow-cli
 ./build/workflow-engine version
 ./build/workflow-engine render-config --runtime-config tests/engine/runtime-sqlite.toml   # inspect the generated config
 ./build/workflow-engine start --runtime-config tests/engine/runtime-sqlite.toml --allow-no-auth
@@ -47,13 +48,15 @@ make build                                  # build/workflow-runtime, build/work
 
 `tests/engine/runtime-sqlite.toml` runs every service in one process on in-memory SQLite, on ports 17233 (frontend
 gRPC), 17243 (frontend HTTP), 17234, 17235 and 17239. The PostgreSQL and MySQL variants expect a database on 15432
-or 13306 and the password in `WORKFLOW_TEST_DB_PASSWORD`; see [TESTING.md](TESTING.md). These configurations create no namespace: point the Temporal CLI at
-`localhost:17233` to check health and create one:
+or 13306 and the password in `WORKFLOW_TEST_DB_PASSWORD`; see [TESTING.md](TESTING.md). These configurations create no namespace: use `workflow-cli` to check health
+and create one with the `WorkflowKind` search attribute:
 
 ```sh
-temporal operator cluster health --address localhost:17233
-temporal operator namespace create --namespace default --address localhost:17233
+./build/workflow-cli operator cluster health --address localhost:17233
+./build/workflow-cli operator namespace create --namespace default --address localhost:17233
 ```
+
+The [workflow-cli reference](../user-guide/reference/workflow-cli.md) lists every command.
 
 `--allow-no-auth` is for development and tests only: without it the engine refuses to start unless an
 authorizer is configured.
