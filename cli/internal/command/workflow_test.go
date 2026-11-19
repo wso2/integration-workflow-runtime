@@ -102,6 +102,9 @@ func (f workflowFake) CountWorkflowExecutions(ctx context.Context, r *workflowse
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.workflows.queries = append(f.workflows.queries, r.GetQuery())
+	if f.ops.countErr != nil {
+		return nil, f.ops.countErr
+	}
 	return &workflowservice.CountWorkflowExecutionsResponse{Count: int64(len(f.workflows.infos))}, nil
 }
 

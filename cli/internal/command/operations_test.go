@@ -18,6 +18,7 @@ package command
 
 import (
 	"context"
+	"encoding/json"
 	"slices"
 	"strings"
 	"testing"
@@ -40,6 +41,8 @@ type opsState struct {
 	schedules map[string]*schedulepb.Schedule
 	crons     []string // the cron strings create requests sent, before the engine's canonical form
 	patches   []*workflowservice.PatchScheduleRequest
+	countErr  error // returned by CountWorkflowExecutions
+	batchErr  error // returned by StartBatchOperation
 }
 
 func (f workflowFake) ResetWorkflowExecution(ctx context.Context, r *workflowservice.ResetWorkflowExecutionRequest) (
@@ -56,6 +59,9 @@ func (f workflowFake) StartBatchOperation(ctx context.Context, r *workflowservic
 	f.record(ctx)
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.ops.batchErr != nil {
+		return nil, f.ops.batchErr
+	}
 	f.ops.batches = append(f.ops.batches, r)
 	return &workflowservice.StartBatchOperationResponse{}, nil
 }
@@ -265,6 +271,36 @@ func TestBatchJobs(t *testing.T) {
 		if code, _, errOut := tc.run(strings.Fields(args)...); code != 1 || !strings.Contains(errOut, want) {
 			t.Errorf("%s = %d %q, want %q", args, code, errOut, want)
 		}
+	}
+}
+
+func TestBatchAndResetJSON(t *testing.T) {
+	tc := newTestCLI(t)
+	// Scripts read the new job's ID from this object, so its keys and types are part of the interface.
+	var job map[string]any
+	out := tc.must("workflow", "terminate", "-q", "WorkflowKind='x'", "--reason", "r", "-y", "-o", "json")
+	if err := json.Unmarshal([]byte(out), &job); err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	if b := tc.engine.ops.batches[0]; len(job) != 2 || job["jobId"] != b.GetJobId() || job["count"] != float64(3) {
+		t.Fatalf("batch json = %v, want jobId %q and count 3 as a number", job, b.GetJobId())
+	}
+	var reset map[string]any
+	out = tc.must("workflow", "reset", "-w", "order-1", "--reason", "x", "--event-id", "7", "-o", "json")
+	if err := json.Unmarshal([]byte(out), &reset); err != nil || reset["runId"] != "run-reset" {
+		t.Fatalf("reset json = %v, %v: %s", reset, err, out)
+	}
+
+	tc.engine.ops.countErr = serviceerror.NewUnavailable("visibility down")
+	if code, _, errOut := tc.run("workflow", "cancel", "-q", "x", "--reason", "r", "-y"); code != 1 ||
+		!strings.Contains(errOut, "unable to count the workflows to cancel") {
+		t.Errorf("count error = %d %q", code, errOut)
+	}
+	tc.engine.ops.countErr = nil
+	tc.engine.ops.batchErr = serviceerror.NewUnavailable("too many batch jobs")
+	if code, _, errOut := tc.run("workflow", "cancel", "-q", "x", "--reason", "r", "-y"); code != 1 ||
+		!strings.Contains(errOut, "unable to start the batch job") {
+		t.Errorf("start error = %d %q", code, errOut)
 	}
 }
 
