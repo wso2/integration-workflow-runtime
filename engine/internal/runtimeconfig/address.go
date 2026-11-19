@@ -24,11 +24,8 @@ import (
 // autoAddress as engine.broadcastAddress picks this host's address, for containers whose IP is known only at start.
 const autoAddress = "auto"
 
-// interfaceAddrs is replaced in tests.
-var interfaceAddrs = net.InterfaceAddrs
-
 // hostAddress returns the first non-loopback IPv4 address, or else the first global IPv6 address.
-func hostAddress() (string, error) {
+func hostAddress(interfaceAddrs func() ([]net.Addr, error)) (string, error) {
 	addrs, err := interfaceAddrs()
 	if err != nil {
 		return "", err

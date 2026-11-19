@@ -23,8 +23,9 @@ every profile. Both carry the same binaries, the one configuration file, SBOMs a
 
 - The launcher finds the runtime's home from its own location (symbolic links resolved) and works from there, so
   relative paths in `runtime.toml` (certificates, log file, SQLite file) resolve against it. On Linux and macOS it
-  replaces itself with the engine, so signals and the exit code are the engine's; on Windows it runs the engine as
-  a child sharing the console.
+  replaces itself with the engine, so signals and the exit code are the engine's. On Windows it runs the engine as
+  a child sharing the console: on Ctrl+C it waits for the engine to shut down and returns its exit code, and a job
+  object ends the engine if the launcher is killed on its own.
 - The image's entry point is the launcher, so it starts the engine from `/opt/wso2-workflow-runtime/conf/runtime.toml`;
   arguments after the image name are passed to it (for example `--allow-no-auth` when trying it out).
 - In a container, set `bindAddress = "0.0.0.0"` and `broadcastAddress = "auto"`: the engine advertises the
@@ -58,5 +59,5 @@ Patches through WSO2 Updates, Helm charts, and supervision and restart outside s
 | Test | Covers |
 |---|---|
 | `engine/internal/launcher/launcher_test.go` | The launcher's home, working directory, configuration, commands, help and errors |
-| `engine/internal/launcher/process*_test.go` | The real handoff in separate processes: arguments, environment, stdin and exit code reach the engine; on Unix the engine replaces the launcher and gets its signals. Runs on Linux, macOS and, in its own CI job, Windows |
+| `engine/internal/launcher/process*_test.go` | The real handoff in separate processes: arguments, environment, stdin and exit code reach the engine; on Unix the engine replaces the launcher and gets its signals; on Windows the engine ends when the launcher is killed. Runs on Linux, macOS and, in its own CI job, Windows |
 | `engine/internal/runtimeconfig/security_test.go` | `broadcastAddress = "auto"` and `logFile` |

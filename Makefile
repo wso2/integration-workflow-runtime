@@ -85,10 +85,10 @@ dist: engine sbom
 	cd dist && rm -f $(DIST_NAME).zip && zip -qr $(DIST_NAME).zip $(DIST_NAME)
 
 # The image from the linux distributions of IMAGE_PLATFORMS; `make image IMAGE_PLATFORMS=linux/arm64 IMAGE_ARGS=--load`
-# loads one platform into the local Docker. Releases pass DIST_READY=1 after downloading the zips.
+# loads one platform into the local Docker. The release workflows run the same Dockerfile on the zips they built.
 image:
-	$(if $(DIST_READY),,@for p in $(subst $(comma), ,$(IMAGE_PLATFORMS)); do \
-		$(MAKE) dist GOOS=$${p%/*} GOARCH=$${p#*/} VERSION=$(VERSION) || exit 1; done)
+	@for p in $(subst $(comma), ,$(IMAGE_PLATFORMS)); do \
+		$(MAKE) dist GOOS=$${p%/*} GOARCH=$${p#*/} VERSION=$(VERSION) || exit 1; done
 	docker buildx build --platform $(IMAGE_PLATFORMS) --build-arg VERSION=$(VERSION) \
 		-f distribution/docker/Dockerfile -t $(IMAGE):$(VERSION) $(IMAGE_ARGS) .
 

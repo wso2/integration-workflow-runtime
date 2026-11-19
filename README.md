@@ -15,7 +15,7 @@ Manager (API server) and portals are being built.
 | Path | Component | Language |
 |---|---|---|
 | `engine/` | Temporal's services in our own binary (`workflow-engine`) and the schema tool (`workflow-engine-sql`) | Go |
-| `launcher/` | Notes on the launcher, `bin/workflow-runtime` (its code is in `engine/cmd/workflow-runtime`) | Docs |
+| `engine/internal/launcher` | `workflow-runtime`: finds the runtime home and hands the command to `workflow-engine`, or starts development mode (notes in `launcher/`) | Go |
 | `manager/` | The Manager: administration API, SSO sign-in, roles; serves the portals | Go |
 | `portals/` | Admin Portal and User Portal, static web apps served by the Manager | TypeScript |
 | `distribution/` | Zip and Docker assembly, configuration templates, the systemd example | Docker |

@@ -18,5 +18,55 @@
 
 package launcher
 
-// waitForSignal is not used on Windows: the console delivers Ctrl+C to the launcher and its child alike.
-func waitForSignal() int { return 1 }
+import (
+	"bufio"
+	"fmt"
+	"strconv"
+	"strings"
+	"syscall"
+	"testing"
+	"time"
+)
+
+// waitForSignal blocks until the engine is ended from outside, which the test does by killing the launcher.
+func waitForSignal() int {
+	fmt.Println("ready")
+	time.Sleep(time.Minute)
+	return 1
+}
+
+func TestTheEngineEndsWithAKilledLauncher(t *testing.T) {
+	_, launcher := processHome(t)
+	cmd, _ := launcherCommand(launcher, "", "wait")
+	cmd.Stdout = nil
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	lines, pid := bufio.NewScanner(stdout), 0
+	for lines.Scan() && lines.Text() != "ready" {
+		if after, ok := strings.CutPrefix(lines.Text(), "pid="); ok {
+			pid, _ = strconv.Atoi(after)
+		}
+	}
+	if pid == 0 {
+		t.Fatal("the engine did not report its pid")
+	}
+	// TerminateProcess ends only the launcher, as a service wrapper or taskkill without /T does.
+	if err := cmd.Process.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	_ = cmd.Wait()
+	const synchronize = 0x00100000
+	engine, err := syscall.OpenProcess(synchronize, false, uint32(pid)) //nolint:gosec // a pid
+	if err != nil {
+		return // already gone
+	}
+	defer syscall.CloseHandle(engine) //nolint:errcheck // a test handle
+	if event, _ := syscall.WaitForSingleObject(engine, 10_000); event != syscall.WAIT_OBJECT_0 {
+		t.Fatal("the engine kept running after the launcher was killed")
+	}
+}

@@ -15,15 +15,15 @@ named after its version, so a version bump in the `Makefile` installs the new on
 
 ## Layout
 
-The repository is a Go workspace (`go.work`). Each component is its own module (`engine/` today; `launcher/` and
-`manager/` as they arrive), so `make` targets loop over the workspace modules. `tools/` is the module for the
+The repository is a Go workspace (`go.work`). Each component is its own module (`engine/` today, which also holds
+the launcher; `manager/` as it arrives), so `make` targets loop over the workspace modules. `tools/` is the module for the
 repository's own tools: the coverage gate (`covercheck`), the Ballerina suite runner (`balsuite`) and the tests
 of the shell scripts in `.github/scripts`.
 
 ## Build and run
 
 ```sh
-make build                                  # build/workflow-engine, build/workflow-engine-sql
+make build                                  # build/workflow-runtime, build/workflow-engine, build/workflow-engine-sql
 ./build/workflow-engine version
 ./build/workflow-engine render-config --runtime-config tests/engine/runtime-sqlite.toml   # inspect the generated config
 ./build/workflow-engine start --runtime-config tests/engine/runtime-sqlite.toml --allow-no-auth
@@ -40,6 +40,21 @@ temporal operator namespace create --namespace default --address localhost:17233
 
 `--allow-no-auth` is for development and tests only: without it the engine refuses to start unless an
 authorizer is configured.
+
+## Distribution and image
+
+```sh
+make dist                                   # dist/wso2-workflow-runtime-<version>-<os>-<arch>.zip for GOOS/GOARCH
+make image IMAGE_PLATFORMS=linux/arm64 IMAGE_ARGS=--load   # build the linux zip, then load the image locally
+```
+
+`IMAGE` names the image, `IMAGE_PLATFORMS` lists its platforms (default `linux/amd64,linux/arm64`) and `IMAGE_ARGS`
+passes extra `docker buildx` arguments, such as `--push`. In an unzipped distribution, `bin/workflow-runtime` starts
+the engine from `conf/runtime.toml`, or from the file `WORKFLOW_RUNTIME_CONFIG` names, and passes `render-config`,
+`version` and the engine's flags through. In `runtime.toml`, `engine.logFile` writes the log to a file instead of
+standard output, and `engine.broadcastAddress = "auto"` advertises the host's own address, as a container needs; see
+the [runtime.toml reference](../user-guide/reference/runtime-toml.md) and
+[distribution](../features/distribution.md).
 
 ## Checks
 

@@ -347,14 +347,19 @@ func onceNetwork(protocol string) (network string, release func()) {
 		protocol = "tcp"
 	}
 	network = fmt.Sprintf("workflow-schema-%d", networkCount.Add(1))
+	mysql.RegisterDialContext(network, dialOnce(protocol))
+	return network, func() { mysql.DeregisterDialContext(network) }
+}
+
+// dialOnce connects over protocol the first time and refuses every later dial.
+func dialOnce(protocol string) mysql.DialContextFunc {
 	var dialed atomic.Bool
-	mysql.RegisterDialContext(network, func(ctx context.Context, addr string) (net.Conn, error) {
+	return func(ctx context.Context, addr string) (net.Conn, error) {
 		if !dialed.CompareAndSwap(false, true) {
 			return nil, errSessionEnded
 		}
 		return (&net.Dialer{}).DialContext(ctx, protocol, addr)
-	})
-	return network, func() { mysql.DeregisterDialContext(network) }
+	}
 }
 
 // onceDriver opens PostgreSQL pools over a onceConnector; Temporal's driver still classifies the errors.
