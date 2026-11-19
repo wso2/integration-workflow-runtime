@@ -22,6 +22,22 @@ of the shell scripts in `.github/scripts`.
 
 ## Build and run
 
+The quickest engine for local work is development mode: every service on SQLite, no TLS or authorization, and the
+`default` namespace with the `WorkflowKind` search attribute already created, like `temporal server start-dev`.
+
+```sh
+make build
+./build/workflow-engine start-dev           # frontend on 127.0.0.1:7233, in memory
+./build/workflow-engine start-dev --port 17233 --db-file data/dev.db --namespace orders --log-level info
+```
+
+`--ip` (default `127.0.0.1`) and `--port` (default 7233; the other services take the next ports up to `--port`+10)
+set where it listens, `--db-file` keeps the data in a SQLite file instead of memory, `--namespace` adds namespaces
+besides `default` (repeatable) and `--log-level` defaults to `warn`. In a distribution, `bin/workflow-runtime dev`
+runs the same with the same flags.
+
+To run the engine as it runs in production, from a runtime configuration:
+
 ```sh
 make build                                  # build/workflow-runtime, build/workflow-engine, build/workflow-engine-sql
 ./build/workflow-engine version
@@ -31,7 +47,8 @@ make build                                  # build/workflow-runtime, build/work
 
 `tests/engine/runtime-sqlite.toml` runs every service in one process on in-memory SQLite, on ports 17233 (frontend
 gRPC), 17243 (frontend HTTP), 17234, 17235 and 17239. The PostgreSQL and MySQL variants expect a database on 15432
-or 13306 and the password in `WORKFLOW_TEST_DB_PASSWORD`; see [TESTING.md](TESTING.md). Point the Temporal CLI at `localhost:17233` to inspect it:
+or 13306 and the password in `WORKFLOW_TEST_DB_PASSWORD`; see [TESTING.md](TESTING.md). These configurations create no namespace: point the Temporal CLI at
+`localhost:17233` to check health and create one:
 
 ```sh
 temporal operator cluster health --address localhost:17233
