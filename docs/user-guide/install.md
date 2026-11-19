@@ -80,7 +80,7 @@ The Linux zip includes `systemd/workflow-runtime.service`, written for `/opt/wso
 3. Install and start the unit:
 
    ```bash
-   sudo cp systemd/workflow-runtime.service /etc/systemd/system/
+   sudo cp /opt/wso2-workflow-runtime/systemd/workflow-runtime.service /etc/systemd/system/
    sudo systemctl daemon-reload
    sudo systemctl enable --now workflow-runtime
    journalctl -u workflow-runtime -f

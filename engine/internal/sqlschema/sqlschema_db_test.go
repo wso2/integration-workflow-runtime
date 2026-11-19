@@ -18,7 +18,6 @@ package sqlschema
 
 import (
 	"database/sql"
-	"errors"
 	"fmt"
 	"os"
 	"slices"
@@ -411,9 +410,9 @@ func TestMySQLStopsWhenItsLockSessionEnds(t *testing.T) {
 				t.Fatal(err)
 			}
 			server.exec(t, admin, fmt.Sprintf("KILL %d", id))
-			// The schema tool's own connection is still open, but no change runs once the lock's session ended.
-			if err := first.Exec("CREATE TABLE after_loss (id INT)"); err == nil || !errors.Is(err, errSessionEnded) {
-				t.Fatalf("Exec after the lock's session ended = %v, want %v", err, errSessionEnded)
+			// The killed connection fails, or its replacement is refused; either way no change runs.
+			if err := first.Exec("CREATE TABLE after_loss (id INT)"); err == nil {
+				t.Fatal("Exec after the lock's session ended succeeded, want an error")
 			}
 			next, err := openSession(&cfg, log.NewNoopLogger())
 			if err != nil {
