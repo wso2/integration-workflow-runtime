@@ -12,11 +12,12 @@ every profile. Both carry the same binaries, the one configuration file, SBOMs a
 | Item | Meaning |
 |---|---|
 | `bin/workflow-runtime` (`.exe` on Windows) | The launcher: starts the engine from `conf/runtime.toml`; `dev` runs `start-dev`; `render-config`, `version` and other engine commands pass through. `WORKFLOW_RUNTIME_CONFIG` names another file |
+| `bin/workflow-cli` (`.exe` on Windows) | The client for operators: cluster health and nodes, namespaces, search attributes ([workflow-cli](workflow-cli.md)); the image's health checks and the try-out's `setup` service use it |
 | `conf/runtime.toml` | The one file to edit ([runtime configuration](runtime-config.md), [engine security](engine-security.md)) |
 | `systemd/workflow-runtime.service` | Example unit for Linux virtual machines (zip for Linux only) |
 | Test image `ghcr.io/wso2/integration-workflow-runtime:<nightly version>` and `:nightly` | Published by every push to `main` (and on demand for a branch) for testing |
 | Container image (WSO2's registry from the first release) | Distroless, non-root; mount `runtime.toml` at `/opt/wso2-workflow-runtime/conf/runtime.toml` |
-| `distribution/docker/compose.yml` | Tries the runtime with PostgreSQL on one machine |
+| `distribution/docker/compose.yml` | Tries the runtime with PostgreSQL on one machine; a health check and a `setup` service that creates the `default` namespace with `workflow-cli` |
 | `make dist` / `make image` | Build a zip for `GOOS`/`GOARCH`, or the image from the linux zips (`IMAGE`, `IMAGE_PLATFORMS`, `IMAGE_ARGS`) |
 
 ## Behavior
