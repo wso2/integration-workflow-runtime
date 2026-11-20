@@ -24,6 +24,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -59,6 +60,8 @@ func newTestCommand(server temporal.Server, factoryErr error) (command, *bytes.B
 		newServer: func([]string, ...temporal.ServerOption) (temporal.Server, error) {
 			return server, factoryErr
 		},
+		prepareSchema: func(config.Persistence, log.Logger) error { return nil },
+		devNamespaces: func(config.Persistence, []string) error { return nil },
 	}
 	return c, stdout, stderr
 }
@@ -406,5 +409,183 @@ func TestNewTemporalServerBuildsAServer(t *testing.T) {
 	}
 	if _, err := newTemporalServer([]string{"frontend"}, temporal.WithConfig(&rt.Temporal)); err != nil {
 		t.Fatalf("newTemporalServer = %v", err)
+	}
+}
+
+func TestStartPreparesTheSchemaBeforeTheServer(t *testing.T) {
+	server := &fakeServer{}
+	c, _, _ := newTestCommand(server, nil)
+	var prepared []string
+	c.prepareSchema = func(p config.Persistence, _ log.Logger) error {
+		if server.started {
+			t.Error("the schema was prepared after the server started")
+		}
+		prepared = append(prepared, p.DataStores[p.DefaultStore].SQL.DatabaseName)
+		return nil
+	}
+	args := []string{"start", "--runtime-config", "testdata/runtime-postgresql.toml", "--allow-no-auth"}
+	if code := c.run(args); code != 0 || !server.started {
+		t.Fatalf("exit code = %d, started = %v, want 0 and started", code, server.started)
+	}
+	if !slices.Equal(prepared, []string{"temporal"}) {
+		t.Fatalf("prepared = %v, want the temporal database once", prepared)
+	}
+}
+
+func TestStartStopsWhenTheSchemaCannotBePrepared(t *testing.T) {
+	server := &fakeServer{}
+	c, _, stderr := newTestCommand(server, nil)
+	c.prepareSchema = func(config.Persistence, log.Logger) error { return errors.New("connection refused") }
+	args := []string{"start", "--runtime-config", "testdata/runtime-postgresql.toml", "--allow-no-auth"}
+	if code := c.run(args); code != 1 || server.started {
+		t.Fatalf("exit code = %d, started = %v, want 1 and not started", code, server.started)
+	}
+	if !strings.Contains(stderr.String(), "unable to prepare the database schema: connection refused") {
+		t.Fatalf("stderr = %q, want the schema error", stderr.String())
+	}
+}
+
+func TestStartLeavesTheSchemaAloneWhenAsked(t *testing.T) {
+	unmanaged := filepath.Join(t.TempDir(), "runtime.toml")
+	toml := "[database]\ntype = \"postgresql\"\nhost = \"db\"\nmanageSchema = false\n"
+	if err := os.WriteFile(unmanaged, []byte(toml), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{
+		{"start", "--runtime-config", unmanaged, "--allow-no-auth"},
+		{"start", "--config-file", minimalConfig, "--allow-no-auth"},
+	} {
+		server := &fakeServer{}
+		c, _, _ := newTestCommand(server, nil)
+		c.prepareSchema = func(config.Persistence, log.Logger) error {
+			t.Errorf("%v prepared the schema", args)
+			return nil
+		}
+		if code := c.run(args); code != 0 || !server.started {
+			t.Fatalf("%v: exit code = %d, started = %v, want 0 and started", args, code, server.started)
+		}
+	}
+}
+
+func startWithLogFile(t *testing.T, logFile string) error {
+	t.Helper()
+	toml := filepath.Join(t.TempDir(), "runtime.toml")
+	content := fmt.Sprintf("[engine]\nlogFile = %q\n\n[database]\ntype = \"sqlite\"\ninMemory = true\n", logFile)
+	if err := os.WriteFile(toml, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c, _, _ := newTestCommand(&fakeServer{}, nil)
+	return c.start([]string{"--runtime-config", toml, "--allow-no-auth"})
+}
+
+func TestStartCreatesTheLogDirectory(t *testing.T) {
+	logFile := filepath.Join(t.TempDir(), "logs", "engine.log")
+	if err := startWithLogFile(t, logFile); err != nil {
+		t.Fatalf("start = %v", err)
+	}
+	if _, err := os.Stat(logFile); err != nil {
+		t.Fatalf("the log file was not created: %v", err)
+	}
+}
+
+func TestStartNamesALogFileItCannotOpen(t *testing.T) {
+	parent := filepath.Join(t.TempDir(), "not-a-directory")
+	if err := os.WriteFile(parent, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cases := map[string]string{"a parent that is a file": filepath.Join(parent, "engine.log")}
+	if runtime.GOOS != "windows" && os.Geteuid() != 0 {
+		readOnly := filepath.Join(t.TempDir(), "read-only")
+		if err := os.Mkdir(readOnly, 0o500); err != nil {
+			t.Fatal(err)
+		}
+		cases["an unwritable directory"] = filepath.Join(readOnly, "engine.log")
+	}
+	for name, logFile := range cases {
+		if err := startWithLogFile(t, logFile); err == nil || !strings.Contains(err.Error(), "engine.logFile "+logFile) {
+			t.Errorf("%s: start = %v, want an error naming engine.logFile", name, err)
+		}
+	}
+}
+
+func TestStartDev(t *testing.T) {
+	server := &fakeServer{}
+	c, _, stderr := newTestCommand(server, nil)
+	var created []string
+	c.devNamespaces = func(p config.Persistence, names []string) error {
+		if server.started {
+			t.Error("the namespaces were created after the server started")
+		}
+		if p.DataStores[p.DefaultStore].SQL.PluginName != "sqlite" {
+			t.Errorf("store = %+v", p.DataStores[p.DefaultStore].SQL)
+		}
+		created = names
+		return nil
+	}
+	if code := c.run([]string{"start-dev", "--port", "18233", "--namespace", "orders"}); code != 0 || !server.started {
+		t.Fatalf("exit code = %d, started = %v, stderr = %s", code, server.started, stderr.String())
+	}
+	if !slices.Equal(created, []string{"default", "orders"}) {
+		t.Fatalf("namespaces = %v", created)
+	}
+	if !strings.Contains(stderr.String(), "Development engine on 127.0.0.1:18233") || !strings.Contains(stderr.String(), "in memory") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
+func TestStartDevCreatesTheDatabaseDirectory(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "data", "nested")
+	c, _, stderr := newTestCommand(&fakeServer{}, nil)
+	if code := c.run([]string{"start-dev", "--db-file", filepath.Join(dir, "dev.db")}); code != 0 {
+		t.Fatalf("exit code = %d, stderr = %s", code, stderr.String())
+	}
+	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+		t.Fatalf("the --db-file directory was not created: %v", err)
+	}
+	blocker := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(blocker, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c, _, stderr = newTestCommand(&fakeServer{}, nil)
+	if code := c.run([]string{"start-dev", "--db-file", filepath.Join(blocker, "dev.db")}); code != 1 ||
+		!strings.Contains(stderr.String(), "unable to create the directory of --db-file") {
+		t.Fatalf("a file as the directory: exit code = %d, stderr = %q", code, stderr.String())
+	}
+}
+
+func TestStartDevErrors(t *testing.T) {
+	c, _, stderr := newTestCommand(&fakeServer{}, nil)
+	c.devNamespaces = func(config.Persistence, []string) error { return errors.New("disk full") }
+	if code := c.run([]string{"start-dev", "--db-file", filepath.Join(t.TempDir(), "dev.db")}); code != 1 ||
+		!strings.Contains(stderr.String(), "unable to create the namespaces: disk full") {
+		t.Fatalf("exit code = %d, stderr = %q", code, stderr.String())
+	}
+	c, _, _ = newTestCommand(&fakeServer{}, nil)
+	if code := c.run([]string{"start-dev", "--ip", "localhost"}); code != 1 {
+		t.Fatalf("a host name as the IP: exit code = %d", code)
+	}
+	if code := c.run([]string{"start-dev", "--bogus"}); code != 1 {
+		t.Fatalf("unknown flag: exit code = %d", code)
+	}
+	if code := c.run([]string{"start-dev", "-h"}); code != 0 {
+		t.Fatalf("help: exit code = %d", code)
+	}
+}
+
+func TestNewLoggerLeavesStreamsAndURLsToZap(t *testing.T) {
+	t.Chdir(t.TempDir())
+	for _, output := range []string{"stderr", "stdout"} {
+		if _, err := newLogger(log.Config{OutputFile: output, Level: "info"}, "log.outputFile"); err != nil {
+			t.Errorf("%s: %v", output, err)
+		}
+		if _, err := os.Stat(output); !os.IsNotExist(err) {
+			t.Errorf("%s: a file named %s was created (%v)", output, output, err)
+		}
+	}
+	for path, want := range map[string]bool{"logs/engine.log": true, `C:\logs\engine.log`: true,
+		"file:///var/log/engine.log": false, "stderr": false, "": false} {
+		if got := isLogFilePath(path); got != want {
+			t.Errorf("isLogFilePath(%q) = %v, want %v", path, got, want)
+		}
 	}
 }
