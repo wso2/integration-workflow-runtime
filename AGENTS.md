@@ -118,8 +118,8 @@ These are requirements, not suggestions. A change that misses one is not done.
   (one file per feature area), connection settings in `tests/Config.toml`.
 - Tests use the public `ballerina/workflow` API only (`workflow:run`, `workflow:sendData`,
   `workflow:waitForResult`, `workflow:getStatus`, `workflow:completeHumanTask`, `ballerina/workflow.management`).
-- jBallerina is used until the Go-based Ballerina can run `ballerina/workflow`; CI installs the latest Swan Lake
-  release with `ballerina-platform/setup-ballerina`.
+- jBallerina is used until the Go-based Ballerina can run `ballerina/workflow`; CI installs Swan Lake 2201.14.1
+  with `ballerina-platform/setup-ballerina` (2201.14.2 cannot load the `ballerina/workflow` BIR it bundles).
 - Give every test its own input or ID (`uniqueKey`) so suites can rerun against the same engine.
 
 ## Documentation

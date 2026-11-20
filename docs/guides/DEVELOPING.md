@@ -6,7 +6,7 @@
 |---|---|---|
 | Go | 1.26.8 or later (the toolchain line in `go.work` selects the patched release) | Everything |
 | Bash | Any | CI glue scripts, the commit hook |
-| Ballerina Swan Lake (`bal`) | Latest | `make test-smoke`, `make test-full` |
+| Ballerina Swan Lake (`bal`) | 2201.14.1 (2201.14.2 cannot load its bundled `ballerina/workflow`) | `make test-smoke`, `make test-full` |
 | Temporal CLI (`temporal`) | Any recent release | The Ballerina suite runner |
 
 After cloning: `make install-hooks`. The pinned golangci-lint, go-licenses, govulncheck and cyclonedx-gomod are
