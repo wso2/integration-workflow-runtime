@@ -21,7 +21,10 @@ EXE := $(if $(filter windows,$(GOOS)),.exe,)
 OUT := build
 DIST_NAME := wso2-workflow-runtime-$(VERSION)-$(GOOS)-$(GOARCH)
 MIN_COVERAGE ?= 75
-BINARIES := workflow-runtime workflow-engine workflow-engine-sql
+# Each released binary as <module>:<binary>; workflow-cli is a client of its own module, so no server code is in it.
+BINARIES := engine:workflow-runtime engine:workflow-engine engine:workflow-engine-sql cli:workflow-cli
+# The modules that ship binaries; their linked packages are what the license inventory and check cover.
+SHIPPED_MODULES := engine cli
 # Container image: name, platforms, and extra buildx arguments (--push to publish, --load for a local single platform).
 IMAGE ?= wso2-workflow-runtime
 IMAGE_PLATFORMS ?= linux/amd64,linux/arm64
@@ -60,10 +63,10 @@ GOOS= GOARCH= GOBIN="$$tmp" go install "$(2)@$(3)"; mv -f "$$tmp/$$(basename "$$
 ln -s "$(notdir $(1))" "$$tmp/link"; mv -f "$$tmp/link" "$$link"
 endef
 
-.PHONY: build engine dist image sbom tools vet lint fmt-check test test-coverage test-race licenses license-check \
+.PHONY: build engine cli dist image sbom tools vet lint fmt-check test test-coverage test-race licenses license-check \
 	vulncheck check test-smoke test-full test-docker install-hooks release clean
 
-build: engine
+build: engine cli
 
 engine:
 	cd engine && CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -trimpath \
@@ -73,10 +76,14 @@ engine:
 	cd engine && CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -trimpath \
 		-ldflags "-s -w -X main.version=$(VERSION)" -o ../$(OUT)/workflow-runtime$(EXE) ./cmd/workflow-runtime
 
+cli:
+	cd cli && CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -trimpath \
+		-ldflags "-s -w -X main.version=$(VERSION)" -o ../$(OUT)/workflow-cli$(EXE) ./cmd/workflow-cli
+
 # One distribution directory and zip for GOOS/GOARCH: the layout every release archive uses.
-dist: engine sbom
+dist: engine cli sbom
 	rm -rf dist/$(DIST_NAME) && mkdir -p dist/$(DIST_NAME)/bin dist/$(DIST_NAME)/conf
-	cp $(OUT)/workflow-runtime$(EXE) $(OUT)/workflow-engine$(EXE) $(OUT)/workflow-engine-sql$(EXE) dist/$(DIST_NAME)/bin/
+	cp $(foreach b,$(BINARIES),$(OUT)/$(word 2,$(subst :, ,$(b)))$(EXE)) dist/$(DIST_NAME)/bin/
 	cp distribution/conf/runtime.toml dist/$(DIST_NAME)/conf/
 	$(if $(filter linux,$(GOOS)),cp -R distribution/systemd dist/$(DIST_NAME)/,)
 	cp distribution/README.dist.md dist/$(DIST_NAME)/README.md
@@ -95,8 +102,8 @@ image:
 # CycloneDX SBOM per binary for GOOS/GOARCH: the modules and standard library linked in, with their licenses.
 sbom: $(CYCLONEDX_GOMOD)
 	@mkdir -p $(OUT)/sbom
-	@for b in $(BINARIES); do (cd engine && $(TOOLCHAIN_ENV) GOOS=$(GOOS) GOARCH=$(GOARCH) CGO_ENABLED=0 \
-		"$(CYCLONEDX_GOMOD)" app -json -licenses -std -main cmd/$$b \
+	@for mb in $(BINARIES); do m=$${mb%%:*}; b=$${mb#*:}; (cd $$m && $(TOOLCHAIN_ENV) GOOS=$(GOOS) GOARCH=$(GOARCH) \
+		CGO_ENABLED=0 "$(CYCLONEDX_GOMOD)" app -json -licenses -std -main cmd/$$b \
 		-output "$(CURDIR)/$(OUT)/sbom/$$b.cdx.json" .) || exit 1; done
 
 tools: $(GOLANGCI_LINT) $(GO_LICENSES) $(GOVULNCHECK) $(CYCLONEDX_GOMOD)
@@ -137,14 +144,15 @@ test-race:
 # Each platform links a different set of packages, so the inventory and the check cover every release platform.
 licenses: $(GO_LICENSES)
 	@rm -f $(OUT)/licenses.csv; mkdir -p $(OUT)
-	@for p in $(RELEASE_PLATFORMS); do echo "Licenses for $$p"; (cd engine && $(TOOLCHAIN_ENV) GOOS=$${p%/*} \
-		GOARCH=$${p#*/} CGO_ENABLED=0 "$(GO_LICENSES)" report ./cmd/... >> "$(CURDIR)/$(OUT)/licenses.csv") || exit 1; done
+	@for m in $(SHIPPED_MODULES); do for p in $(RELEASE_PLATFORMS); do echo "Licenses for $$m on $$p"; (cd $$m && \
+		$(TOOLCHAIN_ENV) GOOS=$${p%/*} GOARCH=$${p#*/} CGO_ENABLED=0 "$(GO_LICENSES)" report ./cmd/... \
+		>> "$(CURDIR)/$(OUT)/licenses.csv") || exit 1; done; done
 	@LC_ALL=C sort -u $(OUT)/licenses.csv > third-party/go-licenses.csv
 
 license-check: $(GO_LICENSES)
-	@for p in $(RELEASE_PLATFORMS); do echo "License check for $$p"; (cd engine && $(TOOLCHAIN_ENV) GOOS=$${p%/*} \
-		GOARCH=$${p#*/} CGO_ENABLED=0 "$(GO_LICENSES)" check ./cmd/... \
-		--disallowed_types=forbidden,restricted,unknown $(LICENSE_IGNORES)) || exit 1; done
+	@for m in $(SHIPPED_MODULES); do for p in $(RELEASE_PLATFORMS); do echo "License check for $$m on $$p"; (cd $$m && \
+		$(TOOLCHAIN_ENV) GOOS=$${p%/*} GOARCH=$${p#*/} CGO_ENABLED=0 "$(GO_LICENSES)" check ./cmd/... \
+		--disallowed_types=forbidden,restricted,unknown $(LICENSE_IGNORES)) || exit 1; done; done
 
 vulncheck: $(GOVULNCHECK)
 	@for m in $(MODULES); do (cd $$m && $(TOOLCHAIN_ENV) "$(GOVULNCHECK)" ./...) || exit 1; done

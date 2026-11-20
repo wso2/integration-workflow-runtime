@@ -50,7 +50,7 @@ cd "$work"
 # The pinned Go tools live on a volume, so they are installed once, not on every run.
 export TOOL_BIN=/opt/tools
 
-if ! (cd engine && go mod download && go mod verify >/dev/null); then
+if ! (for m in cli engine; do (cd "$m" && go mod download && go mod verify >/dev/null) || exit 1; done); then
     echo "The Go module cache volume is damaged. Reset the caches and rerun:" >&2
     echo "  docker compose -f tests/docker/compose.yml down --volumes" >&2
     exit 1

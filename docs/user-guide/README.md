@@ -14,7 +14,9 @@ the Workflow Runtime section of the WSO2 Integrator documentation and move there
 | [Set up the database](database.md) | PostgreSQL, MySQL, Amazon RDS and Aurora; schema creation and upgrade |
 | [Secure the engine](secure-the-engine.md) | TLS, tokens from your identity provider, and the permission model |
 | [Connect an integration](connect-an-integration.md) | Pointing a `ballerina/workflow` integration at the runtime |
+| [Manage the engine with workflow-cli](manage-with-workflow-cli.md) | Health checks, the cluster's nodes, namespaces and search attributes |
 | [Run across several nodes](scale-across-nodes.md) | Profiles, addresses, ports and load balancing |
 | [Monitor the runtime](monitor.md) | Metrics, logs, and workflow visibility |
 | [Troubleshoot](troubleshoot.md) | Common errors and what to do about them |
 | [runtime.toml reference](reference/runtime-toml.md) | Every configuration key |
+| [workflow-cli reference](reference/workflow-cli.md) | Every `workflow-cli` command, flag and profile setting |
