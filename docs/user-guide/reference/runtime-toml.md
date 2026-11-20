@@ -20,9 +20,10 @@ components and are ignored by the engine.
 | Key | Default | Description |
 |---|---|---|
 | `bindAddress` | `127.0.0.1` | IP address every service listens on |
-| `broadcastAddress` | `bindAddress` | IP address other nodes and clients use; required when `bindAddress` is `0.0.0.0` |
+| `broadcastAddress` | `bindAddress` | IP address other nodes and clients use; required when `bindAddress` is `0.0.0.0`. `auto` picks this host's first non-loopback address |
 | `historyShards` | `512` (`1` for SQLite) | History shards; cannot change after the first start |
 | `logLevel` | `info` | `debug`, `info`, `warn` or `error` |
+| `logFile` | standard output | Write the log to this file instead; a missing directory is created, and a file the engine cannot write stops the start |
 
 ### `[engine.ports]`
 
@@ -35,7 +36,8 @@ components and are ignored by the engine.
 | `matching` | `7235` | Matching service |
 | `worker` | `7239` | Worker service |
 
-Each gRPC service also uses a membership port 300 below its port (6933, 6936, 6934, 6935, 6939).
+Each gRPC service also uses a membership port 300 below its port (6933, 6936, 6934, 6935, 6939). On PostgreSQL and
+MySQL, membership ports must be at most 32767, so service ports at most 33067.
 
 ### `[engine.tls]`
 
@@ -92,10 +94,11 @@ Each gRPC service also uses a membership port 300 below its port (6933, 6936, 69
 | `port` | `5432` / `3306` | Database server port |
 | `user`, `password` | empty | Credentials; `password` is a literal or `$env{NAME}` |
 | `name` | `temporal` | Workflow database |
-| `visibilityName` | `temporal_visibility` | Visibility (search) database; must differ from `name` |
+| `visibilityName` | `temporal_visibility` | Visibility (search) database; must differ from `name` (ignoring case on MySQL) |
 | `path` | | SQLite only: the database file |
 | `inMemory` | `false` | SQLite only: keep everything in memory |
 | `maxConns` | `20` (`1` for SQLite) | Connections per database; must be `1` for an in-memory SQLite database |
+| `manageSchema` | `true` | Create the databases and install or upgrade their schemas on start; `false` when a DBA applies them |
 
 ### `[database.tls]`
 

@@ -1,0 +1,27 @@
+# Try the runtime with PostgreSQL on one machine. Build the image first, or point WORKFLOW_RUNTIME_IMAGE at a release:
+#   make image IMAGE_PLATFORMS=linux/$(go env GOARCH) IMAGE_ARGS=--load VERSION=0.1.0-SNAPSHOT
+#   docker compose -f distribution/docker/compose.yml up
+# Not for production: no TLS or authentication (--allow-no-auth), and a throwaway database password.
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: workflow
+      POSTGRES_PASSWORD: workflow-try-out
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U workflow"]
+      interval: 5s
+      retries: 20
+  runtime:
+    image: ${WORKFLOW_RUNTIME_IMAGE:-wso2-workflow-runtime:0.1.0-SNAPSHOT}
+    command: ["--allow-no-auth"]
+    environment:
+      WORKFLOW_DB_PASSWORD: workflow-try-out
+    volumes:
+      - ./try-out.toml:/opt/wso2-workflow-runtime/conf/runtime.toml:ro
+    ports:
+      # Loopback only: this try-out has no authentication.
+      - "127.0.0.1:${WORKFLOW_RUNTIME_PORT:-7233}:7233"
+    depends_on:
+      postgres:
+        condition: service_healthy

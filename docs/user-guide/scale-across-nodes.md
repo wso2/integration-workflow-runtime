@@ -30,7 +30,7 @@ other through the shared database: there is no list of peers to maintain.
 
    [engine]
    bindAddress = "0.0.0.0"
-   broadcastAddress = "10.0.1.21"   # this node's IP address
+   broadcastAddress = "10.0.1.21"   # this node's IP address, or "auto" (containers)
    ```
 
 3. Open the ports between nodes: the service ports (7233 to 7239 by default) and their membership ports (6933 to
