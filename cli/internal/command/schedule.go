@@ -406,7 +406,8 @@ func cronField(ranges []*schedulepb.Range, lowest, highest int32, empty string) 
 		default:
 			part = fmt.Sprintf("%d-%d", start, end)
 		}
-		if step > 1 {
+		// A step on a single value is kept by the engine but changes nothing; "5/10" would mean every ten minutes.
+		if step > 1 && start != end {
 			part += "/" + strconv.Itoa(int(step))
 		}
 		parts = append(parts, part)

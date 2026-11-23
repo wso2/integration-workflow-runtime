@@ -40,7 +40,9 @@ type adminState struct {
 	purges  []*adminservice.PurgeDLQTasksRequest
 	merges  []*adminservice.MergeDLQTasksRequest
 	cancels []*adminservice.CancelDLQJobRequest
+	done    bool     // CancelDLQJob answers Canceled: false, as for a job that already finished
 	pages   []string // the page tokens ListQueues received
+	failP2  bool     // ListQueues fails on its second page
 	empty   bool
 }
 
@@ -77,6 +79,9 @@ func (f adminFake) ListQueues(ctx context.Context, r *adminservice.ListQueuesReq
 	}
 	// Page one also holds a transfer queue from cluster "active_active" to "active", whose name starts like the
 	// active-to-active transfer queue on page two.
+	if f.admin.failP2 && len(r.GetNextPageToken()) > 0 {
+		return nil, serviceerror.NewUnavailable("page two failed")
+	}
 	if len(r.GetNextPageToken()) == 0 {
 		return &adminservice.ListQueuesResponse{NextPageToken: []byte("page-2"),
 			Queues: []*adminservice.ListQueuesResponse_QueueInfo{
@@ -136,7 +141,7 @@ func (f adminFake) CancelDLQJob(ctx context.Context, r *adminservice.CancelDLQJo
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.admin.cancels = append(f.admin.cancels, r)
-	return &adminservice.CancelDLQJobResponse{}, nil
+	return &adminservice.CancelDLQJobResponse{Canceled: !f.admin.done}, nil
 }
 
 func TestShards(t *testing.T) {
@@ -155,7 +160,10 @@ func TestShards(t *testing.T) {
 	if info, _ := shard[0]["shardInfo"].(map[string]any); info["shardId"] != float64(12) {
 		t.Fatalf("json shard info = %v", shard[0])
 	}
-	tc.must("admin", "shard", "close", "--shard-id", "12")
+	// The engine answers the same whether or not the node held the shard, so the CLI says only that it asked.
+	if out := tc.must("admin", "shard", "close", "--shard-id", "12"); !strings.Contains(out, "Close sent for shard 12") {
+		t.Fatalf("shard close = %q", out)
+	}
 	if c := tc.engine.admin.closed; len(c) != 1 || c[0] != 12 {
 		t.Fatalf("closed = %v", c)
 	}
@@ -201,8 +209,12 @@ func TestDeadLetterQueues(t *testing.T) {
 		t.Fatalf("dlq read:\n%s", out)
 	}
 	if out := tc.must("admin", "dlq", "read", "--dlq-type", "transfer", "--limit", "1"); !strings.Contains(out,
-		"Showing the first 1 tasks; raise --limit to see more, if any.") {
+		"Showing 1 tasks; the next ones, if any, follow with --page-token AQ==") {
 		t.Fatalf("dlq read of a full page:\n%s", out)
+	}
+	tc.must("admin", "dlq", "read", "--dlq-type", "transfer", "--limit", "1", "--page-token", "AQ==")
+	if r := tc.engine.admin.reads[len(tc.engine.admin.reads)-1]; string(r.GetNextPageToken()) != "\x01" {
+		t.Fatalf("the page token reached the engine as %q", r.GetNextPageToken())
 	}
 
 	if code, _, errOut := tc.run("admin", "dlq", "merge", "--dlq-type", "transfer"); code != 1 ||
@@ -231,7 +243,8 @@ func TestDeadLetterQueues(t *testing.T) {
 	}
 	var started map[string]any
 	if err := json.Unmarshal([]byte(tc.must("admin", "dlq", "purge", "--dlq-type", "transfer", "-y", "-o", "json")),
-		&started); err != nil || started["lastMessageId"] != float64(42) || started["jobToken"] == "" {
+		&started); err != nil || started["lastMessageId"] != float64(42) ||
+		started["jobToken"] != base64.StdEncoding.EncodeToString([]byte("purge-job")) {
 		t.Fatalf("json purge = %v, %v", started, err)
 	}
 	token := base64.StdEncoding.EncodeToString([]byte("merge-job"))
@@ -251,6 +264,19 @@ func TestDeadLetterQueues(t *testing.T) {
 	if c := tc.engine.admin.cancels[0]; string(c.GetJobToken()) != "merge-job" || c.GetReason() != "wrong queue" {
 		t.Fatalf("cancel = %v", c)
 	}
+	// A queue found on the first page sets the bound even when a later page would fail.
+	tc.engine.admin.failP2 = true
+	tc.must("admin", "dlq", "merge", "--dlq-type", "transfer", "-y", "--source-cluster", "active_active",
+		"--target-cluster", "active")
+	if m := tc.engine.admin.merges[len(tc.engine.admin.merges)-1]; m.GetInclusiveMaxTaskMetadata().GetMessageId() != 5 {
+		t.Fatalf("merge bound = %v, want the first page's 5", m)
+	}
+	tc.engine.admin.failP2 = false
+	tc.engine.admin.done = true
+	if code, _, errOut := tc.run("admin", "dlq", "job", "cancel", "--job-token", token, "--reason", "late"); code != 1 ||
+		!strings.Contains(errOut, "nothing was cancelled") {
+		t.Fatalf("cancel of a finished job = %d %q", code, errOut)
+	}
 	for args, want := range map[string]string{
 		"admin dlq read --dlq-type disk":                              `--dlq-type "disk" must be one of archival`,
 		"admin dlq read --dlq-type timer --limit 0":                   "--limit must be positive",
@@ -259,6 +285,10 @@ func TestDeadLetterQueues(t *testing.T) {
 		"admin dlq job describe --job-token !!":                       "is not the token",
 		"admin dlq job cancel --job-token !! --reason x":              "is not the token",
 		"admin shard describe":                                        `required flag(s) "shard-id" not set`,
+		"admin shard describe --shard-id 513":                         "must be from 1 to 512",
+		"admin shard close --shard-id 0":                              "must be from 1 to 512",
+		"admin dlq merge --dlq-type transfer -y --batch-size 1001":    "--batch-size 1001 must be from 1 to 1000",
+		"admin dlq read --dlq-type transfer --page-token !!":          "is not a token from an earlier read",
 	} {
 		if code, _, errOut := tc.run(strings.Fields(args)...); code != 1 || !strings.Contains(errOut, want) {
 			t.Errorf("%s = %d %q, want %q", args, code, errOut, want)

@@ -152,7 +152,13 @@ func TestWorkflowCLIOnADevEngine(t *testing.T) {
 	// A schedule starts its workflow when triggered, and pauses, resumes and goes away on request.
 	cli("schedule", "create", "-n", "orders", "-s", "hourly", "--interval", "1h", "--workflow-id", "hourly-report",
 		"--type", "Report", "-t", "reports", "--paused")
-	w.mustContain(cli("schedule", "list", "-n", "orders"), "hourly", "Report", "true")
+	// Schedules reach the list through visibility, which can lag the create.
+	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(time.Second) {
+		if out = cli("schedule", "list", "-n", "orders"); strings.Contains(out, "hourly") {
+			break
+		}
+	}
+	w.mustContain(out, "hourly", "Report", "true")
 	cli("schedule", "trigger", "-n", "orders", "-s", "hourly")
 	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(time.Second) {
 		if out = cli("schedule", "describe", "-n", "orders", "-s", "hourly"); strings.Contains(out, "Runs           1") {

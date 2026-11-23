@@ -18,7 +18,6 @@ package command
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -69,6 +68,19 @@ func (c *cli) shardCommand() *cobra.Command {
 	return shard
 }
 
+// checkShard refuses an ID outside the cluster's shards before any shard call: the engine would create a row for an
+// unknown shard on describe, and accept a close that closes nothing.
+func checkShard(ctx context.Context, conn *grpc.ClientConn, id int32) error {
+	info, err := workflowservice.NewWorkflowServiceClient(conn).GetClusterInfo(ctx, &workflowservice.GetClusterInfoRequest{})
+	if err != nil {
+		return fmt.Errorf("unable to read the cluster's shard count: %w", err)
+	}
+	if id < 1 || id > info.GetHistoryShardCount() {
+		return fmt.Errorf("--shard-id %d must be from 1 to %d, the cluster's history shards", id, info.GetHistoryShardCount())
+	}
+	return nil
+}
+
 func shardID(cmd *cobra.Command, id *int32) {
 	cmd.Flags().Int32Var(id, "shard-id", 0, "the shard, from 1 to the cluster's history shards (required)")
 	_ = cmd.MarkFlagRequired("shard-id")
@@ -87,6 +99,9 @@ func (c *cli) shardDescribeCommand() *cobra.Command {
 			}
 			defer cancel()
 			defer func() { _ = conn.Close() }()
+			if err := checkShard(ctx, conn, id); err != nil {
+				return err
+			}
 			admin := adminservice.NewAdminServiceClient(conn)
 			res, err := admin.GetShard(ctx, &adminservice.GetShardRequest{ShardId: id})
 			if err != nil {
@@ -130,11 +145,16 @@ func (c *cli) shardCloseCommand() *cobra.Command {
 			}
 			defer cancel()
 			defer func() { _ = conn.Close() }()
+			if err := checkShard(ctx, conn, id); err != nil {
+				return err
+			}
 			if _, err := adminservice.NewAdminServiceClient(conn).CloseShard(ctx,
 				&adminservice.CloseShardRequest{ShardId: id}); err != nil {
 				return fmt.Errorf("unable to close shard %d: %w", id, err)
 			}
-			return c.confirm(cmd, "Shard %d closed; its node reloads it on the next call.\n", id)
+			// The engine answers the same whether or not the node it reached held the shard.
+			return c.confirm(cmd, "Close sent for shard %d; the node that owns it reloads it on the next call. "+
+				"Check with admin shard describe.\n", id)
 		},
 	}
 	shardID(cmd, &id)
@@ -226,16 +246,30 @@ func (c *cli) dlqListCommand() *cobra.Command {
 func listDLQs(ctx context.Context, admin adminservice.AdminServiceClient) ([]*adminservice.ListQueuesResponse_QueueInfo,
 	error) {
 	var all []*adminservice.ListQueuesResponse_QueueInfo
+	err := eachDLQ(ctx, admin, func(q *adminservice.ListQueuesResponse_QueueInfo) bool {
+		all = append(all, q)
+		return false
+	})
+	return all, err
+}
+
+// eachDLQ calls visit for each dead-letter queue, page by page, until visit returns true.
+func eachDLQ(ctx context.Context, admin adminservice.AdminServiceClient,
+	visit func(*adminservice.ListQueuesResponse_QueueInfo) bool) error {
 	var token []byte
 	for {
 		res, err := admin.ListQueues(ctx, &adminservice.ListQueuesRequest{QueueType: historyDLQ, PageSize: 100,
 			NextPageToken: token})
 		if err != nil {
-			return nil, fmt.Errorf("unable to list the dead-letter queues: %w", err)
+			return fmt.Errorf("unable to list the dead-letter queues: %w", err)
 		}
-		all = append(all, res.GetQueues()...)
+		for _, q := range res.GetQueues() {
+			if visit(q) {
+				return nil
+			}
+		}
 		if token = res.GetNextPageToken(); len(token) == 0 {
-			return all, nil
+			return nil
 		}
 	}
 }
@@ -243,6 +277,7 @@ func listDLQs(ctx context.Context, admin adminservice.AdminServiceClient) ([]*ad
 func (c *cli) dlqReadCommand() *cobra.Command {
 	var k dlqKey
 	var limit int32
+	var pageToken string
 	cmd := &cobra.Command{
 		Use:   "read",
 		Short: "List the tasks in a dead-letter queue",
@@ -261,8 +296,12 @@ func (c *cli) dlqReadCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			token, err := base64.StdEncoding.DecodeString(pageToken)
+			if err != nil {
+				return fmt.Errorf("--page-token %q is not a token from an earlier read", pageToken)
+			}
 			res, err := adminservice.NewAdminServiceClient(conn).GetDLQTasks(ctx,
-				&adminservice.GetDLQTasksRequest{DlqKey: key, PageSize: limit})
+				&adminservice.GetDLQTasksRequest{DlqKey: key, PageSize: limit, NextPageToken: token})
 			// The engine answers Unavailable for a queue it never created, which only means nothing failed there.
 			if err != nil && strings.Contains(status.Convert(err).Message(), "queue not found") {
 				res, err = &adminservice.GetDLQTasksResponse{}, nil
@@ -288,13 +327,15 @@ func (c *cli) dlqReadCommand() *cobra.Command {
 			}
 			// The engine returns a page token even with its last page, so only a full page can hide more tasks.
 			if len(res.GetDlqTasks()) >= int(limit) && len(res.GetNextPageToken()) > 0 {
-				_, err = fmt.Fprintf(out, "\nShowing the first %d tasks; raise --limit to see more, if any.\n", limit)
+				_, err = fmt.Fprintf(out, "\nShowing %d tasks; the next ones, if any, follow with --page-token %s\n", limit,
+					base64.StdEncoding.EncodeToString(res.GetNextPageToken()))
 			}
 			return err
 		},
 	}
 	k.flags(cmd)
 	cmd.Flags().Int32Var(&limit, "limit", 100, "the most tasks to show")
+	cmd.Flags().StringVar(&pageToken, "page-token", "", "continue after an earlier read, with the token it printed")
 	return cmd
 }
 
@@ -355,20 +396,29 @@ func (c *cli) dlqJob(verb string, start func(context.Context, adminservice.Admin
 	return cmd
 }
 
+// lastMessageID finds the queue's last task, stopping at the page that holds the queue.
 func lastMessageID(ctx context.Context, admin adminservice.AdminServiceClient, key *commonspb.HistoryDLQKey) (int64,
 	error) {
-	queues, err := listDLQs(ctx, admin)
+	name := queueName(key.GetTaskCategory(), key.GetSourceCluster(), key.GetTargetCluster())
+	var last int64
+	found := false
+	err := eachDLQ(ctx, admin, func(q *adminservice.ListQueuesResponse_QueueInfo) bool {
+		if q.GetQueueName() == name && q.GetMessageCount() > 0 {
+			last, found = q.GetLastMessageId(), true
+		}
+		return found
+	})
 	if err != nil {
 		return 0, err
 	}
-	name := queueName(key.GetTaskCategory(), key.GetSourceCluster(), key.GetTargetCluster())
-	for _, q := range queues {
-		if q.GetQueueName() == name && q.GetMessageCount() > 0 {
-			return q.GetLastMessageId(), nil
-		}
+	if !found {
+		return 0, fmt.Errorf("the %s dead-letter queue is empty", categoryName(key.GetTaskCategory()))
 	}
-	return 0, fmt.Errorf("the %s dead-letter queue is empty", categoryName(key.GetTaskCategory()))
+	return last, nil
 }
+
+// maxMergeBatchSize is Temporal's dlq.MaxMergeBatchSize (v1.32.1).
+const maxMergeBatchSize = 1000
 
 func (c *cli) dlqMergeCommand() *cobra.Command {
 	var batch int32
@@ -380,7 +430,14 @@ func (c *cli) dlqMergeCommand() *cobra.Command {
 	})
 	cmd.Use = "merge"
 	cmd.Short = "Run the queue's tasks again, after the cause is fixed; tasks that fail again return to it"
-	cmd.Flags().Int32Var(&batch, "batch-size", 0, "tasks per batch (the engine's default when 0)")
+	cmd.Flags().Int32Var(&batch, "batch-size", 0, "tasks per batch, up to 1000 (the engine's default when 0)")
+	// The engine would start the job and fail it in its worker; refuse the size before anything starts.
+	cmd.PreRunE = func(*cobra.Command, []string) error {
+		if batch < 0 || batch > maxMergeBatchSize {
+			return fmt.Errorf("--batch-size %d must be from 1 to %d, or 0 for the engine's default", batch, maxMergeBatchSize)
+		}
+		return nil
+	}
 	return cmd
 }
 
@@ -452,9 +509,13 @@ func (c *cli) dlqJobCommand() *cobra.Command {
 			}
 			defer cancel()
 			defer func() { _ = conn.Close() }()
-			if _, err := adminservice.NewAdminServiceClient(conn).CancelDLQJob(ctx,
-				&adminservice.CancelDLQJobRequest{JobToken: token, Reason: reason}); err != nil {
+			res, err := adminservice.NewAdminServiceClient(conn).CancelDLQJob(ctx,
+				&adminservice.CancelDLQJobRequest{JobToken: token, Reason: reason})
+			if err != nil {
 				return fmt.Errorf("unable to cancel the job: %w", err)
+			}
+			if !res.GetCanceled() {
+				return errors.New("the job was not running, so nothing was cancelled; see admin dlq job describe")
 			}
 			return c.confirm(cmd, "Job cancelled.\n")
 		},
@@ -465,35 +526,4 @@ func (c *cli) dlqJobCommand() *cobra.Command {
 	_ = cancelCmd.MarkFlagRequired("reason")
 	job.AddCommand(describe, cancelCmd)
 	return job
-}
-
-// queueName is the engine's name for a history task queue, as Temporal's persistence.GetHistoryTaskQueueName builds
-// it: the category, both clusters and a hash of the clusters, which keeps clusters with underscores apart.
-func queueName(category int32, source, target string) string {
-	h := sha256.New()
-	for _, cluster := range []string{source, target} {
-		sum := sha256.Sum256([]byte(cluster))
-		_, _ = h.Write(sum[:])
-	}
-	return fmt.Sprintf("%d_%s_%s_%s", category, source, target, base64.StdEncoding.EncodeToString(h.Sum(nil))[:8])
-}
-
-// parseQueueName finds the category and clusters of a queue name, trying each underscore between the clusters
-// against the name's hash, since a cluster name can hold underscores.
-func parseQueueName(name string) (category int32, source, target string, ok bool) {
-	first, last := strings.Index(name, "_"), strings.LastIndex(name, "_")
-	if first < 0 || last <= first {
-		return 0, "", "", false
-	}
-	id, err := strconv.ParseInt(name[:first], 10, 32)
-	if err != nil {
-		return 0, "", "", false
-	}
-	clusters := name[first+1 : last]
-	for i := 0; i < len(clusters); i++ {
-		if clusters[i] == '_' && queueName(int32(id), clusters[:i], clusters[i+1:]) == name {
-			return int32(id), clusters[:i], clusters[i+1:], true
-		}
-	}
-	return 0, "", "", false
 }

@@ -25,6 +25,7 @@ import (
 	"github.com/spf13/cobra"
 	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/api/operatorservice/v1"
+	"go.temporal.io/api/workflowservice/v1"
 )
 
 // searchAttributeTypes are the --type values, as the Temporal CLI spells them.
@@ -80,6 +81,11 @@ func (c *cli) searchAttributeCreateCommand() *cobra.Command {
 			}
 			defer cancel()
 			defer func() { _ = conn.Close() }()
+			// With SQL visibility the engine reports an unknown namespace as Unavailable, which is retried; check it first.
+			if _, err := workflowservice.NewWorkflowServiceClient(conn).DescribeNamespace(ctx,
+				&workflowservice.DescribeNamespaceRequest{Namespace: s.Namespace}); err != nil {
+				return fmt.Errorf("unable to add search attributes to %s: %w", s.Namespace, err)
+			}
 			if err := addSearchAttributes(ctx, operatorservice.NewOperatorServiceClient(conn), s.Namespace,
 				attrs, false); err != nil {
 				return err

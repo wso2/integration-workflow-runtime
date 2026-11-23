@@ -348,6 +348,8 @@ func TestCronFields(t *testing.T) {
 				[]*schedulepb.Range{r(0, 0, 0), r(30, 0, 0)}, []*schedulepb.Range{r(1, 0, 0)}, []*schedulepb.Range{r(1, 12, 3)}
 		}), "30 0,30 0 1 */3 * *"},
 		{full(func(c *schedulepb.StructuredCalendarSpec) { c.Year = []*schedulepb.Range{r(2027, 0, 0)} }), "0 0 * * * 2027"},
+		// "5-5/10" is stored as a single minute with a step, which matches minute 5 only.
+		{full(func(c *schedulepb.StructuredCalendarSpec) { c.Minute = []*schedulepb.Range{r(5, 5, 10)} }), "5 0 * * *"},
 	} {
 		if got := calendars(&schedulepb.ScheduleSpec{StructuredCalendar: []*schedulepb.StructuredCalendarSpec{tt.cal}}); len(got) != 1 ||
 			got[0] != tt.want {
