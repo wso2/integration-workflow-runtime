@@ -192,7 +192,8 @@ func (f operatorFake) AddSearchAttributes(ctx context.Context, r *operatorservic
 		return nil, serviceerror.NewNamespaceNotFound(r.GetNamespace())
 	}
 	if _, ok := f.namespaces[r.GetNamespace()]; !ok {
-		return nil, serviceerror.NewNamespaceNotFound(r.GetNamespace())
+		// With SQL visibility the engine wraps the failed namespace lookup as Unavailable.
+		return nil, serviceerror.NewUnavailable("unable to get namespace info: namespace not found")
 	}
 	if f.attributes[r.GetNamespace()] == nil {
 		f.attributes[r.GetNamespace()] = map[string]enumspb.IndexedValueType{}
@@ -462,6 +463,16 @@ func TestTLSFilesTurnTLSOnOverAnEarlierLayer(t *testing.T) {
 		if got := tc.dialedSettings(append(slices.Clone(list), c.args...)...).TLS.On(); got != c.want {
 			t.Errorf("%s: TLS on = %v, want %v", name, got, c.want)
 		}
+	}
+	// A flag that empties the only TLS value still means TLS, over a profile that turned it on.
+	for k := range tc.env {
+		if strings.HasPrefix(k, "WORKFLOW_TLS") {
+			delete(tc.env, k)
+		}
+	}
+	tc.must("config", "set", "--prop", "tls.enabled", "--value", "true")
+	if !tc.dialedSettings(append(slices.Clone(list), "--tls-server-name", "")...).TLS.On() {
+		t.Error("an empty --tls-server-name turned TLS off")
 	}
 }
 

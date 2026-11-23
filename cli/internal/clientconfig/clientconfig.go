@@ -74,11 +74,12 @@ func (t TLS) On() bool {
 	return t.CAPath != "" || t.CertPath != "" || t.KeyPath != "" || t.ServerName != ""
 }
 
-// ImplyTLS lets a layer's TLS file or name turn TLS on over an earlier layer's enabled = false, unless the same
-// layer also sets enabled.
+// ImplyTLS turns TLS on when a layer sets a TLS file or name, over an earlier layer's enabled = false, unless the
+// same layer also sets enabled. It sets enabled rather than clearing it, so a flag that empties a value keeps TLS on.
 func ImplyTLS(s *Settings, paramsSet, enabledSet bool) {
 	if paramsSet && !enabledSet {
-		s.TLS.Enabled = nil
+		on := true
+		s.TLS.Enabled = &on
 	}
 }
 
