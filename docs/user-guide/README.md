@@ -12,7 +12,7 @@ the Workflow Runtime section of the WSO2 Integrator documentation and move there
 | [Deploy on AWS](deploy-on-aws.md) | Database, compute, load balancer and identity choices on AWS |
 | [Configure the runtime](configure.md) | `conf/runtime.toml`: the database, the engine, starting and checking the configuration |
 | [Set up the database](database.md) | PostgreSQL, MySQL, Amazon RDS and Aurora; schema creation and upgrade |
-| [Secure the engine](secure-the-engine.md) | TLS, tokens from your identity provider, and the permission model |
+| [Secure the engine](secure-the-engine.md) | TLS, the runtime's API keys or your identity provider's tokens, and the permission model |
 | [Connect an integration](connect-an-integration.md) | Pointing a `ballerina/workflow` integration at the runtime |
 | [Manage the engine with workflow-cli](manage-with-workflow-cli.md) | Health checks, the cluster's nodes, namespaces and search attributes |
 | [Run across several nodes](scale-across-nodes.md) | Profiles, addresses, ports and load balancing |

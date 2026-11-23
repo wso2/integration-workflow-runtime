@@ -34,7 +34,7 @@ func Record(path string, k Issued) error {
 	for i, g := range k.Grants {
 		grants[i] = g.Namespace + ":" + strings.ToLower(g.Role)
 	}
-	line := strings.Join([]string{k.ID, sanitize(k.Name), strings.Join(grants, ","), k.Created.Format(time.RFC3339),
+	line := strings.Join([]string{k.ID, k.Name, strings.Join(grants, ","), k.Created.Format(time.RFC3339),
 		k.Expires.Format(time.RFC3339)}, "\t") + "\n"
 	return appendLine(path, line)
 }
@@ -43,6 +43,9 @@ func Record(path string, k Issued) error {
 func Revoke(path, id, reason string) error {
 	if id == "" || strings.ContainsAny(id, " \t\n#") {
 		return fmt.Errorf("%q is not an API key ID", id)
+	}
+	if len(reason) > maxReasonLength {
+		return fmt.Errorf("the reason is longer than %d characters", maxReasonLength)
 	}
 	line := id
 	if reason = sanitize(reason); reason != "" {
@@ -62,6 +65,10 @@ func appendLine(path, line string) error {
 	}
 	return f.Close()
 }
+
+// maxReasonLength keeps every revocation line far below what ReadRevoked reads; an unreadable list would refuse
+// every API key.
+const maxReasonLength = 1000
 
 func sanitize(s string) string {
 	return strings.Join(strings.Fields(strings.ReplaceAll(s, "#", "")), " ")

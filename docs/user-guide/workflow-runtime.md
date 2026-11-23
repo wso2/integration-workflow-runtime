@@ -19,7 +19,7 @@ one file, `conf/runtime.toml`.
 |---|---|
 | Engine (`workflow-engine`) | Temporal's services: the frontend integrations connect to (port 7233), history, matching, and a worker for the engine's own housekeeping |
 | Database | Workflow state and history (the workflow database) and workflow search (the visibility database): PostgreSQL or MySQL in production, SQLite for trying out |
-| Your identity provider | Issues the tokens integrations and operators present; the runtime keeps no users or roles of its own |
+| API keys, or your identity provider | Tokens integrations and operators present: the runtime's own API keys, or tokens from your identity provider; the runtime keeps no users or roles of its own |
 
 ## How integrations use it
 

@@ -130,11 +130,14 @@ func TestCreateRefusesBadInput(t *testing.T) {
 		grants []Grant
 		ttl    time.Duration
 	}{
-		"no name":       {"", []Grant{{"orders", "write"}}, time.Hour},
-		"no grant":      {"a", nil, time.Hour},
-		"no lifetime":   {"a", []Grant{{"orders", "write"}}, 0},
-		"bad role":      {"a", []Grant{{"orders", "worker"}}, time.Hour},
-		"bad namespace": {"a", []Grant{{"or:ders", "write"}}, time.Hour},
+		"no name":              {"", []Grant{{"orders", "write"}}, time.Hour},
+		"no grant":             {"a", nil, time.Hour},
+		"no lifetime":          {"a", []Grant{{"orders", "write"}}, 0},
+		"bad role":             {"a", []Grant{{"orders", "worker"}}, time.Hour},
+		"bad namespace":        {"a", []Grant{{"or:ders", "write"}}, time.Hour},
+		"newline in namespace": {"a", []Grant{{"orders\nbroken", "write"}}, time.Hour},
+		"tab in name":          {"orders\tapp", []Grant{{"orders", "write"}}, time.Hour},
+		"newline in name":      {"orders\napp", []Grant{{"orders", "write"}}, time.Hour},
 	} {
 		if _, err := k.Create(c.name, c.grants, c.ttl, now); err == nil {
 			t.Errorf("%s was accepted", name)
@@ -187,6 +190,10 @@ func TestRevocationReachesARunningVerifier(t *testing.T) {
 	if err := Revoke(revoked, "has space", ""); err == nil {
 		t.Error("an ID with a space was accepted")
 	}
+	// A reason that long would make a line the list could not be read back with.
+	if err := Revoke(revoked, "abc", strings.Repeat("x", 70000)); err == nil {
+		t.Error("an oversized reason was accepted")
+	}
 	// Within the check interval the cached list still holds; after it, the change is read.
 	if _, err := v.Claims(issued.Token); err != nil {
 		t.Fatalf("before the next check: %v", err)
@@ -214,7 +221,10 @@ func TestRecord(t *testing.T) {
 		t.Fatalf("missing record = %v, %v", entries, err)
 	}
 	k, _ := testKey(t)
-	issued, _ := k.Create("orders\tapp", []Grant{{"orders", "write"}, {"*", "read"}}, time.Hour, now)
+	issued, err := k.Create("ops#blue team", []Grant{{"orders", "write"}, {"*", "read"}}, time.Hour, now)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := Record(path, issued); err != nil {
 		t.Fatal(err)
 	}
@@ -223,7 +233,8 @@ func TestRecord(t *testing.T) {
 		t.Fatalf("record = %v, %v", entries, err)
 	}
 	e := entries[0]
-	if e.ID != issued.ID || e.Name != "orders app" || e.Grants != "orders:write,*:read" || !e.Expires.Equal(issued.Expires) {
+	// Names keep their characters, so revoking by name finds them.
+	if e.ID != issued.ID || e.Name != "ops#blue team" || e.Grants != "orders:write,*:read" || !e.Expires.Equal(issued.Expires) {
 		t.Fatalf("entry = %+v", e)
 	}
 	data, _ := os.ReadFile(path)
@@ -268,5 +279,16 @@ func TestMapperRoutesTokens(t *testing.T) {
 	if _, err := NewMapper(v, nil).GetClaims(&authorization.AuthInfo{AuthToken: "Bearer " + idpToken}); err == nil ||
 		!strings.Contains(err.Error(), "not one of this runtime's API keys") {
 		t.Fatalf("provider token without a provider = %v", err)
+	}
+}
+
+func TestReadRevokedTakesLongLines(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "revoked")
+	// A hand-edited comment longer than bufio.Scanner's default 64 KiB must not lock every key out.
+	if err := os.WriteFile(path, []byte("abc # "+strings.Repeat("x", 100_000)+"\ndef\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if ids, err := ReadRevoked(path); err != nil || !ids["abc"] || !ids["def"] {
+		t.Fatalf("revocation list = %v, %v", ids, err)
 	}
 }

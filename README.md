@@ -4,8 +4,8 @@ Durable workflow engine for WSO2 Integrator: embedded Temporal, a Go Manager wit
 user portals, in one distribution.
 
 The runtime is the engine that runs WSO2 Integrator's durable workflows. It is built on the open-source Temporal
-server, which runs inside it as an internal component: customers provide a database and an identity provider,
-and never install or patch Temporal themselves.
+server, which runs inside it as an internal component: customers provide a database (and, if they want, an identity
+provider instead of the runtime's own API keys), and never install or patch Temporal themselves.
 
 Status: early development. The engine, its security, schema management, development mode and packaging work; the
 Manager (API server) and portals are being built.

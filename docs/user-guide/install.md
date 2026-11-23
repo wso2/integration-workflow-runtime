@@ -11,7 +11,8 @@ The engine is a single static binary: no Java or other runtime is needed.
 
 :::info Prerequisites
 - A PostgreSQL or MySQL server for production ([Set up the database](database.md)).
-- Your identity provider's key set URL and the groups to grant ([Secure the engine](secure-the-engine.md)).
+- A way to authenticate callers: the runtime's own API keys, which need nothing else, or your identity provider's
+  issuer and the groups to grant ([Secure the engine](secure-the-engine.md)).
 - A certificate and key for the engine's address, for TLS.
 :::
 

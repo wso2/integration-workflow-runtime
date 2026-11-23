@@ -30,13 +30,16 @@ import (
 	"github.com/wso2/integration-workflow-runtime/engine/plugins/apikeys"
 )
 
+// tomlPath writes a path as a TOML literal string, which keeps Windows backslashes as they are.
+func tomlPath(p string) string { return "'" + p + "'" }
+
 // apiKeyRuntime writes a runtime.toml with TLS and the given auth section.
 func apiKeyRuntime(t *testing.T, auth string) string {
 	t.Helper()
 	dir := t.TempDir()
 	cert, _ := filepath.Abs("testdata/certs/engine.crt")
 	key, _ := filepath.Abs("testdata/certs/engine.key")
-	toml := "[engine.tls]\ncertFile = \"" + cert + "\"\nkeyFile = \"" + key + "\"\n" + auth +
+	toml := "[engine.tls]\ncertFile = " + tomlPath(cert) + "\nkeyFile = " + tomlPath(key) + "\n" + auth +
 		"[database]\ntype = \"sqlite\"\ninMemory = true\n"
 	path := filepath.Join(dir, "runtime.toml")
 	if err := os.WriteFile(path, []byte(toml), 0o600); err != nil {
@@ -46,8 +49,8 @@ func apiKeyRuntime(t *testing.T, auth string) string {
 }
 
 func apiKeysOnly(dir string) string {
-	return "[engine.auth]\ntype = \"apiKeys\"\n[engine.auth.apiKeys]\nsigningKey = \"" +
-		filepath.Join(dir, "security", "api-key-signing.pem") + "\"\n"
+	return "[engine.auth]\ntype = \"apiKeys\"\n[engine.auth.apiKeys]\nsigningKey = " +
+		tomlPath(filepath.Join(dir, "security", "api-key-signing.pem")) + "\n"
 }
 
 func TestAPIKeyCreateListRevoke(t *testing.T) {
@@ -112,25 +115,28 @@ func TestAPIKeyErrors(t *testing.T) {
 	dir := t.TempDir()
 	path := apiKeyRuntime(t, apiKeysOnly(dir))
 	noKeys := apiKeyRuntime(t, "")
-	for args, want := range map[string]string{
-		"":                "usage: workflow-engine api-key",
-		"rotate":          "usage: workflow-engine api-key",
-		"create --name a": "--runtime-config is required",
-		"create --runtime-config " + noKeys + " --name a --namespace b --role write":              "has no [engine.auth.apiKeys]",
-		"create --runtime-config " + path + " --name a --role write":                              "give at least one --namespace",
-		"create --runtime-config " + path + " --name a --namespace b --role owner":                `role "owner"`,
-		"create --runtime-config " + path + " --namespace b --role write":                         "needs a name",
-		"create --runtime-config " + path + " --name a --namespace b --role write --expires soon": "--expires",
-		"create --bogus":                                      "flag provided but not defined",
-		"revoke --runtime-config " + path:                     "give --id or --name",
-		"revoke --runtime-config " + path + " --name nobody":  "no API key named",
-		"revoke --runtime-config " + path + " --id has#hash":  "is not an API key ID",
-		"list --runtime-config " + filepath.Join(dir, "gone"): "no such file",
+	// Arguments stay slices, so a temporary directory with a space in it stays one argument.
+	for _, c := range []struct {
+		args []string
+		want string
+	}{
+		{nil, "usage: workflow-engine api-key"},
+		{[]string{"rotate"}, "usage: workflow-engine api-key"},
+		{[]string{"create", "--name", "a"}, "--runtime-config is required"},
+		{[]string{"create", "--runtime-config", noKeys, "--name", "a", "--namespace", "b", "--role", "write"}, "has no [engine.auth.apiKeys]"},
+		{[]string{"create", "--runtime-config", path, "--name", "a", "--role", "write"}, "give at least one --namespace"},
+		{[]string{"create", "--runtime-config", path, "--name", "a", "--namespace", "b", "--role", "owner"}, `role "owner"`},
+		{[]string{"create", "--runtime-config", path, "--namespace", "b", "--role", "write"}, "needs a name"},
+		{[]string{"create", "--runtime-config", path, "--name", "a", "--namespace", "b", "--role", "write", "--expires", "soon"}, "--expires"},
+		{[]string{"create", "--bogus"}, "flag provided but not defined"},
+		{[]string{"revoke", "--runtime-config", path}, "give --id or --name"},
+		{[]string{"revoke", "--runtime-config", path, "--name", "nobody"}, "no API key named"},
+		{[]string{"revoke", "--runtime-config", path, "--id", "has#hash"}, "is not an API key ID"},
+		{[]string{"list", "--runtime-config", filepath.Join(dir, "gone")}, "no such file"},
 	} {
-		c, _, stderr := newTestCommand(&fakeServer{}, nil)
-		if code := c.run(append([]string{"api-key"}, strings.Fields(args)...)); code == 0 ||
-			!strings.Contains(stderr.String(), want) {
-			t.Errorf("api-key %s = %d %q, want %q", args, code, stderr.String(), want)
+		cmd, _, stderr := newTestCommand(&fakeServer{}, nil)
+		if code := cmd.run(append([]string{"api-key"}, c.args...)); code == 0 || !strings.Contains(stderr.String(), c.want) {
+			t.Errorf("api-key %q = %d %q, want %q", c.args, code, stderr.String(), c.want)
 		}
 	}
 	c, stdout, _ := newTestCommand(&fakeServer{}, nil)
@@ -156,8 +162,8 @@ func TestParseLifetime(t *testing.T) {
 func TestClaimMapperWithBothProviderAndAPIKeys(t *testing.T) {
 	dir := t.TempDir()
 	path := apiKeyRuntime(t, "[engine.auth]\ntype = \"jwt\"\njwksUrls = [\"https://idp.example/jwks\"]\n"+
-		"issuer = \"https://idp.example\"\n[engine.auth.apiKeys]\nsigningKey = \""+
-		filepath.Join(dir, "k.pem")+"\"\n")
+		"issuer = \"https://idp.example\"\n[engine.auth.apiKeys]\nsigningKey = "+
+		tomlPath(filepath.Join(dir, "k.pem"))+"\n")
 	rt, err := runtimeconfig.Load(path)
 	if err != nil {
 		t.Fatal(err)

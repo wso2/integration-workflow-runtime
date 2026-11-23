@@ -36,6 +36,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/golang-jwt/jwt/v5"
 )
@@ -115,12 +116,14 @@ func newKey(path string) (*Key, bool, error) {
 	if err != nil {
 		return nil, false, fmt.Errorf("unable to create the API key signing key: %w", err)
 	}
-	if _, err := f.Write(data); err != nil {
-		_ = f.Close()
-		return nil, false, err
+	_, err = f.Write(data)
+	if closeErr := f.Close(); err == nil {
+		err = closeErr
 	}
-	if err := f.Close(); err != nil {
-		return nil, false, err
+	if err != nil {
+		// A partial file would block every later attempt; only a complete key stays.
+		_ = os.Remove(path)
+		return nil, false, fmt.Errorf("unable to write the API key signing key: %w", err)
 	}
 	return &Key{private: private, id: keyID(&private.PublicKey)}, true, nil
 }
@@ -149,6 +152,10 @@ type Issued struct {
 func (k *Key) Create(name string, grants []Grant, ttl time.Duration, now time.Time) (Issued, error) {
 	if strings.TrimSpace(name) == "" {
 		return Issued{}, errors.New("an API key needs a name")
+	}
+	// The issued-key record is one tab-separated line per key, so a name keeps its characters but no control ones.
+	if strings.ContainsFunc(name, unicode.IsControl) {
+		return Issued{}, fmt.Errorf("API key name %q must not contain tabs, newlines or other control characters", name)
 	}
 	if len(grants) == 0 {
 		return Issued{}, errors.New("an API key needs at least one namespace and role")
@@ -183,7 +190,7 @@ func (k *Key) Create(name string, grants []Grant, ttl time.Duration, now time.Ti
 }
 
 func (g Grant) check() error {
-	if g.Namespace == "" || strings.ContainsAny(g.Namespace, ": \t") {
+	if g.Namespace == "" || strings.ContainsAny(g.Namespace, ": ") || strings.ContainsFunc(g.Namespace, unicode.IsControl) {
 		return fmt.Errorf("namespace %q must be a namespace name or *", g.Namespace)
 	}
 	switch strings.ToLower(g.Role) {

@@ -159,6 +159,8 @@ func ReadRevoked(path string) (map[string]bool, error) {
 	}
 	defer func() { _ = f.Close() }()
 	lines := bufio.NewScanner(f)
+	// Room for lines longer than Revoke writes, so a hand-edited comment does not lock every key out.
+	lines.Buffer(make([]byte, 0, 64*1024), 1<<20)
 	for lines.Scan() {
 		line, _, _ := strings.Cut(lines.Text(), "#")
 		if line = strings.TrimSpace(line); line != "" {

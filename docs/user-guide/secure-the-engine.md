@@ -91,11 +91,12 @@ sets one as `authApiKey` and runs for as long as the key lasts, with no identity
    owner only; the key is printed once, on standard output:
 
    ```bash
-   bin/workflow-runtime api-key create --name ops --namespace '*' --role admin > ops.key
+   (umask 077; bin/workflow-runtime api-key create --name ops --namespace '*' --role admin > ops.key)
    bin/workflow-runtime api-key create --name orders-integration --namespace orders --role write --expires 365d
    ```
 
-   `--namespace` repeats for a key that spans namespaces; `--expires` takes days (`90d`) or hours (`720h`) and
+   The `umask` keeps `ops.key`, an admin token, readable by you only. `--namespace` repeats for a key that spans
+   namespaces; `--expires` takes days (`90d`) or hours (`720h`) and
    defaults to a year.
 
 3. Start the engine, create the integration's namespace with your admin key, and give the integration its key
@@ -107,8 +108,10 @@ holds no tokens. `api-key revoke --id <id>` or `--name <name>` adds the key to
 working without a restart. On several nodes, copy the signing key to every node once, and the revocation list after
 each change ([Run across several nodes](scale-across-nodes.md)).
 
-Keep the signing key like a private TLS key: anyone who holds it can create keys. To replace it, move the old file
-away and create new keys; every key signed by the old one stops working.
+Keep the signing key like a private TLS key: anyone who holds it can create keys. The engine reads it only at start:
+to replace it, move the old file away, create the new keys, copy the new signing key to every node and restart each
+node. Until a node restarts it still accepts keys signed by the old key and refuses the new ones; after the restart,
+every key signed by the old one stops working.
 
 ## Turn on your identity provider's tokens
 
