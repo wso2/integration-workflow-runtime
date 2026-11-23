@@ -54,10 +54,27 @@ func Revoke(path, id, reason string) error {
 	return appendLine(path, line+"\n")
 }
 
+// appendLine adds a line, starting a new one when an earlier append was cut short, so a partial line never joins the
+// next record: a revocation retried after a full disk must reach the list as its own line.
 func appendLine(path, line string) error {
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND|os.O_CREATE, keyFileMode) //nolint:gosec // configured file
+	f, err := os.OpenFile(path, os.O_RDWR|os.O_APPEND|os.O_CREATE, keyFileMode) //nolint:gosec // configured file
 	if err != nil {
 		return err
+	}
+	info, err := f.Stat()
+	if err != nil {
+		_ = f.Close()
+		return err
+	}
+	if size := info.Size(); size > 0 {
+		last := make([]byte, 1)
+		if _, err := f.ReadAt(last, size-1); err != nil {
+			_ = f.Close()
+			return err
+		}
+		if last[0] != '\n' {
+			line = "\n" + line
+		}
 	}
 	if _, err := f.WriteString(line); err != nil {
 		_ = f.Close()
@@ -95,6 +112,8 @@ func ReadRecord(path string) ([]Entry, error) {
 	defer func() { _ = f.Close() }()
 	var entries []Entry
 	lines := bufio.NewScanner(f)
+	// Room beyond any record Create allows, so a hand-edited line does not block list and revoke for every key.
+	lines.Buffer(make([]byte, 0, 64*1024), 1<<20)
 	for n := 1; lines.Scan(); n++ {
 		fields := strings.Split(lines.Text(), "\t")
 		if len(fields) != 5 {

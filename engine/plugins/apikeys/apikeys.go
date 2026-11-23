@@ -47,6 +47,8 @@ const Issuer = "wso2-workflow-runtime"
 const (
 	permissionsClaim = "permissions"
 	keyFileMode      = 0o600
+	// maxNameLength keeps every issued-key record a short line.
+	maxNameLength = 200
 )
 
 // Grant is a role in a namespace; Namespace "*" grants the role in every namespace.
@@ -152,6 +154,9 @@ type Issued struct {
 func (k *Key) Create(name string, grants []Grant, ttl time.Duration, now time.Time) (Issued, error) {
 	if strings.TrimSpace(name) == "" {
 		return Issued{}, errors.New("an API key needs a name")
+	}
+	if len(name) > maxNameLength {
+		return Issued{}, fmt.Errorf("an API key name has at most %d characters", maxNameLength)
 	}
 	// The issued-key record is one tab-separated line per key, so a name keeps its characters but no control ones.
 	if strings.ContainsFunc(name, unicode.IsControl) {

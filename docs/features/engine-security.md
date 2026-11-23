@@ -64,7 +64,7 @@ role = "write"
 
 | Command | Does |
 |---|---|
-| `workflow-engine api-key create --runtime-config <file> --name <name> --namespace <ns>... --role read\|write\|admin [--expires 365d]` | Signs a key and prints it once on standard output; records it, without the token, in `issued-api-keys.txt` |
+| `workflow-engine api-key create --runtime-config <file> --name <name> --namespace <ns>... --role read\|write\|admin [--expires 365d]` | Signs a key and prints it once on standard output; records it, without the token, in `issued-api-keys.txt`. `--name` has at most 200 characters and no control characters |
 | `workflow-engine api-key list --runtime-config <file>` | The keys created: ID, name, grants, dates, and whether each is active, expired or revoked |
 | `workflow-engine api-key revoke --runtime-config <file> (--id <id> \| --name <name>) [--reason <text>]` | Adds the key, or every key with that name, to the revocation list |
 
