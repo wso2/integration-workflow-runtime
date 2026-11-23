@@ -253,11 +253,40 @@ role = "admin"
 	}
 }
 
+func TestAPIKeys(t *testing.T) {
+	cert, key, _ := certFiles(t)
+	tls := "[engine.tls]\ncertFile = \"" + cert + "\"\nkeyFile = \"" + key + "\"\n"
+	rt := mustParseRuntime(t, "[engine.auth]\ntype = \"apiKeys\"\n[engine.auth.apiKeys]\nsigningKey = "+
+		"\"conf/security/api-key-signing.pem\"\n"+tls+sqliteDB)
+	want := APIKeys{SigningKey: "conf/security/api-key-signing.pem", RevocationList: "conf/security/revoked-api-keys.txt",
+		IssuedRecord: "conf/security/issued-api-keys.txt"}
+	if rt.APIKeys == nil || *rt.APIKeys != want || rt.Auth != nil {
+		t.Fatalf("API keys = %+v, identity provider = %+v", rt.APIKeys, rt.Auth)
+	}
+	if a := rt.Temporal.Global.Authorization; a.Authorizer != "default" || a.ClaimMapper != ClaimMapperName ||
+		len(a.JWTKeyProvider.KeySourceURIs) != 0 {
+		t.Errorf("authorization = %+v", a)
+	}
+	both := mustParseRuntime(t, "[engine.auth]\ntype = \"jwt\"\njwksUrls = [\"https://idp.example/jwks\"]\n"+
+		"[engine.auth.apiKeys]\nsigningKey = \"k.pem\"\nrevocationList = \"/var/lib/revoked\"\n"+tls+sqliteDB)
+	if both.Auth == nil || both.APIKeys == nil || both.APIKeys.RevocationList != "/var/lib/revoked" {
+		t.Fatalf("both = %+v, %+v", both.Auth, both.APIKeys)
+	}
+	if _, err := parse([]byte("[engine.auth]\ntype = \"apiKeys\"\n[engine.auth.apiKeys]\nsigningKey = \"k.pem\"\n"+
+		sqliteDB), noEnv); err == nil || !strings.Contains(err.Error(), `"apiKeys" needs engine.tls`) {
+		t.Errorf("API keys without TLS: err = %v", err)
+	}
+}
+
 func TestAuthErrors(t *testing.T) {
 	for toml, want := range map[string]string{
-		"[engine.auth]\ntype = \"oauth\"\n":                                                                                              `must be "jwt" or "none"`,
-		"[engine.auth]\ntype = \"jwt\"\n":                                                                                                "needs the identity provider's issuer",
-		"[engine.auth]\njwksUrls = [\"https://idp\"]\n":                                                                                  `type is not "jwt"`,
+		"[engine.auth]\ntype = \"oauth\"\n":               `must be "jwt", "apiKeys" or "none"`,
+		"[engine.auth]\ntype = \"jwt\"\n":                 "needs the identity provider's issuer",
+		"[engine.auth]\njwksUrls = [\"https://idp\"]\n":   `type is not "jwt" or "apiKeys"`,
+		"[engine.auth.apiKeys]\nsigningKey = \"k.pem\"\n": `type is not "jwt" or "apiKeys"`,
+		"[engine.auth]\ntype = \"apiKeys\"\n":             "needs engine.auth.apiKeys.signingKey",
+		"[engine.auth]\ntype = \"apiKeys\"\nissuer = \"https://idp\"\n[engine.auth.apiKeys]\nsigningKey = \"k.pem\"\n":                   `set type = "jwt" to trust both`,
+		"[engine.auth]\ntype = \"jwt\"\nissuer = \"https://idp\"\n[engine.auth.apiKeys]\nrevocationList = \"r.txt\"\n":                   "revocationList needs engine.auth.apiKeys.signingKey",
 		"[engine.auth]\ntype = \"jwt\"\njwksUrls = [\"x\"]\nkeyRefreshInterval = \"soon\"\n":                                             "keyRefreshInterval",
 		"[engine.auth]\ntype = \"jwt\"\njwksUrls = [\"http://idp.example/jwks\"]\n":                                                      "jwksUrls: \"http://idp.example/jwks\" must use https",
 		"[engine.auth]\ntype = \"jwt\"\nissuer = \"http://idp.example\"\n":                                                               "issuer (its key set is discovered from it)",

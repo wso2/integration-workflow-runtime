@@ -66,6 +66,20 @@ The [workflow-cli reference](../user-guide/reference/workflow-cli.md) lists ever
 `--allow-no-auth` is for development and tests only: without it the engine refuses to start unless an
 authorizer is configured.
 
+## A secured engine on your machine
+
+The quickest secured setup uses the runtime's own API keys: add `[engine.tls]` and `[engine.auth] type = "apiKeys"`
+with `[engine.auth.apiKeys] signingKey` to a copy of `tests/engine/runtime-sqlite.toml`, then
+
+```sh
+./build/workflow-engine api-key create --runtime-config my-runtime.toml --name me --namespace '*' --role admin
+./build/workflow-engine start --runtime-config my-runtime.toml
+```
+
+and pass the key with `--api-key` and the CA with `--tls-ca-path` to `workflow-cli` or the Temporal CLI. `api-key list`
+and `api-key revoke` manage the keys; see [engine security](../features/engine-security.md). The real-engine test
+`TestAPIKeysOnASecuredEngine` does the same.
+
 ## Distribution and image
 
 ```sh

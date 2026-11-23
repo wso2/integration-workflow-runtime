@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -37,6 +38,15 @@ import (
 const ClaimMapperName = "wso2-jwt"
 
 const authTypeJWT = "jwt"
+
+// authTypeAPIKeys trusts only the runtime's own API keys, with no identity provider.
+const authTypeAPIKeys = "apiKeys"
+
+// Default files of [engine.auth.apiKeys], next to the signing key unless set.
+const (
+	defaultRevocationList = "revoked-api-keys.txt"
+	issuedRecordFile      = "issued-api-keys.txt"
+)
 
 type engineTLSSettings struct {
 	CertFile     string               `toml:"certFile"`
@@ -64,6 +74,37 @@ type authSettings struct {
 	ValueRegex    string         `toml:"valueRegex"`
 	LeewaySeconds int            `toml:"leewaySeconds"`
 	Rules         []ruleSettings `toml:"rules"`
+	APIKeys       apiKeySettings `toml:"apiKeys"`
+}
+
+// apiKeySettings turn on the runtime's own API keys, alone (type "apiKeys") or beside an identity provider ("jwt").
+type apiKeySettings struct {
+	SigningKey     string `toml:"signingKey"`
+	RevocationList string `toml:"revocationList"`
+}
+
+// APIKeys are the files of the runtime's own API keys.
+type APIKeys struct {
+	// SigningKey signs and verifies the keys; every node needs the same file.
+	SigningKey string
+	// RevocationList holds revoked key IDs, one per line; it is re-read while the engine runs.
+	RevocationList string
+	// IssuedRecord lists the keys created, without their tokens.
+	IssuedRecord string
+}
+
+func (k apiKeySettings) on() bool { return k.SigningKey != "" }
+
+func (k apiKeySettings) files() *APIKeys {
+	if !k.on() {
+		return nil
+	}
+	dir := filepath.Dir(k.SigningKey)
+	revoked := k.RevocationList
+	if revoked == "" {
+		revoked = filepath.Join(dir, defaultRevocationList)
+	}
+	return &APIKeys{SigningKey: k.SigningKey, RevocationList: revoked, IssuedRecord: filepath.Join(dir, issuedRecordFile)}
 }
 
 type ruleSettings struct {
@@ -192,7 +233,7 @@ func (t engineTLSSettings) temporalTLS() config.RootTLS {
 	return root
 }
 
-func (a authSettings) on() bool { return a.Type == authTypeJWT }
+func (a authSettings) on() bool { return a.Type == authTypeJWT || a.Type == authTypeAPIKeys }
 
 // securityProblems are the rules that join auth, TLS and the listen address.
 func (e engineSettings) securityProblems() []string {
@@ -201,8 +242,8 @@ func (e engineSettings) securityProblems() []string {
 	}
 	var problems []string
 	if !e.TLS.enabled() {
-		problems = append(problems, `engine.auth.type = "jwt" needs engine.tls (certFile and keyFile): tokens would cross `+
-			"the network in plain text")
+		problems = append(problems, fmt.Sprintf(`engine.auth.type = %q needs engine.tls (certFile and keyFile): tokens `+
+			"would cross the network in plain text", e.Auth.Type))
 	}
 	// The internal frontend gives Temporal's own services system access without a token, and the other services'
 	// ports are open to anyone who reaches them, so beyond this machine they need internode mutual TLS.
@@ -215,17 +256,31 @@ func (e engineSettings) securityProblems() []string {
 }
 
 func (a authSettings) problems() []string {
+	idp := len(a.JWKSURLs) > 0 || len(a.Rules) > 0 || a.Issuer != "" || a.Audience != "" || a.ValueRegex != ""
 	switch a.Type {
 	case "", "none":
-		if len(a.JWKSURLs) > 0 || len(a.Rules) > 0 || a.Issuer != "" {
-			return []string{`engine.auth settings are present but engine.auth.type is not "jwt"`}
+		if idp || a.APIKeys.on() || a.APIKeys.RevocationList != "" {
+			return []string{`engine.auth settings are present but engine.auth.type is not "jwt" or "apiKeys"`}
 		}
 		return nil
+	case authTypeAPIKeys:
+		var problems []string
+		if !a.APIKeys.on() {
+			problems = append(problems, `engine.auth.type = "apiKeys" needs engine.auth.apiKeys.signingKey`)
+		}
+		if idp {
+			problems = append(problems, `engine.auth has identity-provider settings, but type = "apiKeys" trusts only the `+
+				`runtime's own keys; set type = "jwt" to trust both`)
+		}
+		return problems
 	case authTypeJWT:
 	default:
-		return []string{fmt.Sprintf(`engine.auth.type %q must be "jwt" or "none"`, a.Type)}
+		return []string{fmt.Sprintf(`engine.auth.type %q must be "jwt", "apiKeys" or "none"`, a.Type)}
 	}
 	var problems []string
+	if a.APIKeys.RevocationList != "" && !a.APIKeys.on() {
+		problems = append(problems, "engine.auth.apiKeys.revocationList needs engine.auth.apiKeys.signingKey")
+	}
 	if len(a.JWKSURLs) == 0 && a.Issuer == "" {
 		problems = append(problems, "engine.auth needs the identity provider's issuer (its key set is discovered) or jwksUrls")
 	}
@@ -271,11 +326,11 @@ func (a authSettings) temporalAuthorization() config.Authorization {
 	if a.KeyRefresh != "" {
 		refresh, _ = time.ParseDuration(a.KeyRefresh)
 	}
-	return config.Authorization{
-		Authorizer:     "default",
-		ClaimMapper:    ClaimMapperName,
-		JWTKeyProvider: config.JWTKeyProvider{KeySourceURIs: a.JWKSURLs, RefreshInterval: refresh},
+	auth := config.Authorization{Authorizer: "default", ClaimMapper: ClaimMapperName}
+	if a.Type == authTypeJWT {
+		auth.JWTKeyProvider = config.JWTKeyProvider{KeySourceURIs: a.JWKSURLs, RefreshInterval: refresh}
 	}
+	return auth
 }
 
 func (m metricsSettings) problems() []string {

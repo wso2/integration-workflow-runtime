@@ -85,6 +85,9 @@ func TestLauncherCommands(t *testing.T) {
 		"start flags":   {[]string{"--allow-no-auth"}, []string{"start", "--runtime-config", "CONFIG", "--allow-no-auth"}},
 		"start":         {[]string{"start", "--service", "frontend"}, []string{"start", "--runtime-config", "CONFIG", "--service", "frontend"}},
 		"render-config": {[]string{"render-config"}, []string{"render-config", "--runtime-config", "CONFIG"}},
+		"api-key create": {[]string{"api-key", "create", "--name", "orders"},
+			[]string{"api-key", "create", "--runtime-config", "CONFIG", "--name", "orders"}},
+		"api-key alone": {[]string{"api-key"}, []string{"api-key"}},
 		"other":         {[]string{"start-dev", "--port", "8233"}, []string{"start-dev", "--port", "8233"}},
 		"dev":           {[]string{"dev", "--db-file", "data/dev.db"}, []string{"start-dev", "--db-file", "data/dev.db"}},
 	} {

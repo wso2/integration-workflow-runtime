@@ -5,7 +5,8 @@ Status: available · since 0.1.0 (in development)
 ## What it does
 
 Secures the engine's frontend (port 7233), the endpoint integrations connect to, without the Manager: TLS on the
-connection, and tokens from the customer's own identity provider mapped to Temporal's namespace roles.
+connection, and on every call either one of the runtime's own API keys or a token from the customer's identity
+provider, mapped to Temporal's namespace roles.
 
 ## Configuration
 
@@ -24,7 +25,9 @@ connection, and tokens from the customer's own identity provider mapped to Tempo
 
 | Key | Default | Meaning |
 |---|---|---|
-| `type` | `none` | `jwt` checks a bearer token on every call; `none` needs `--allow-no-auth` |
+| `type` | `none` | `apiKeys` checks the runtime's own API keys; `jwt` checks the identity provider's tokens, and API keys too when `[engine.auth.apiKeys]` is set; `none` needs `--allow-no-auth` |
+| `[engine.auth.apiKeys]` `signingKey` | | ECDSA P-256 key (PEM) that signs and verifies API keys, created when missing; the same file on every node |
+| `[engine.auth.apiKeys]` `revocationList` | `revoked-api-keys.txt` beside `signingKey` | Revoked key IDs, one per line, read again while the engine runs |
 | `jwksUrls` | discovered from `issuer` | The identity provider's key set (JWKS) URLs, when it has no OpenID Connect discovery document; https, or http to a loopback host |
 | `keyRefreshInterval` | `1m` | How often the key set is fetched again |
 | `issuer` | | Required value of `iss`, and where the key set is discovered at start (`<issuer>/.well-known/openid-configuration`); `issuer` or `jwksUrls` is required |
@@ -57,8 +60,27 @@ namespace = "default"
 role = "write"
 ```
 
+## Commands
+
+| Command | Does |
+|---|---|
+| `workflow-engine api-key create --runtime-config <file> --name <name> --namespace <ns>... --role read\|write\|admin [--expires 365d]` | Signs a key and prints it once on standard output; records it, without the token, in `issued-api-keys.txt` |
+| `workflow-engine api-key list --runtime-config <file>` | The keys created: ID, name, grants, dates, and whether each is active, expired or revoked |
+| `workflow-engine api-key revoke --runtime-config <file> (--id <id> \| --name <name>) [--reason <text>]` | Adds the key, or every key with that name, to the revocation list |
+
+`workflow-runtime api-key ...` runs the same with the distribution's `conf/runtime.toml`.
+
 ## Behavior
 
+- **API keys** are JWTs the runtime signs with ES256: issuer `wso2-workflow-runtime`, the key's name as `sub`, its
+  ID as `jti`, the signing key's fingerprint as `kid`, an expiry (a year by default), and the roles as Temporal's
+  `<namespace>:<role>` values in `permissions`. A token with that issuer is checked against the signing key and the
+  revocation list; any other token goes to the identity provider's mapper, or is refused when the engine trusts only
+  API keys. A key signed by another runtime's key is refused by its `kid`.
+- The revocation list is checked for changes at most every 10 seconds, so a revocation reaches a running engine
+  without a restart. The issued-key record holds no tokens: a leaked record grants nothing.
+- The first `api-key create`, or a start, writes the signing key when the file is missing (mode 0600). Several nodes
+  need the same key, so create it on one node and copy it.
 - **Three ways to read roles**, so any identity provider fits:
   - Rules map the provider's group, role or scope names to namespace roles. Use them when the provider knows
     nothing about namespaces, which is the usual case.
@@ -68,7 +90,7 @@ role = "write"
 - Roles add up across values. `read` lets a caller list and describe; `write` adds starting and signalling
   workflows and lets an integration's workers poll and complete tasks; `admin` adds namespace management. There is no
   worker role: Temporal's default authorizer needs write to poll, so a `worker` rule is refused.
-- `type = "jwt"` needs `[engine.tls]`, and, unless `bindAddress` is a loopback address, `[engine.tls.internode]`:
+- `type = "jwt"` or `"apiKeys"` needs `[engine.tls]`, and, unless `bindAddress` is a loopback address, `[engine.tls.internode]`:
   the internal frontend gives Temporal's own services system access without a token, so it and the other services'
   ports accept only internode certificates.
 - Internode TLS also turns on Temporal's `system.enableRingpopTLS` (passed as dynamic configuration at start), so the
@@ -97,12 +119,15 @@ role = "write"
 ## Limits
 
 - Tokens must be signed with RS256 or ES256, as with Temporal's key provider.
-- Clients present the token themselves; refreshing an expiring token is the client's job.
+- Clients present the token themselves; refreshing an expiring token is the client's job. `ballerina/workflow` reads
+  `authApiKey` once, so an integration needs a key that outlives its run: an API key, or a long-lived provider token.
+- API keys, the revocation list and the issued-key record are files on each node; with several nodes the operator
+  copies them. Revoking needs a node's shell, not a remote call.
 - Client certificates authenticate the connection only; roles still come from the token.
 
 ## Not covered yet
 
-Roles from client certificate subjects, tokens issued by the Manager, and task-queue-scoped tokens.
+Roles from client certificate subjects, keys created through an API (the Manager's), and task-queue-scoped keys.
 
 ## Tests
 
@@ -111,7 +136,10 @@ Roles from client certificate subjects, tokens issued by the Manager, and task-q
 | `engine/plugins/jwtclaims/discovery_test.go` | Discovery: the key set URL, another issuer or a trailing slash, no key set, a plain-http issuer or key set, invalid documents, unreachable providers; which URLs `CheckURL` accepts |
 | `engine/plugins/jwtclaims/keyset_test.go` | Reading RS256 and ES256 keys, keeping them when a refresh fails, refreshing on the interval; a redirect to plain http refused for key sets and discovery, from https to loopback http refused, one to https followed; keys for encryption or another algorithm dropped, a bad entry not replacing a good key with the same ID; oversized key sets and sets without `keys` refused |
 | `engine/plugins/jwtclaims/jwtclaims_test.go` | Temporal's format, rules on nested claims, scope strings, regex, issuer, audience, expiry, tokens issued in the future, forged and malformed tokens |
-| `engine/internal/runtimeconfig/security_test.go` | TLS, auth and metrics mapping and every validation rule |
+| `engine/plugins/apikeys/apikeys_test.go` | Signing keys created once (mode 0600) and read back as SEC 1 or PKCS#8, other curves and kinds refused; keys created and verified with their roles, `*` as system roles, expiry; keys from another signing key, forged and ID-less keys refused; a revocation reaching a running verifier, and a removed list restoring the key; the issued-key record, which holds no token; the mapper routing API keys, provider tokens and calls without a token |
+| `engine/internal/runtimeconfig/security_test.go` | TLS, auth and metrics mapping and every validation rule, including `apiKeys` alone and beside an identity provider |
+| `engine/internal/cli/apikey_test.go` | `api-key create`, `list` and `revoke` end to end with the claim mapper the start builds; every refusal; lifetimes; a start with both an identity provider and API keys |
 | `engine/internal/cli/cli_test.go` | A start with identity-provider auth; which claim mapper is built; the services the profiles and `--service` pass to the server, including `--service` with an `api`-only profile |
 | `tools/internal/enginetest/cluster_test.go` | Two secured nodes on one SQLite file, one with frontend, matching and worker and one with frontend and history, form one engine: a workflow started through the first runs on the second's history, over TLS membership and internode TLS |
+| `tools/internal/enginetest/apikeys_test.go` | A real engine with TLS and only API keys: keys from `api-key create` grant admin, write and read to the Temporal CLI and `workflow-cli`; a reader writing, another namespace, an integration key creating a namespace, a key from another runtime and no key are refused; a key revoked while the engine runs stops working within seconds and the others keep working |
 | `tools/internal/enginetest/security_test.go` | A real engine with TLS, internode mutual TLS and an OpenID Connect provider: an integration token starts and lists in its namespace; another namespace, a reader writing, no token, expired, forged, other-issuer and unmatched tokens, and plaintext are refused; the internal frontend refuses callers without an internode certificate and answers one with it; adding a search attribute works, which goes through the internal frontend with the derived server name; history, matching, worker and every membership port take TLS with a node certificate and refuse callers without one |

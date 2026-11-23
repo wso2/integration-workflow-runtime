@@ -37,6 +37,7 @@ import (
 	"go.temporal.io/server/common/config"
 	"go.temporal.io/server/common/headers"
 	"go.temporal.io/server/common/log"
+	"go.temporal.io/server/common/log/tag"
 	_ "go.temporal.io/server/common/persistence/sql/sqlplugin/mysql"
 	_ "go.temporal.io/server/common/persistence/sql/sqlplugin/postgresql"
 	_ "go.temporal.io/server/common/persistence/sql/sqlplugin/sqlite"
@@ -45,13 +46,15 @@ import (
 
 	"github.com/wso2/integration-workflow-runtime/engine/internal/runtimeconfig"
 	"github.com/wso2/integration-workflow-runtime/engine/internal/sqlschema"
+	"github.com/wso2/integration-workflow-runtime/engine/plugins/apikeys"
 	"github.com/wso2/integration-workflow-runtime/engine/plugins/jwtclaims"
 )
 
 const usageText = `usage: workflow-engine version
        workflow-engine start (--runtime-config <runtime.toml> | --config-file <temporal.yaml>) [--service <name>]... [--allow-no-auth]
        workflow-engine start-dev [--ip <address>] [--port <port>] [--db-file <file>] [--namespace <name>]... [--log-level <level>]
-       workflow-engine render-config --runtime-config <runtime.toml>`
+       workflow-engine render-config --runtime-config <runtime.toml>
+       workflow-engine api-key (create | list | revoke) --runtime-config <runtime.toml> ...`
 
 // serverFactory builds the server for the services this node runs; tests record the services.
 type serverFactory func(services []string, opts ...temporal.ServerOption) (temporal.Server, error)
@@ -97,6 +100,8 @@ func (c command) run(args []string) int {
 		return c.exitCode(c.startDev(args[1:]))
 	case "render-config":
 		return c.exitCode(c.renderConfig(args[1:]))
+	case "api-key":
+		return c.exitCode(c.apiKey(args[1:]))
 	default:
 		_, _ = fmt.Fprintln(c.stderr, usageText)
 		return 2
@@ -322,10 +327,35 @@ func newClaimMapper(cfg *config.Config, rt *runtimeconfig.Runtime, logger log.Lo
 	if cfg.Global.Authorization.ClaimMapper != runtimeconfig.ClaimMapperName {
 		return authorization.GetClaimMapperFromConfig(&cfg.Global.Authorization, logger)
 	}
-	if rt == nil || rt.Auth == nil {
+	if rt == nil || (rt.Auth == nil && rt.APIKeys == nil) {
 		return nil, fmt.Errorf("claim mapper %q is configured only through runtime.toml [engine.auth]",
 			runtimeconfig.ClaimMapperName)
 	}
+	var provider authorization.ClaimMapper
+	if rt.Auth != nil {
+		m, err := providerClaimMapper(cfg, rt, logger)
+		if err != nil {
+			return nil, err
+		}
+		provider = m
+	}
+	if rt.APIKeys == nil {
+		return provider, nil
+	}
+	key, created, err := apikeys.LoadKey(rt.APIKeys.SigningKey, true)
+	if err != nil {
+		return nil, err
+	}
+	if created {
+		logger.Info("Created the API key signing key; copy it to every node of this runtime",
+			tag.NewStringTag("file", rt.APIKeys.SigningKey))
+	}
+	return apikeys.NewMapper(apikeys.NewVerifier(key, rt.APIKeys.RevocationList), provider), nil
+}
+
+// providerClaimMapper maps the identity provider's tokens, discovering its key set from the issuer when needed.
+func providerClaimMapper(cfg *config.Config, rt *runtimeconfig.Runtime, logger log.Logger) (*jwtclaims.Mapper,
+	error) {
 	client := jwtclaims.Client(keyFetchTimeout)
 	if len(cfg.Global.Authorization.JWTKeyProvider.KeySourceURIs) == 0 {
 		jwks, err := jwtclaims.Discover(context.Background(), client, rt.Auth.Issuer)
