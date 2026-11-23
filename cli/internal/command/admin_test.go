@@ -74,13 +74,16 @@ func (f adminFake) ListQueues(ctx context.Context, r *adminservice.ListQueuesReq
 	if f.admin.empty {
 		return &adminservice.ListQueuesResponse{}, nil
 	}
+	// Page one also holds a transfer queue from cluster "active_active" to "active", whose name starts like the
+	// active-to-active transfer queue on page two.
 	if len(r.GetNextPageToken()) == 0 {
 		return &adminservice.ListQueuesResponse{NextPageToken: []byte("page-2"),
 			Queues: []*adminservice.ListQueuesResponse_QueueInfo{
-				{QueueName: "2_active_active_def", MessageCount: 0, LastMessageId: 9}}}, nil
+				{QueueName: queueName(2, "active", "active"), MessageCount: 0, LastMessageId: 9},
+				{QueueName: queueName(1, "active_active", "active"), MessageCount: 2, LastMessageId: 5}}}, nil
 	}
 	return &adminservice.ListQueuesResponse{Queues: []*adminservice.ListQueuesResponse_QueueInfo{
-		{QueueName: "1_active_active_abc", MessageCount: 3, LastMessageId: 42}}}, nil
+		{QueueName: queueName(1, "active", "active"), MessageCount: 3, LastMessageId: 42}}}, nil
 }
 
 func (f adminFake) GetDLQTasks(ctx context.Context, r *adminservice.GetDLQTasksRequest) (*adminservice.GetDLQTasksResponse,
@@ -155,8 +158,13 @@ func TestShards(t *testing.T) {
 func TestDeadLetterQueues(t *testing.T) {
 	tc := newTestCLI(t)
 	out := tc.must("admin", "dlq", "list")
-	for _, want := range []string{"transfer  active  active  3      42", "timer     active  active  0      9"} {
-		if !strings.Contains(out, want) {
+	var rows []string
+	for line := range strings.Lines(out) {
+		rows = append(rows, strings.Join(strings.Fields(line), " "))
+	}
+	for _, want := range []string{"transfer active active 3 42", "timer active active 0 9",
+		"transfer active_active active 2 5"} {
+		if !slices.Contains(rows, want) {
 			t.Errorf("dlq list lacks %q:\n%s", want, out)
 		}
 	}
@@ -165,7 +173,7 @@ func TestDeadLetterQueues(t *testing.T) {
 	}
 	var queues []map[string]any
 	if err := json.Unmarshal([]byte(tc.must("admin", "dlq", "list", "-o", "json")), &queues); err != nil ||
-		len(queues) != 2 || queues[1]["queueName"] != "1_active_active_abc" {
+		len(queues) != 3 || queues[2]["queueName"] != queueName(1, "active", "active") {
 		t.Fatalf("json dlq list = %v, %v", queues, err)
 	}
 	var tasks map[string]any
@@ -179,8 +187,13 @@ func TestDeadLetterQueues(t *testing.T) {
 		r.GetDlqKey().GetSourceCluster() != "active" || r.GetDlqKey().GetTargetCluster() != "active" {
 		t.Fatalf("read request = %v", r)
 	}
-	if !strings.Contains(out, "40          12     4") || !strings.Contains(out, "raise --limit (5)") {
+	// The engine sends a page token with its last page too, so a page short of --limit means no more tasks.
+	if !strings.Contains(out, "40          12     4") || strings.Contains(out, "raise --limit") {
 		t.Fatalf("dlq read:\n%s", out)
+	}
+	if out := tc.must("admin", "dlq", "read", "--dlq-type", "transfer", "--limit", "1"); !strings.Contains(out,
+		"Showing the first 1 tasks; raise --limit to see more, if any.") {
+		t.Fatalf("dlq read of a full page:\n%s", out)
 	}
 
 	if code, _, errOut := tc.run("admin", "dlq", "merge", "--dlq-type", "transfer"); code != 1 ||
@@ -245,5 +258,30 @@ func TestDeadLetterQueues(t *testing.T) {
 	tc.engine.admin.empty = true
 	if out := tc.must("admin", "dlq", "list"); !strings.Contains(out, "No dead-letter queue exists") {
 		t.Fatalf("empty dlq list:\n%s", out)
+	}
+}
+
+// The expected names come from Temporal's persistence.GetHistoryTaskQueueName in v1.32.1, which the CLI does not
+// import: it would add the engine's dependencies to the client.
+func TestQueueNamesMatchTheEngines(t *testing.T) {
+	for _, c := range []struct {
+		category             int32
+		source, target, want string
+	}{
+		{1, "active", "active", "1_active_active_B8jqXXpO"},
+		{3, "east_west", "west", "3_east_west_west_Ob1RozxM"},
+		{2, "east", "west_eu", "2_east_west_eu_TkRmBdQ1"},
+		{4, "a_b_c", "d", "4_a_b_c_d_vPOXEjEH"},
+	} {
+		if name := queueName(c.category, c.source, c.target); name != c.want {
+			t.Errorf("queueName(%d, %q, %q) = %q, want the engine's %q", c.category, c.source, c.target, name, c.want)
+		}
+		id, source, target, ok := parseQueueName(c.want)
+		if !ok || id != c.category || source != c.source || target != c.target {
+			t.Errorf("parseQueueName(%q) = %d %q %q %v", c.want, id, source, target, ok)
+		}
+	}
+	if _, _, _, ok := parseQueueName("1_active_active_notahash"); ok {
+		t.Error("a name whose hash does not match was parsed")
 	}
 }

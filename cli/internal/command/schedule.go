@@ -211,7 +211,11 @@ func (c *cli) scheduleDescribeCommand() *cobra.Command {
 			start := sc.GetAction().GetStartWorkflow()
 			var every []string
 			for _, iv := range sc.GetSpec().GetInterval() {
-				every = append(every, iv.GetInterval().AsDuration().String())
+				e := iv.GetInterval().AsDuration().String()
+				if phase := iv.GetPhase().AsDuration(); phase > 0 {
+					e += " offset " + phase.String()
+				}
+				every = append(every, e)
 			}
 			next := ""
 			if times := info.GetFutureActionTimes(); len(times) > 0 {
@@ -349,6 +353,20 @@ func (c *cli) scheduleDeleteCommand() *cobra.Command {
 func calendars(spec *schedulepb.ScheduleSpec) []string {
 	shown := slices.Clone(spec.GetCronString())
 	for _, cal := range spec.GetStructuredCalendar() {
+		// Temporal fills every field it compiles; an empty one besides year matches no time at all.
+		var empty []string
+		for name, ranges := range map[string][]*schedulepb.Range{"second": cal.GetSecond(), "minute": cal.GetMinute(),
+			"hour": cal.GetHour(), "day of month": cal.GetDayOfMonth(), "month": cal.GetMonth(),
+			"day of week": cal.GetDayOfWeek()} {
+			if len(ranges) == 0 {
+				empty = append(empty, name)
+			}
+		}
+		if len(empty) > 0 {
+			slices.Sort(empty)
+			shown = append(shown, "never (no "+strings.Join(empty, ", ")+")")
+			continue
+		}
 		fields := []string{
 			cronField(cal.GetMinute(), 0, 59, "0"), cronField(cal.GetHour(), 0, 23, "0"),
 			cronField(cal.GetDayOfMonth(), 1, 31, "*"), cronField(cal.GetMonth(), 1, 12, "*"),
@@ -368,7 +386,7 @@ func calendars(spec *schedulepb.ScheduleSpec) []string {
 	return shown
 }
 
-// cronField writes ranges as a cron field: an empty list is the field's default, and a range over the whole
+// cronField writes ranges as a cron field: an empty list is the given text, and a range over the whole
 // field [lowest, highest] is "*". A range's end 0 means its start, and its step 0 means 1.
 func cronField(ranges []*schedulepb.Range, lowest, highest int32, empty string) string {
 	if len(ranges) == 0 {

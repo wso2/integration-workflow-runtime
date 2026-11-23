@@ -22,6 +22,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	batchpb "go.temporal.io/api/batch/v1"
 	enumspb "go.temporal.io/api/enums/v1"
@@ -30,6 +31,7 @@ import (
 	"go.temporal.io/api/serviceerror"
 	"go.temporal.io/api/workflowservice/v1"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -308,21 +310,47 @@ func TestCronFields(t *testing.T) {
 	r := func(start, end, step int32) *schedulepb.Range {
 		return &schedulepb.Range{Start: start, End: end, Step: step}
 	}
+	// full is a calendar with every field set, as Temporal compiles one: midnight every day, then changed.
+	full := func(change func(*schedulepb.StructuredCalendarSpec)) *schedulepb.StructuredCalendarSpec {
+		c := &schedulepb.StructuredCalendarSpec{Second: []*schedulepb.Range{r(0, 0, 0)}, Minute: []*schedulepb.Range{r(0, 0, 0)},
+			Hour: []*schedulepb.Range{r(0, 0, 0)}, DayOfMonth: []*schedulepb.Range{r(1, 31, 0)},
+			Month: []*schedulepb.Range{r(1, 12, 0)}, DayOfWeek: []*schedulepb.Range{r(0, 6, 0)}}
+		change(c)
+		return c
+	}
 	for _, tt := range []struct {
 		cal  *schedulepb.StructuredCalendarSpec
 		want string
 	}{
-		{&schedulepb.StructuredCalendarSpec{}, "0 0 * * *"},
-		{&schedulepb.StructuredCalendarSpec{Minute: []*schedulepb.Range{r(0, 59, 15)}, Hour: []*schedulepb.Range{r(9, 17, 0)},
-			DayOfWeek: []*schedulepb.Range{r(1, 5, 0)}, Comment: "office hours"}, "*/15 9-17 * * 1-5 # office hours"},
-		{&schedulepb.StructuredCalendarSpec{Second: []*schedulepb.Range{r(30, 0, 0)}, Minute: []*schedulepb.Range{r(0, 0, 0),
-			r(30, 0, 0)}, DayOfMonth: []*schedulepb.Range{r(1, 0, 0)}, Month: []*schedulepb.Range{r(1, 12, 3)}}, "30 0,30 0 1 */3 * *"},
-		{&schedulepb.StructuredCalendarSpec{Year: []*schedulepb.Range{r(2027, 0, 0)}}, "0 0 * * * 2027"},
+		// An empty field besides year matches nothing.
+		{&schedulepb.StructuredCalendarSpec{}, "never (no day of month, day of week, hour, minute, month, second)"},
+		{full(func(c *schedulepb.StructuredCalendarSpec) { c.Second = nil }), "never (no second)"},
+		{full(func(c *schedulepb.StructuredCalendarSpec) {
+			c.Minute, c.Hour, c.DayOfWeek, c.Comment = []*schedulepb.Range{r(0, 59, 15)}, []*schedulepb.Range{r(9, 17, 0)},
+				[]*schedulepb.Range{r(1, 5, 0)}, "office hours"
+		}), "*/15 9-17 * * 1-5 # office hours"},
+		{full(func(c *schedulepb.StructuredCalendarSpec) {
+			c.Second, c.Minute, c.DayOfMonth, c.Month = []*schedulepb.Range{r(30, 0, 0)},
+				[]*schedulepb.Range{r(0, 0, 0), r(30, 0, 0)}, []*schedulepb.Range{r(1, 0, 0)}, []*schedulepb.Range{r(1, 12, 3)}
+		}), "30 0,30 0 1 */3 * *"},
+		{full(func(c *schedulepb.StructuredCalendarSpec) { c.Year = []*schedulepb.Range{r(2027, 0, 0)} }), "0 0 * * * 2027"},
 	} {
 		if got := calendars(&schedulepb.ScheduleSpec{StructuredCalendar: []*schedulepb.StructuredCalendarSpec{tt.cal}}); len(got) != 1 ||
 			got[0] != tt.want {
 			t.Errorf("calendar %v = %q, want %q", tt.cal, got, tt.want)
 		}
+	}
+}
+
+func TestScheduleIntervalPhase(t *testing.T) {
+	tc := newTestCLI(t)
+	// "@every 1h/19m" reaches the engine as a one-hour interval offset by 19 minutes.
+	tc.engine.ops.schedules = map[string]*schedulepb.Schedule{"phased": {Spec: &schedulepb.ScheduleSpec{
+		Interval: []*schedulepb.IntervalSpec{{Interval: durationpb.New(time.Hour), Phase: durationpb.New(19 * time.Minute)},
+			{Interval: durationpb.New(30 * time.Minute)}}}}}
+	out := tc.must("schedule", "describe", "--schedule-id", "phased")
+	if !strings.Contains(out, "1h0m0s offset 19m0s, 30m0s") {
+		t.Fatalf("schedule describe lacks the interval phase:\n%s", out)
 	}
 }
 

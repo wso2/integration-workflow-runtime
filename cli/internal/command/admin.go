@@ -18,6 +18,7 @@ package command
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -209,13 +210,9 @@ func (c *cli) dlqListCommand() *cobra.Command {
 			}
 			rows := [][]string{{"DLQ TYPE", "SOURCE", "TARGET", "TASKS", "LAST MESSAGE ID"}}
 			for _, q := range queues {
-				f := strings.SplitN(q.GetQueueName(), "_", 4)
 				category, source, target := q.GetQueueName(), "", ""
-				if len(f) == 4 {
-					if id, err := strconv.Atoi(f[0]); err == nil {
-						category = categoryName(int32(id)) //nolint:gosec // a task category ID
-					}
-					source, target = f[1], f[2]
+				if id, s, t, ok := parseQueueName(q.GetQueueName()); ok {
+					category, source, target = categoryName(id), s, t
 				}
 				rows = append(rows, []string{category, source, target, strconv.FormatInt(q.GetMessageCount(), 10),
 					strconv.FormatInt(q.GetLastMessageId(), 10)})
@@ -284,8 +281,9 @@ func (c *cli) dlqReadCommand() *cobra.Command {
 			if err := table(out, rows); err != nil {
 				return err
 			}
-			if len(res.GetNextPageToken()) > 0 {
-				_, err = fmt.Fprintf(out, "\nMore tasks follow; raise --limit (%d) to see them.\n", limit)
+			// The engine returns a page token even with its last page, so only a full page can hide more tasks.
+			if len(res.GetDlqTasks()) >= int(limit) && len(res.GetNextPageToken()) > 0 {
+				_, err = fmt.Fprintf(out, "\nShowing the first %d tasks; raise --limit to see more, if any.\n", limit)
 			}
 			return err
 		},
@@ -358,9 +356,9 @@ func lastMessageID(ctx context.Context, admin adminservice.AdminServiceClient, k
 	if err != nil {
 		return 0, err
 	}
-	prefix := fmt.Sprintf("%d_%s_%s_", key.GetTaskCategory(), key.GetSourceCluster(), key.GetTargetCluster())
+	name := queueName(key.GetTaskCategory(), key.GetSourceCluster(), key.GetTargetCluster())
 	for _, q := range queues {
-		if strings.HasPrefix(q.GetQueueName(), prefix) && q.GetMessageCount() > 0 {
+		if q.GetQueueName() == name && q.GetMessageCount() > 0 {
 			return q.GetLastMessageId(), nil
 		}
 	}
@@ -462,4 +460,35 @@ func (c *cli) dlqJobCommand() *cobra.Command {
 	_ = cancelCmd.MarkFlagRequired("reason")
 	job.AddCommand(describe, cancelCmd)
 	return job
+}
+
+// queueName is the engine's name for a history task queue, as Temporal's persistence.GetHistoryTaskQueueName builds
+// it: the category, both clusters and a hash of the clusters, which keeps clusters with underscores apart.
+func queueName(category int32, source, target string) string {
+	h := sha256.New()
+	for _, cluster := range []string{source, target} {
+		sum := sha256.Sum256([]byte(cluster))
+		_, _ = h.Write(sum[:])
+	}
+	return fmt.Sprintf("%d_%s_%s_%s", category, source, target, base64.StdEncoding.EncodeToString(h.Sum(nil))[:8])
+}
+
+// parseQueueName finds the category and clusters of a queue name, trying each underscore between the clusters
+// against the name's hash, since a cluster name can hold underscores.
+func parseQueueName(name string) (category int32, source, target string, ok bool) {
+	first, last := strings.Index(name, "_"), strings.LastIndex(name, "_")
+	if first < 0 || last <= first {
+		return 0, "", "", false
+	}
+	id, err := strconv.ParseInt(name[:first], 10, 32)
+	if err != nil {
+		return 0, "", "", false
+	}
+	clusters := name[first+1 : last]
+	for i := 0; i < len(clusters); i++ {
+		if clusters[i] == '_' && queueName(int32(id), clusters[:i], clusters[i+1:]) == name {
+			return int32(id), clusters[:i], clusters[i+1:], true
+		}
+	}
+	return 0, "", "", false
 }

@@ -22,6 +22,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -48,7 +49,9 @@ func (w *workflowCLI) run(args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, w.binary, args...) //nolint:gosec // the CLI under test
-	cmd.Env = append(os.Environ(), "WORKFLOW_CONFIG_FILE="+w.config)
+	// The developer's WORKFLOW_* settings would override the test's own profile, so they are left out.
+	cmd.Env = append(slices.DeleteFunc(os.Environ(), func(kv string) bool { return strings.HasPrefix(kv, "WORKFLOW_") }),
+		"WORKFLOW_CONFIG_FILE="+w.config)
 	out, err := cmd.CombinedOutput()
 	return string(out), err
 }

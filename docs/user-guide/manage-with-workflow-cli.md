@@ -59,7 +59,9 @@ workflow-cli operator cluster health --service history --address 10.0.1.21:7234 
   --tls-ca-path conf/certs/internode-ca.pem --tls-cert-path conf/certs/node.crt --tls-key-path conf/certs/node.key
 ```
 
-The service ports other than 7233 take only internode certificates when internode TLS is on, as above. History
+The service ports other than 7233 take only internode certificates when internode TLS is on, as above. When the
+node certificate holds a shared name such as `workflow-nodes.internal` rather than the node's address, add
+`--tls-server-name workflow-nodes.internal`. History
 reports `SERVING` a few seconds after it holds its shards, so use it as a readiness check.
 
 ```bash

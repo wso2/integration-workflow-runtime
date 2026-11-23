@@ -57,13 +57,13 @@ cluster) and need a token with the `admin` role in every namespace.
 | `-n`, `--namespace` | `default` | The namespace |
 | `--api-key` | | A token from your identity provider, sent as `Authorization: Bearer` |
 | `--api-key-file` | | A file holding the token (its first line) |
-| `--tls` | off | Connect with TLS; on with any other `--tls-*` flag |
+| `--tls` | off | Connect with TLS; on with any other `--tls-*` flag, even over `tls.enabled = false` in a profile or `WORKFLOW_TLS=false` |
 | `--tls-ca-path` | the system's | The CA that signed the engine's certificate |
 | `--tls-cert-path`, `--tls-key-path` | | A client certificate, for an engine that requires one or for the internal ports |
 | `--tls-server-name` | the address's host | The name to verify in the engine's certificate |
 | `--profile` | `default` | The profile to use: letters, digits, `-` and `_` |
 | `--config-file` | see below | The profile file |
-| `-o`, `--output` | `text` | `text` or `json`. With `json`, a command that changes something prints its confirmation on stderr and nothing on stdout; the exit status is the result |
+| `-o`, `--output` | `text` | `text` or `json`. With `json`, a command that changes something prints its confirmation on stderr and nothing on stdout, and the exit status is the result; the commands that return an identifier print it as JSON on stdout: `workflow reset` (`runId`), a `--query` batch (`jobId`, `count`), and `admin dlq merge` and `purge` (`jobToken`, `lastMessageId`) |
 | `--command-timeout` | `30s` | Limit for each command |
 
 A token is sent only over TLS, or in plain text only to a loopback address.

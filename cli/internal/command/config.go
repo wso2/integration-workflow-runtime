@@ -71,10 +71,13 @@ func (c *cli) configGetCommand() *cobra.Command {
 				if err != nil {
 					return err
 				}
+				if c.output == outputJSON {
+					return printJSON(out, map[string]string{prop: v})
+				}
 				_, err = fmt.Fprintln(out, v)
 				return err
 			}
-			rows := [][]string{{"PROPERTY", "VALUE"}}
+			rows, values := [][]string{{"PROPERTY", "VALUE"}}, map[string]string{}
 			for _, p := range clientconfig.Properties() {
 				v, _ := f.Get(profile, p)
 				if v == "" {
@@ -84,6 +87,10 @@ func (c *cli) configGetCommand() *cobra.Command {
 					v = "(set)"
 				}
 				rows = append(rows, []string{p, v})
+				values[p] = v
+			}
+			if c.output == outputJSON {
+				return printJSON(out, values)
 			}
 			return table(out, rows)
 		},
@@ -109,8 +116,7 @@ func (c *cli) configSetCommand() *cobra.Command {
 			if err := f.Set(c.profileName(), prop, value); err != nil {
 				return err
 			}
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Set %s in profile %s (%s).\n", prop, c.profileName(), path)
-			return err
+			return c.confirm(cmd, "Set %s in profile %s (%s).\n", prop, c.profileName(), path)
 		},
 	}
 	cmd.Flags().StringVar(&prop, "prop", "", "the property to set")
@@ -135,8 +141,7 @@ func (c *cli) configDeleteCommand() *cobra.Command {
 			if err := f.Delete(c.profileName(), prop); err != nil {
 				return err
 			}
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Removed %s from profile %s.\n", prop, c.profileName())
-			return err
+			return c.confirm(cmd, "Removed %s from profile %s.\n", prop, c.profileName())
 		},
 	}
 	cmd.Flags().StringVar(&prop, "prop", "", "the property to remove")
@@ -156,8 +161,7 @@ func (c *cli) configDeleteProfileCommand() *cobra.Command {
 			if err := f.Delete(c.profileName(), ""); err != nil {
 				return err
 			}
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Removed profile %s.\n", c.profileName())
-			return err
+			return c.confirm(cmd, "Removed profile %s.\n", c.profileName())
 		},
 	}
 }
@@ -171,6 +175,9 @@ func (c *cli) configListCommand() *cobra.Command {
 			f, _, err := c.openConfig()
 			if err != nil {
 				return err
+			}
+			if c.output == outputJSON {
+				return printJSON(cmd.OutOrStdout(), f.Profiles())
 			}
 			for _, p := range f.Profiles() {
 				if _, err := fmt.Fprintln(cmd.OutOrStdout(), p); err != nil {

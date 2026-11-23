@@ -69,7 +69,8 @@ healthcheck:
 ```
 
 On a node that runs another profile, check its own service and port, for example
-`--service history --address 127.0.0.1:7234`, adding the internode certificate flags when internode TLS is on
+`--service history --address 127.0.0.1:7234`, adding the internode certificate flags when internode TLS is on, and
+`--tls-server-name` with the name in the internode certificate, since it does not hold `127.0.0.1`
 ([Manage the engine with workflow-cli](manage-with-workflow-cli.md#check-the-engine)). In Kubernetes, use the same
 command as the readiness probe.
 

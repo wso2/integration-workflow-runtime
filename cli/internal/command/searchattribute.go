@@ -81,7 +81,7 @@ func (c *cli) searchAttributeCreateCommand() *cobra.Command {
 			defer cancel()
 			defer func() { _ = conn.Close() }()
 			if err := addSearchAttributes(ctx, operatorservice.NewOperatorServiceClient(conn), s.Namespace,
-				attrs); err != nil {
+				attrs, false); err != nil {
 				return err
 			}
 			format := "Search attributes %s are in namespace %s.\n"

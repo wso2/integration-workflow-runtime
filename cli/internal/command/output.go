@@ -46,6 +46,16 @@ func (c *cli) confirm(cmd *cobra.Command, format string, args ...any) error {
 	return err
 }
 
+// printJSON writes a plain value, such as a list or a map, as indented JSON.
+func printJSON(w io.Writer, v any) error {
+	b, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintln(w, string(b))
+	return err
+}
+
 // writeJSON writes one message as an object, or several as an array, in the Temporal API's JSON form.
 func writeJSON(w io.Writer, list bool, msgs ...proto.Message) error {
 	raw := make([]json.RawMessage, len(msgs))

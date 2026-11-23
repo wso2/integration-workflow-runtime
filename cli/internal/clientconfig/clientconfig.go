@@ -74,6 +74,14 @@ func (t TLS) On() bool {
 	return t.CAPath != "" || t.CertPath != "" || t.KeyPath != "" || t.ServerName != ""
 }
 
+// ImplyTLS lets a layer's TLS file or name turn TLS on over an earlier layer's enabled = false, unless the same
+// layer also sets enabled.
+func ImplyTLS(s *Settings, paramsSet, enabledSet bool) {
+	if paramsSet && !enabledSet {
+		s.TLS.Enabled = nil
+	}
+}
+
 // Defaults reach a development engine on this machine.
 func Defaults() Settings {
 	return Settings{Address: "localhost:7233", Namespace: "default"}
@@ -307,11 +315,22 @@ func (f *File) save() error {
 	if err := os.MkdirAll(filepath.Dir(f.path), 0o700); err != nil {
 		return err
 	}
-	tmp := f.path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+	// A temporary file of its own per save, so two config commands at once never publish each other's half-written file.
+	tmp, err := os.CreateTemp(filepath.Dir(f.path), filepath.Base(f.path)+".*.tmp")
+	if err != nil {
 		return err
 	}
-	return os.Rename(tmp, f.path)
+	_, err = tmp.Write(data)
+	if closeErr := tmp.Close(); err == nil {
+		err = closeErr
+	}
+	if err == nil {
+		err = os.Rename(tmp.Name(), f.path)
+	}
+	if err != nil {
+		_ = os.Remove(tmp.Name())
+	}
+	return err
 }
 
 // Environment variables, one per property; WORKFLOW_PROFILE and WORKFLOW_CONFIG_FILE choose the profile and file.
@@ -342,5 +361,7 @@ func ApplyEnv(s *Settings, lookupEnv func(string) (string, bool)) error {
 		}
 	}
 	ReplaceCredential(s, set["apiKey"], set["apiKeyFile"])
+	ImplyTLS(s, set["tls.caPath"] || set["tls.certPath"] || set["tls.keyPath"] || set["tls.serverName"],
+		set["tls.enabled"])
 	return nil
 }

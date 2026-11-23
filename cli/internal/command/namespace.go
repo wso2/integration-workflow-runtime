@@ -82,7 +82,7 @@ func (c *cli) namespaceCreateCommand() *cobra.Command {
 				_ = c.confirm(cmd, "Namespace %s created.\n", s.Namespace)
 			}
 			if err := addSearchAttributes(ctx, operatorservice.NewOperatorServiceClient(conn), s.Namespace,
-				map[string]enumspb.IndexedValueType{workflowKind: enumspb.INDEXED_VALUE_TYPE_KEYWORD}); err != nil {
+				map[string]enumspb.IndexedValueType{workflowKind: enumspb.INDEXED_VALUE_TYPE_KEYWORD}, true); err != nil {
 				return err
 			}
 			return c.confirm(cmd, "Search attribute %s is in namespace %s.\n", workflowKind, s.Namespace)
@@ -93,15 +93,16 @@ func (c *cli) namespaceCreateCommand() *cobra.Command {
 	return cmd
 }
 
-// addSearchAttributes adds attributes to a namespace, waiting while a new namespace is not yet visible to the
-// engine's services. Attributes that exist already are skipped by the engine.
+// addSearchAttributes adds attributes to a namespace; the engine skips those that exist. With newNamespace it waits
+// while a namespace just registered is not yet visible to the engine's services, instead of failing at once.
 func addSearchAttributes(ctx context.Context, op operatorservice.OperatorServiceClient, namespace string,
-	attrs map[string]enumspb.IndexedValueType) error {
+	attrs map[string]enumspb.IndexedValueType, newNamespace bool) error {
 	for {
 		_, err := op.AddSearchAttributes(ctx, &operatorservice.AddSearchAttributesRequest{
 			Namespace: namespace, SearchAttributes: attrs,
 		})
-		if code := status.Code(err); err == nil || (code != codes.NotFound && code != codes.Unavailable) {
+		code := status.Code(err)
+		if err == nil || (code != codes.Unavailable && (code != codes.NotFound || !newNamespace)) {
 			if err != nil {
 				return fmt.Errorf("unable to add search attributes to %s: %w", namespace, err)
 			}

@@ -20,6 +20,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
+	"maps"
 	"net"
 	"os"
 	"path/filepath"
@@ -188,6 +191,9 @@ func (f operatorFake) AddSearchAttributes(ctx context.Context, r *operatorservic
 		f.notYetSeen--
 		return nil, serviceerror.NewNamespaceNotFound(r.GetNamespace())
 	}
+	if _, ok := f.namespaces[r.GetNamespace()]; !ok {
+		return nil, serviceerror.NewNamespaceNotFound(r.GetNamespace())
+	}
 	if f.attributes[r.GetNamespace()] == nil {
 		f.attributes[r.GetNamespace()] = map[string]enumspb.IndexedValueType{}
 	}
@@ -280,12 +286,6 @@ func (tc *testCLI) must(args ...string) string {
 		tc.t.Fatalf("workflow-cli %s: exit %d\n%s%s", strings.Join(args, " "), code, out, errOut)
 	}
 	return out
-}
-
-func TestVersion(t *testing.T) {
-	if out := newTestCLI(t).must("version"); out != "workflow-cli test\n" {
-		t.Fatalf("version = %q", out)
-	}
 }
 
 func TestClusterHealth(t *testing.T) {
@@ -413,6 +413,56 @@ func TestSearchAttributes(t *testing.T) {
 			t.Errorf("%s = %d %q, want %q", args, code, errOut, want)
 		}
 	}
+	// A mistyped namespace fails at once; only namespace create waits for a namespace to appear.
+	began := time.Now()
+	if code, _, errOut := tc.run("operator", "search-attribute", "create", "-n", "ordres", "--name", "A", "--type",
+		"Keyword"); code != 1 || !strings.Contains(errOut, "unable to add search attributes to ordres") {
+		t.Errorf("unknown namespace = %d %q", code, errOut)
+	}
+	if waited := time.Since(began); waited > 5*time.Second {
+		t.Errorf("an unknown namespace took %v to fail", waited)
+	}
+}
+
+// dialedSettings runs args and returns the settings the command dialed with.
+func (tc *testCLI) dialedSettings(args ...string) clientconfig.Settings {
+	var got clientconfig.Settings
+	c := &cli{version: "test", stdout: io.Discard, stderr: io.Discard,
+		lookupEnv: func(k string) (string, bool) { v, ok := tc.env[k]; return v, ok },
+		dial: func(s clientconfig.Settings) (*grpc.ClientConn, error) {
+			got = s
+			return nil, errors.New("captured")
+		}}
+	c.run(args)
+	return got
+}
+
+func TestTLSFilesTurnTLSOnOverAnEarlierLayer(t *testing.T) {
+	tc := newTestCLI(t)
+	tc.must("config", "set", "--prop", "tls.enabled", "--value", "false")
+	list := []string{"operator", "namespace", "list"}
+	for name, c := range map[string]struct {
+		env  map[string]string
+		args []string
+		want bool
+	}{
+		"profile off":                       {nil, nil, false},
+		"flag file over profile off":        {nil, []string{"--tls-ca-path", "ca.pem"}, true},
+		"flag name over environment off":    {map[string]string{"WORKFLOW_TLS": "false"}, []string{"--tls-server-name", "e"}, true},
+		"environment file over profile off": {map[string]string{"WORKFLOW_TLS_CA_PATH": "ca.pem"}, nil, true},
+		"--tls=false with a file":           {nil, []string{"--tls=false", "--tls-ca-path", "ca.pem"}, false},
+		"WORKFLOW_TLS=false with a file":    {map[string]string{"WORKFLOW_TLS": "false", "WORKFLOW_TLS_CA_PATH": "ca.pem"}, nil, false},
+	} {
+		for k := range tc.env {
+			if strings.HasPrefix(k, "WORKFLOW_TLS") {
+				delete(tc.env, k)
+			}
+		}
+		maps.Copy(tc.env, c.env)
+		if got := tc.dialedSettings(append(slices.Clone(list), c.args...)...).TLS.On(); got != c.want {
+			t.Errorf("%s: TLS on = %v, want %v", name, got, c.want)
+		}
+	}
 }
 
 func TestProfilesEnvironmentAndFlags(t *testing.T) {
@@ -445,6 +495,20 @@ func TestProfilesEnvironmentAndFlags(t *testing.T) {
 	}
 	if out := tc.must("config", "get", "--profile", "prod", "--prop", "namespace"); out != "prod-ns\n" {
 		t.Fatalf("config get --prop = %q", out)
+	}
+	var profile map[string]string
+	if err := json.Unmarshal([]byte(tc.must("config", "get", "-o", "json")), &profile); err != nil ||
+		profile["namespace"] != "from-profile" || profile["apiKey"] != "(set)" {
+		t.Fatalf("config get -o json = %v, %v", profile, err)
+	}
+	var names []string
+	if err := json.Unmarshal([]byte(tc.must("config", "list", "-o", "json")), &names); err != nil ||
+		!slices.Equal(names, []string{"default", "prod"}) {
+		t.Fatalf("config list -o json = %v, %v", names, err)
+	}
+	if code, out, errOut := tc.run("config", "set", "--prop", "address", "--value", "e:7233", "-o", "json"); code != 0 ||
+		out != "" || !strings.Contains(errOut, "Set address in profile default") {
+		t.Fatalf("config set -o json = %d %q %q, want the confirmation on stderr only", code, out, errOut)
 	}
 	tc.must("config", "delete", "--prop", "apiKey")
 	if out := tc.must("config", "get", "--prop", "apiKey"); out != "\n" {
@@ -507,5 +571,19 @@ func TestRetentionDisplay(t *testing.T) {
 	}
 	if duration(nil) != "" {
 		t.Error("a missing retention is not empty")
+	}
+}
+
+func TestVersion(t *testing.T) {
+	tc := newTestCLI(t)
+	if out := tc.must("version"); out != "workflow-cli test\n" {
+		t.Fatalf("version = %q", out)
+	}
+	var v map[string]string
+	if err := json.Unmarshal([]byte(tc.must("version", "-o", "json")), &v); err != nil || v["version"] != "test" {
+		t.Fatalf("version -o json = %v, %v", v, err)
+	}
+	if code, _, errOut := tc.run("version", "-o", "yaml"); code != 1 || !strings.Contains(errOut, "must be text or json") {
+		t.Fatalf("version -o yaml = %d %q", code, errOut)
 	}
 }

@@ -8,7 +8,7 @@
 | Launcher tests on Windows | `engine/internal/launcher` (the engine runs as a child process there) | The `windows-latest` job of every pull request | All pass |
 | Tool and script tests | `tools/internal/...` (the coverage gate, the suite runner, the shell scripts run for real) | `make test`, every pull request | All pass |
 | workflow-cli tests | `cli/...`: every command against an in-memory fake engine, TLS, profiles | `make test`, every pull request | All pass |
-| Engine tests | `tools/internal/enginetest`: the real engine binary driven by the Temporal CLI and `workflow-cli` | `WORKFLOW_ENGINE=build/workflow-engine WORKFLOW_CLI=build/workflow-cli go test ./internal/enginetest` in `tools/`; the SQLite smoke job of every pull request | All pass |
+| Engine tests | `tools/internal/enginetest`: the real engine binary driven by the Temporal CLI and `workflow-cli` | `WORKFLOW_ENGINE=$PWD/../build/workflow-engine WORKFLOW_CLI=$PWD/../build/workflow-cli go test ./internal/enginetest` in `tools/` (absolute paths: tests run in their package directory); the SQLite smoke job of every pull request | All pass |
 | Ballerina smoke suite | `tests/ballerina/smoke` | `make test-smoke`, every pull request (SQLite, PostgreSQL, MySQL and `start-dev`) | All pass |
 | Ballerina full suite | `tests/ballerina/full` | `make test-full`, on `main`, nightly, on demand | All pass |
 | Upgrade run | `tests/ballerina/upgrade`, `balsuite upgrade` | The PostgreSQL and MySQL smoke jobs of every pull request | The workflow finishes |
@@ -38,8 +38,12 @@ cd tools && WORKFLOW_ENGINE=$PWD/../build/workflow-engine WORKFLOW_CLI=$PWD/../b
   go test -count=1 -v ./internal/enginetest
 ```
 
-`workflow-cli`'s reset test needs a worker, which takes the Temporal API, so it runs from the CLI module, with the same
-`WORKFLOW_ENGINE`: `cd cli && go test -run OnARealEngine ./internal/command`.
+`workflow-cli`'s reset test needs a worker, which takes the Temporal API, so it runs from the CLI module, again with an
+absolute engine path. From the repository root:
+
+```sh
+cd cli && WORKFLOW_ENGINE=$PWD/../build/workflow-engine go test -count=1 -run OnARealEngine ./internal/command
+```
 
 ## Ballerina suites
 

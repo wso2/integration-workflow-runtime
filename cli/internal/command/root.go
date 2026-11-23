@@ -88,6 +88,13 @@ func (c *cli) root() *cobra.Command {
 			"workflows integrations run, and the task queues their workers poll.",
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		// Commands that never dial, such as config and version, check the output format here.
+		PersistentPreRunE: func(*cobra.Command, []string) error {
+			if c.output != outputText && c.output != outputJSON {
+				return fmt.Errorf("--output %q must be text or json", c.output)
+			}
+			return nil
+		},
 	}
 	f := root.PersistentFlags()
 	f.StringVar(&c.address, "address", "", `the engine's frontend, host:port (default "localhost:7233")`)
@@ -115,6 +122,9 @@ func (c *cli) versionCommand() *cobra.Command {
 		Short: "Print the version",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if c.output == outputJSON {
+				return printJSON(cmd.OutOrStdout(), map[string]string{"version": c.version})
+			}
 			_, err := fmt.Fprintf(cmd.OutOrStdout(), "workflow-cli %s\n", c.version)
 			return err
 		},
@@ -181,6 +191,8 @@ func (c *cli) settings(cmd *cobra.Command) (clientconfig.Settings, error) {
 		}
 	}
 	clientconfig.ReplaceCredential(&s, flags.Changed("api-key"), flags.Changed("api-key-file"))
+	clientconfig.ImplyTLS(&s, flags.Changed("tls-ca-path") || flags.Changed("tls-cert-path") ||
+		flags.Changed("tls-key-path") || flags.Changed("tls-server-name"), flags.Changed("tls"))
 	if flags.Changed("tls") {
 		s.TLS.Enabled = &c.tls
 	}
