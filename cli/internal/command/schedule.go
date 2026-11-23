@@ -31,6 +31,8 @@ import (
 	taskqueuepb "go.temporal.io/api/taskqueue/v1"
 	workflowpb "go.temporal.io/api/workflow/v1"
 	"go.temporal.io/api/workflowservice/v1"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/durationpb"
 )
@@ -201,7 +203,7 @@ func (c *cli) scheduleDescribeCommand() *cobra.Command {
 			res, err := workflowservice.NewWorkflowServiceClient(conn).DescribeSchedule(ctx,
 				&workflowservice.DescribeScheduleRequest{Namespace: s.Namespace, ScheduleId: id})
 			if err != nil {
-				return fmt.Errorf("unable to describe schedule %s: %w", id, err)
+				return scheduleError("describe", id, s.Namespace, err)
 			}
 			out := cmd.OutOrStdout()
 			if c.output == outputJSON {
@@ -318,7 +320,7 @@ func (c *cli) patchSchedule(cmd *cobra.Command, id string, patch *schedulepb.Sch
 	if _, err := workflowservice.NewWorkflowServiceClient(conn).PatchSchedule(ctx, &workflowservice.PatchScheduleRequest{
 		Namespace: s.Namespace, ScheduleId: id, Patch: patch, Identity: identity(), RequestId: requestID(),
 	}); err != nil {
-		return fmt.Errorf("unable to update schedule %s: %w", id, err)
+		return scheduleError("update", id, s.Namespace, err)
 	}
 	return c.confirm(cmd, "Schedule %s %s.\n", id, verb)
 }
@@ -339,7 +341,7 @@ func (c *cli) scheduleDeleteCommand() *cobra.Command {
 			if _, err := workflowservice.NewWorkflowServiceClient(conn).DeleteSchedule(ctx,
 				&workflowservice.DeleteScheduleRequest{Namespace: s.Namespace, ScheduleId: id,
 					Identity: identity()}); err != nil {
-				return fmt.Errorf("unable to delete schedule %s: %w", id, err)
+				return scheduleError("delete", id, s.Namespace, err)
 			}
 			return c.confirm(cmd, "Schedule %s deleted.\n", id)
 		},
@@ -410,4 +412,12 @@ func cronField(ranges []*schedulepb.Range, lowest, highest int32, empty string) 
 		parts = append(parts, part)
 	}
 	return strings.Join(parts, ",")
+}
+
+// scheduleError reports a missing schedule by its ID; the engine's own message names its internal scheduler workflow.
+func scheduleError(verb, id, namespace string, err error) error {
+	if status.Code(err) == codes.NotFound {
+		return fmt.Errorf("unable to %s schedule %s: namespace %s has no such schedule", verb, id, namespace)
+	}
+	return fmt.Errorf("unable to %s schedule %s: %w", verb, id, err)
 }

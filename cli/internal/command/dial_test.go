@@ -119,8 +119,26 @@ func TestDialOverMutualTLS(t *testing.T) {
 	if code, errOut := run("--tls-ca-path", certPath); code != 1 || !strings.Contains(errOut, "unable to check") {
 		t.Fatalf("without a client certificate = %d: %s", code, errOut)
 	}
-	if code, errOut := run(); code != 1 || !strings.Contains(errOut, "unable to check") {
+	if code, errOut := run(); code != 1 || !strings.Contains(errOut, "the engine may require TLS") {
 		t.Fatalf("plain text to a TLS engine = %d: %s", code, errOut)
+	}
+}
+
+// An engine on 127.0.0.1 reached as localhost, where [::1] is tried first, still reports the engine's own answer.
+func TestDialLocalhostReportsTheEnginesAnswer(t *testing.T) {
+	certPath, keyPath := selfSigned(t)
+	_, port, _ := net.SplitHostPort(tlsEngine(t, certPath, keyPath))
+	c := &cli{version: "test", stdout: &strings.Builder{}, stderr: &strings.Builder{},
+		lookupEnv: func(k string) (string, bool) {
+			if k == "WORKFLOW_CONFIG_FILE" {
+				return filepath.Join(t.TempDir(), "cli.toml"), true
+			}
+			return "", false
+		}, dial: dial}
+	code := c.run([]string{"operator", "cluster", "health", "--address", "localhost:" + port})
+	if errOut := c.stderr.(*strings.Builder).String(); code != 1 || strings.Contains(errOut, "connection refused") ||
+		!strings.Contains(errOut, "the engine may require TLS") {
+		t.Fatalf("plain text to a TLS engine at localhost = %d: %s", code, errOut)
 	}
 }
 

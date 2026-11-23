@@ -173,7 +173,8 @@ func (f workflowFake) DeleteSchedule(ctx context.Context, r *workflowservice.Del
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if _, ok := f.ops.schedules[r.GetScheduleId()]; !ok {
-		return nil, serviceerror.NewNotFound("schedule not found")
+		// The engine's own wording, naming its internal scheduler workflow.
+		return nil, serviceerror.NewNotFound("workflow not found for ID: temporal-sys-scheduler:" + r.GetScheduleId())
 	}
 	delete(f.ops.schedules, r.GetScheduleId())
 	return &workflowservice.DeleteScheduleResponse{}, nil
@@ -207,9 +208,22 @@ func TestWorkflowReset(t *testing.T) {
 			}
 		}
 	}
+	// Before any task completes, both types reset to where the first task started, as temporal does.
+	tc.engine.workflows.events = []*historypb.HistoryEvent{
+		{EventId: 1, EventType: enumspb.EVENT_TYPE_WORKFLOW_EXECUTION_STARTED},
+		{EventId: 2, EventType: enumspb.EVENT_TYPE_WORKFLOW_TASK_SCHEDULED},
+		{EventId: 3, EventType: enumspb.EVENT_TYPE_WORKFLOW_TASK_STARTED},
+		{EventId: 4, EventType: enumspb.EVENT_TYPE_WORKFLOW_TASK_TIMED_OUT},
+	}
+	for _, resetType := range []string{"FirstWorkflowTask", "LastWorkflowTask"} {
+		tc.must("workflow", "reset", "-w", "order-1", "--reason", "x", "--type", resetType)
+		if r := tc.engine.ops.resets[len(tc.engine.ops.resets)-1]; r.GetWorkflowTaskFinishEventId() != 3 {
+			t.Errorf("%s before any completed task: reset to %d, want 3", resetType, r.GetWorkflowTaskFinishEventId())
+		}
+	}
 	tc.engine.workflows.events = tc.engine.workflows.events[:1]
 	for args, want := range map[string]string{
-		"workflow reset -w order-1 --reason x --type FirstWorkflowTask": "no completed workflow task",
+		"workflow reset -w order-1 --reason x --type FirstWorkflowTask": "no started workflow task to reset to; has a worker polled",
 		"workflow reset -w order-1 --reason x":                          "give --type or --event-id",
 		"workflow reset -w order-1 --reason x --type Mid":               `must be FirstWorkflowTask or LastWorkflowTask`,
 		"workflow reset -w order-1 --type FirstWorkflowTask":            `required flag(s) "reason" not set`,
@@ -399,7 +413,7 @@ func TestSchedules(t *testing.T) {
 		"schedule toggle -s s2":                     "give --pause or --unpause",
 		"schedule trigger -s s2 --overlap-policy x": "must be one of",
 		"schedule describe -s gone":                 "unable to describe schedule gone",
-		"schedule delete -s gone":                   "unable to delete schedule gone",
+		"schedule delete -s gone":                   "unable to delete schedule gone: namespace default has no such schedule",
 	} {
 		if code, _, errOut := tc.run(strings.Fields(args)...); code != 1 || !strings.Contains(errOut, want) {
 			t.Errorf("%s = %d %q, want %q", args, code, errOut, want)

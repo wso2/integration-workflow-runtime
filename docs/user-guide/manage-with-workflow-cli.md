@@ -167,7 +167,8 @@ workflow-cli workflow reset -n orders -w order-1042 --type LastWorkflowTask --re
 
 starts a new run of the workflow from the end of its last workflow task (`FirstWorkflowTask` for its first one, or
 `--event-id` for a `WorkflowTaskCompleted` event from `workflow show`), and ends the current run. Signals received
-after that point are delivered to the new run again. Use it after fixing the integration's code that made the
+after that point are delivered to the new run again. A workflow whose first task a worker started but never completed
+resets to where that task started, as with `temporal workflow reset`. Use it after fixing the integration's code that made the
 workflow fail or stall.
 
 ## Start workflows on a schedule

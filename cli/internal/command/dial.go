@@ -27,9 +27,11 @@ import (
 	"strings"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 
 	"github.com/wso2/integration-workflow-runtime/cli/internal/clientconfig"
 )
@@ -40,7 +42,12 @@ func dial(s clientconfig.Settings) (*grpc.ClientConn, error) {
 	if err != nil {
 		return nil, err
 	}
-	return grpc.NewClient(s.Address, opts...)
+	// Go's dialer tries every address of a name in turn, so "localhost" reaching an IPv4-only engine reports the
+	// engine's answer rather than a refused [::1].
+	opts = append(opts, grpc.WithContextDialer(func(ctx context.Context, addr string) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, "tcp", addr)
+	}))
+	return grpc.NewClient("passthrough:///"+s.Address, opts...)
 }
 
 // maxResponseSize matches the Temporal Go SDK: a history page holds up to 256 events of up to 2 MiB each, far above
@@ -61,6 +68,9 @@ func dialOptions(s clientconfig.Settings) ([]grpc.DialOption, error) {
 	}
 	opts := []grpc.DialOption{grpc.WithTransportCredentials(transport),
 		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(maxResponseSize))}
+	if !s.TLS.On() {
+		opts = append(opts, grpc.WithChainUnaryInterceptor(hintTLS))
+	}
 
 	key, err := apiKey(s)
 	if err != nil {
@@ -72,13 +82,25 @@ func dialOptions(s clientconfig.Settings) ([]grpc.DialOption, error) {
 			return nil, fmt.Errorf("an API key is sent only over TLS to %s; add --tls or --tls-ca-path", s.Address)
 		}
 		auth := "Bearer " + key
-		opts = append(opts, grpc.WithUnaryInterceptor(func(ctx context.Context, method string, req, reply any,
+		opts = append(opts, grpc.WithChainUnaryInterceptor(func(ctx context.Context, method string, req, reply any,
 			cc *grpc.ClientConn, invoker grpc.UnaryInvoker, callOpts ...grpc.CallOption) error {
 			return invoker(metadata.AppendToOutgoingContext(ctx, "authorization", auth), method, req, reply, cc,
 				callOpts...)
 		}))
 	}
 	return opts, nil
+}
+
+// hintTLS names the likely cause when a plain-text call finds an engine that speaks TLS: the server closes the
+// connection before answering gRPC's preface.
+func hintTLS(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker,
+	opts ...grpc.CallOption) error {
+	err := invoker(ctx, method, req, reply, cc, opts...)
+	if st, ok := status.FromError(err); ok && st.Code() == codes.Unavailable &&
+		(strings.Contains(st.Message(), "server preface") || strings.Contains(st.Message(), "EOF")) {
+		return status.Error(codes.Unavailable, st.Message()+"; the engine may require TLS: add --tls or --tls-ca-path")
+	}
+	return err
 }
 
 func tlsConfig(t clientconfig.TLS) (*tls.Config, error) {

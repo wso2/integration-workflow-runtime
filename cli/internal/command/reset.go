@@ -104,10 +104,11 @@ func currentRun(ctx context.Context, client workflowservice.WorkflowServiceClien
 	return res.GetWorkflowExecutionInfo().GetExecution().GetRunId(), nil
 }
 
-// resetPoint finds the first or last completed workflow task in the run's history.
+// resetPoint finds the first or last completed workflow task in the run's history. Before any task completes it
+// falls back to where the first task started, as Temporal's CLI does when a worker has picked that task up.
 func resetPoint(ctx context.Context, client workflowservice.WorkflowServiceClient, namespace string, e execution,
 	resetType string) (int64, error) {
-	var found int64
+	var found, started int64
 	var token []byte
 	for {
 		res, err := client.GetWorkflowExecutionHistory(ctx, &workflowservice.GetWorkflowExecutionHistoryRequest{
@@ -117,6 +118,9 @@ func resetPoint(ctx context.Context, client workflowservice.WorkflowServiceClien
 			return 0, fmt.Errorf("unable to read the history of workflow %s: %w", e.workflowID, err)
 		}
 		for _, ev := range res.GetHistory().GetEvents() {
+			if ev.GetEventType() == enumspb.EVENT_TYPE_WORKFLOW_TASK_STARTED && started == 0 {
+				started = ev.GetEventId()
+			}
 			if ev.GetEventType() != enumspb.EVENT_TYPE_WORKFLOW_TASK_COMPLETED {
 				continue
 			}
@@ -129,8 +133,12 @@ func resetPoint(ctx context.Context, client workflowservice.WorkflowServiceClien
 			break
 		}
 	}
+	if found == 0 && started > 0 {
+		return started, nil
+	}
 	if found == 0 {
-		return 0, fmt.Errorf("workflow %s has no completed workflow task to reset to", e.workflowID)
+		return 0, fmt.Errorf("workflow %s has no started workflow task to reset to; has a worker polled its task queue?",
+			e.workflowID)
 	}
 	return found, nil
 }

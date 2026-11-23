@@ -25,6 +25,7 @@ import (
 	"testing"
 
 	commonpb "go.temporal.io/api/common/v1"
+	"go.temporal.io/api/serviceerror"
 	"go.temporal.io/server/api/adminservice/v1"
 	commonspb "go.temporal.io/server/api/common/v1"
 	enumsspb "go.temporal.io/server/api/enums/v1"
@@ -92,6 +93,11 @@ func (f adminFake) GetDLQTasks(ctx context.Context, r *adminservice.GetDLQTasksR
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.admin.reads = append(f.admin.reads, r)
+	if r.GetDlqKey().GetTaskCategory() == 2 {
+		// The engine's answer for a queue it never created.
+		return nil, serviceerror.NewUnavailable("GetDLQTasks failed. Error: queue not found: type = 2 and name = " +
+			queueName(2, "active", "active"))
+	}
 	return &adminservice.GetDLQTasksResponse{NextPageToken: []byte{1}, DlqTasks: []*commonspb.HistoryDLQTask{
 		{Metadata: &commonspb.HistoryDLQTaskMetadata{MessageId: 40},
 			Payload: &commonspb.HistoryTask{ShardId: 12, Blob: &commonpb.DataBlob{Data: []byte("task")}}},
@@ -180,6 +186,9 @@ func TestDeadLetterQueues(t *testing.T) {
 	if err := json.Unmarshal([]byte(tc.must("admin", "dlq", "read", "--dlq-type", "transfer", "-o", "json")),
 		&tasks); err != nil || len(tasks["dlqTasks"].([]any)) != 1 {
 		t.Fatalf("json dlq read = %v, %v", tasks, err)
+	}
+	if out := tc.must("admin", "dlq", "read", "--dlq-type", "timer"); out != "The timer dead-letter queue is empty.\n" {
+		t.Fatalf("dlq read of a queue the engine never created = %q", out)
 	}
 	tc.engine.admin.reads = nil
 	out = tc.must("admin", "dlq", "read", "--dlq-type", "transfer", "--limit", "5")

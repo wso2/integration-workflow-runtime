@@ -25,7 +25,7 @@ keywords: [wso2 integrator, workflow runtime, workflow-cli, reference, flags, pr
 | `workflow signal (-w <id> \| -q <query> -y) --name <signal> [-i <json>]...` | Sends a signal, each `--input` a JSON argument (`json/plain`) |
 | `workflow cancel (-w <id> \| -q <query> -y) [--reason <text>]` | Requests cancellation; the workflow can clean up. `--reason` is required with `--query` |
 | `workflow terminate (-w <id> \| -q <query> -y) [--reason <text>]` | Ends the workflow at once. `--reason` is required with `--query` |
-| `workflow reset -w <id> (--type FirstWorkflowTask\|LastWorkflowTask \| --event-id <n>) --reason <text>` | A new run from the end of that workflow task |
+| `workflow reset -w <id> (--type FirstWorkflowTask\|LastWorkflowTask \| --event-id <n>) --reason <text>` | A new run from the end of that workflow task, or from where the first one started when none has completed |
 | `batch list` / `batch describe --job-id <id>` / `batch terminate --job-id <id> --reason <text>` | The batch jobs a `--query` started: their state and counts; stop one |
 | `schedule create -s <id> (--cron <expr> \| --interval <duration>)... --workflow-id <id> --type <type> -t <task queue> [-i <json>]... [--overlap-policy <policy>] [--paused] [--notes <text>]` | Creates a schedule |
 | `schedule list` / `schedule describe -s <id>` | Schedules with their type, state and next run; one with its calendar as cron fields, time zone, intervals and recent runs |

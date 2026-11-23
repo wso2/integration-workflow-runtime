@@ -31,6 +31,7 @@ import (
 	"go.temporal.io/server/api/adminservice/v1"
 	commonspb "go.temporal.io/server/api/common/v1"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -262,6 +263,10 @@ func (c *cli) dlqReadCommand() *cobra.Command {
 			}
 			res, err := adminservice.NewAdminServiceClient(conn).GetDLQTasks(ctx,
 				&adminservice.GetDLQTasksRequest{DlqKey: key, PageSize: limit})
+			// The engine answers Unavailable for a queue it never created, which only means nothing failed there.
+			if err != nil && strings.Contains(status.Convert(err).Message(), "queue not found") {
+				res, err = &adminservice.GetDLQTasksResponse{}, nil
+			}
 			if err != nil {
 				return fmt.Errorf("unable to read the %s dead-letter queue: %w", k.category, err)
 			}
