@@ -46,8 +46,13 @@ make build                                  # build/workflow-runtime, build/work
 ```
 
 `tests/engine/runtime-sqlite.toml` runs every service in one process on in-memory SQLite, on ports 17233 (frontend
-gRPC), 17243 (frontend HTTP), 17234, 17235 and 17239. The PostgreSQL and MySQL variants expect a database on 15432
-or 13306 and the password in `WORKFLOW_TEST_DB_PASSWORD`; see [TESTING.md](TESTING.md). These configurations create no namespace: point the Temporal CLI at
+gRPC), 17243 (frontend HTTP), 17234, 17235 and 17239. The PostgreSQL and MySQL variants expect a database server on
+15432 or 13306 and the password in `WORKFLOW_TEST_DB_PASSWORD`; see [TESTING.md](TESTING.md).
+
+On PostgreSQL and MySQL the engine prepares the databases on every start: it creates the workflow and visibility
+databases when missing and applies the schema versions it ships, so the user needs the right to create databases
+(or databases a DBA created) and to change their schema. Set `manageSchema = false` under `[database]` to leave
+the schema to a DBA; see [database schema](../features/database-schema.md). These configurations create no namespace: point the Temporal CLI at
 `localhost:17233` to check health and create one:
 
 ```sh
@@ -80,7 +85,12 @@ make check          # build, vet, lint, gofmt, unit tests with the 75% coverage 
 make test-smoke     # Ballerina smoke suite against the engine
 make test-full      # Ballerina full suite
 make test-docker    # all of the above and both suites on SQLite, PostgreSQL and MySQL, in Docker
+go run ./tools/cmd/balsuite upgrade --engine build/workflow-engine --database postgresql   # or mysql
 ```
+
+`balsuite upgrade` starts a workflow on Temporal 1.30.9 in Docker (`--old-temporal` picks another release,
+`--docker` another docker command), then starts the engine on the same databases and checks that the workflow
+upgrades its schema and completes.
 
 Set `BAL` or `TEMPORAL_CLI` if those commands are not on `PATH`, for example the `bal` bundled with WSO2
 Integrator.

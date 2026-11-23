@@ -27,7 +27,9 @@ Manager (API server) and portals are being built.
 Documentation: [architecture](docs/guides/ARCHITECTURE.md), [developing](docs/guides/DEVELOPING.md),
 [testing](docs/guides/TESTING.md), [features](docs/features/README.md), [decisions](docs/decisions/).
 
-Installing and running the runtime: the [user guide](docs/user-guide/README.md). For a local engine with nothing to
+Installing and running the runtime: the [user guide](docs/user-guide/README.md). On PostgreSQL and MySQL the engine
+creates and upgrades its databases on start, which needs the right to create databases and change their schema;
+`[database] manageSchema = false` leaves that to a DBA. For a local engine with nothing to
 configure, run `bin/workflow-runtime dev` from a distribution, or `build/workflow-engine start-dev` after `make build`
 (see [DEVELOPING.md](docs/guides/DEVELOPING.md)).
 Contributors and coding agents: read [AGENTS.md](AGENTS.md) first.
