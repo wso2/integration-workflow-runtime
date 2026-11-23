@@ -116,9 +116,9 @@ These are requirements, not suggestions. A change that misses one is not done.
 ### Ballerina suites
 
 - `go run ./tools/cmd/balsuite <smoke|full> --engine build/workflow-engine [--database sqlite|postgresql|mysql|dev]`
-  starts the engine from `tests/engine/runtime-<database>.toml` (ports 17xxx, `--allow-no-auth`), creating the SQL
-  schemas first for PostgreSQL and MySQL, then creates the `default` namespace and the `WorkflowKind` search
-  attribute; with `--database dev` it runs `start-dev --port 17233` instead and creates nothing, since development
+  starts the engine from `tests/engine/runtime-<database>.toml` (ports 17xxx, `--allow-no-auth`); on PostgreSQL and
+  MySQL the engine creates both databases and their schemas on start. The runner then creates the `default` namespace
+  and the `WorkflowKind` search attribute; with `--database dev` it runs `start-dev --port 17233` instead and creates nothing, since development
   mode does that itself. It then runs `bal test` in the suite and stops the engine.
 - `balsuite upgrade --database postgresql|mysql` runs `tests/ballerina/upgrade` across an upgrade: its `before` group
   on Temporal 1.30.9 in Docker, its `after` group on the engine started on the same databases.
