@@ -90,5 +90,6 @@ a damaged module cache (for example after the Docker disk filled up), remove the
 4. Give each run its own input or ID so the suite can rerun against the same engine.
 5. Run `make test-full` (or `make test-smoke`) and list the new test in the feature's page in `docs/features/`.
 
-CI installs the latest Swan Lake release with `ballerina-platform/setup-ballerina` and a pinned Temporal CLI. Use
+CI installs Swan Lake 2201.14.1 with `ballerina-platform/setup-ballerina` (2201.14.2 cannot load the
+`ballerina/workflow` BIR it bundles) and a pinned Temporal CLI. Use
 jBallerina until the Go-based Ballerina can run `ballerina/workflow`.
