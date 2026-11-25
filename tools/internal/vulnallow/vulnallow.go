@@ -68,6 +68,7 @@ type message struct {
 // govulncheck's own text mode. A stream without a run's config, such as empty output, fails.
 func Check(in io.Reader, allowed map[string]string, stdout, stderr io.Writer) int {
 	called := map[string]string{}
+	reported := map[string]bool{} // every finding, called or not, so an import-only advisory keeps its exception
 	scans := 0
 	dec := json.NewDecoder(bufio.NewReader(in))
 	for {
@@ -82,7 +83,11 @@ func Check(in io.Reader, allowed map[string]string, stdout, stderr io.Writer) in
 			scans++
 		}
 		f := m.Finding
-		if f == nil || len(f.Trace) == 0 || f.Trace[0].Function == "" {
+		if f == nil {
+			continue
+		}
+		reported[f.OSV] = true
+		if len(f.Trace) == 0 || f.Trace[0].Function == "" {
 			continue
 		}
 		called[f.OSV] = fmt.Sprintf("%s@%s (fixed in %s)", f.Trace[0].Module, f.Trace[0].Version, f.FixedVersion)
@@ -103,7 +108,7 @@ func Check(in io.Reader, allowed map[string]string, stdout, stderr io.Writer) in
 		code = 1
 	}
 	for _, id := range sortedKeys(allowed) {
-		if _, ok := called[id]; !ok {
+		if !reported[id] {
 			_, _ = fmt.Fprintf(stdout, "exception %s is not reported by any module; remove it from the exceptions file\n", id)
 		}
 	}

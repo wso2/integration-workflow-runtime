@@ -80,3 +80,14 @@ func TestReadExceptions(t *testing.T) {
 		t.Errorf("third-party/vulnerability-exceptions.txt: %v", err)
 	}
 }
+
+func TestImportOnlyFindingKeepsItsException(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	input := cfg + `{"finding":{"osv":"GO-2026-6974","trace":[{"module":"go.opentelemetry.io/otel/sdk"}]}}`
+	if code := Check(strings.NewReader(input), map[string]string{"GO-2026-6974": "x"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("code %d, output %q", code, stdout.String()+stderr.String())
+	}
+	if strings.Contains(stdout.String(), "not reported by any module") {
+		t.Errorf("an import-only finding is still reported, but the output says to remove its exception: %q", stdout.String())
+	}
+}
