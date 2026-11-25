@@ -507,9 +507,13 @@ func (d databaseSettings) sqlStore(name, password string) *config.SQL {
 	}
 }
 
+var sqliteURIEscaper = strings.NewReplacer("%", "%25", "?", "%3F", "#", "%23")
+
 // sqliteStore keeps both stores in one database: a file that creates its own schema, or memory for tests.
 func (d databaseSettings) sqliteStore() *config.SQL {
-	name := d.Path
+	// Temporal writes the name into a "file:<name>?<options>" URI as it is, and SQLite decodes %HH there, so the
+	// delimiters are escaped to keep a name with "?" or "#" the file the user asked for.
+	name := sqliteURIEscaper.Replace(d.Path)
 	lifetime := time.Hour
 	attributes := map[string]string{"cache": "private", "setup": "true", "journal_mode": "wal", "synchronous": "2"}
 	if d.InMemory {
