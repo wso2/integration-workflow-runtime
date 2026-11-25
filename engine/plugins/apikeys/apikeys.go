@@ -47,8 +47,10 @@ const Issuer = "wso2-workflow-runtime"
 const (
 	permissionsClaim = "permissions"
 	keyFileMode      = 0o600
-	// maxNameLength keeps every issued-key record a short line.
-	maxNameLength = 200
+	// maxNameLength, maxGrants and maxNamespaceLength keep every issued-key record a short line.
+	maxNameLength      = 200
+	maxGrants          = 100
+	maxNamespaceLength = 255
 )
 
 // Grant is a role in a namespace; Namespace "*" grants the role in every namespace.
@@ -165,6 +167,9 @@ func (k *Key) Create(name string, grants []Grant, ttl time.Duration, now time.Ti
 	if len(grants) == 0 {
 		return Issued{}, errors.New("an API key needs at least one namespace and role")
 	}
+	if len(grants) > maxGrants {
+		return Issued{}, fmt.Errorf("an API key has at most %d namespaces", maxGrants)
+	}
 	if ttl <= 0 {
 		return Issued{}, errors.New("an API key needs a positive lifetime")
 	}
@@ -195,6 +200,9 @@ func (k *Key) Create(name string, grants []Grant, ttl time.Duration, now time.Ti
 }
 
 func (g Grant) check() error {
+	if len(g.Namespace) > maxNamespaceLength {
+		return fmt.Errorf("namespace %q is longer than %d characters", g.Namespace[:20]+"...", maxNamespaceLength)
+	}
 	if g.Namespace == "" || strings.ContainsAny(g.Namespace, ": ") || strings.ContainsFunc(g.Namespace, unicode.IsControl) {
 		return fmt.Errorf("namespace %q must be a namespace name or *", g.Namespace)
 	}

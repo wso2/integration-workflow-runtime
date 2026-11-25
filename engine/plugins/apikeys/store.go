@@ -17,9 +17,10 @@
 package apikeys
 
 import (
-	"bufio"
+	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"time"
@@ -54,33 +55,54 @@ func Revoke(path, id, reason string) error {
 	return appendLine(path, line+"\n")
 }
 
-// appendLine adds a line, starting a new one when an earlier append was cut short, so a partial line never joins the
-// next record: a revocation retried after a full disk must reach the list as its own line.
-func appendLine(path, line string) error {
-	f, err := os.OpenFile(path, os.O_RDWR|os.O_APPEND|os.O_CREATE, keyFileMode) //nolint:gosec // configured file
+// appendLine adds a complete line. It holds an exclusive lock, so two api-key commands never interleave, and first
+// removes any line an earlier append left without its end: a write cut short by a full disk is dropped rather than
+// joined to the next record or left for the readers.
+func appendLine(path, line string) (err error) {
+	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, keyFileMode) //nolint:gosec // configured file
 	if err != nil {
 		return err
 	}
-	info, err := f.Stat()
+	defer func() {
+		if closeErr := f.Close(); err == nil {
+			err = closeErr
+		}
+	}()
+	if err := lockFile(f); err != nil {
+		return fmt.Errorf("unable to lock %s: %w", path, err)
+	}
+	defer func() { _ = unlockFile(f) }()
+	data, err := io.ReadAll(f)
 	if err != nil {
-		_ = f.Close()
 		return err
 	}
-	if size := info.Size(); size > 0 {
-		last := make([]byte, 1)
-		if _, err := f.ReadAt(last, size-1); err != nil {
-			_ = f.Close()
+	end := int64(len(data))
+	if end > 0 && data[end-1] != '\n' {
+		end = int64(bytes.LastIndexByte(data, '\n') + 1)
+		if err := f.Truncate(end); err != nil {
 			return err
 		}
-		if last[0] != '\n' {
-			line = "\n" + line
-		}
 	}
-	if _, err := f.WriteString(line); err != nil {
-		_ = f.Close()
+	if _, err := f.WriteAt([]byte(line), end); err != nil {
 		return err
 	}
-	return f.Close()
+	return f.Sync()
+}
+
+// completeLines returns the file's lines that end with a newline; a last line without one was cut short.
+func completeLines(path string) ([]string, error) {
+	data, err := os.ReadFile(path) //nolint:gosec // a configured file
+	if err != nil {
+		return nil, err
+	}
+	if i := bytes.LastIndexByte(data, '\n'); i < len(data)-1 {
+		data = data[:i+1]
+	}
+	text := strings.TrimSuffix(string(data), "\n")
+	if text == "" {
+		return nil, nil
+	}
+	return strings.Split(text, "\n"), nil
 }
 
 // maxReasonLength keeps every revocation line far below what ReadRevoked reads; an unreadable list would refuse
@@ -102,30 +124,26 @@ type Entry struct {
 
 // ReadRecord reads the issued-key record; a missing file has no keys.
 func ReadRecord(path string) ([]Entry, error) {
-	f, err := os.Open(path) //nolint:gosec // the configured record
+	lines, err := completeLines(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = f.Close() }()
 	var entries []Entry
-	lines := bufio.NewScanner(f)
-	// Room beyond any record Create allows, so a hand-edited line does not block list and revoke for every key.
-	lines.Buffer(make([]byte, 0, 64*1024), 1<<20)
-	for n := 1; lines.Scan(); n++ {
-		fields := strings.Split(lines.Text(), "\t")
+	for n, line := range lines {
+		fields := strings.Split(line, "\t")
 		if len(fields) != 5 {
-			return nil, fmt.Errorf("%s line %d: expected 5 tab-separated fields", path, n)
+			return nil, fmt.Errorf("%s line %d: expected 5 tab-separated fields", path, n+1)
 		}
 		created, err1 := time.Parse(time.RFC3339, fields[3])
 		expires, err2 := time.Parse(time.RFC3339, fields[4])
 		if err := errors.Join(err1, err2); err != nil {
-			return nil, fmt.Errorf("%s line %d: %w", path, n, err)
+			return nil, fmt.Errorf("%s line %d: %w", path, n+1, err)
 		}
 		entries = append(entries, Entry{ID: fields[0], Name: fields[1], Grants: fields[2], Created: created,
 			Expires: expires})
 	}
-	return entries, lines.Err()
+	return entries, nil
 }

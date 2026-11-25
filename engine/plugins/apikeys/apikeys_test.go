@@ -23,9 +23,11 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -138,6 +140,8 @@ func TestCreateRefusesBadInput(t *testing.T) {
 		"newline in namespace": {"a", []Grant{{"orders\nbroken", "write"}}, time.Hour},
 		"tab in name":          {"orders\tapp", []Grant{{"orders", "write"}}, time.Hour},
 		"newline in name":      {"orders\napp", []Grant{{"orders", "write"}}, time.Hour},
+		"too many namespaces":  {"a", manyGrants(101), time.Hour},
+		"namespace too long":   {"a", []Grant{{strings.Repeat("n", 256), "write"}}, time.Hour},
 		"name too long":        {strings.Repeat("a", 201), []Grant{{"orders", "write"}}, time.Hour},
 	} {
 		if _, err := k.Create(c.name, c.grants, c.ttl, now); err == nil {
@@ -297,29 +301,64 @@ func TestReadRevokedTakesLongLines(t *testing.T) {
 func TestAppendAfterAPartialLine(t *testing.T) {
 	dir := t.TempDir()
 	revoked := filepath.Join(dir, "revoked")
+	id := "0123456789abcdef0123456789abcdef"
 	// A revocation cut short by a full disk leaves part of an ID and no line end.
-	if err := os.WriteFile(revoked, []byte("0123456789abcdef"), 0o600); err != nil {
+	if err := os.WriteFile(revoked, []byte("ffff\n0123456789abcdef"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	id := "0123456789abcdef0123456789abcdef"
+	if ids, err := ReadRevoked(revoked); err != nil || len(ids) != 1 || !ids["ffff"] {
+		t.Fatalf("before the retry the list = %v, %v; want only the complete line", ids, err)
+	}
 	if err := Revoke(revoked, id, "retry"); err != nil {
 		t.Fatal(err)
 	}
-	if ids, err := ReadRevoked(revoked); err != nil || !ids[id] {
-		t.Fatalf("after the retry the list = %v, %v; want %s on its own line", ids, err, id)
+	if ids, err := ReadRevoked(revoked); err != nil || !ids[id] || !ids["ffff"] || len(ids) != 2 {
+		t.Fatalf("after the retry the list = %v, %v; want ffff and %s", ids, err, id)
 	}
-	record := filepath.Join(dir, "issued")
-	if err := os.WriteFile(record, []byte("partial"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+
 	k, _ := testKey(t)
-	issued, _ := k.Create("ops", []Grant{{"*", "admin"}}, time.Hour, now)
-	if err := Record(record, issued); err != nil {
+	record := filepath.Join(dir, "issued")
+	first, _ := k.Create("first", []Grant{{"orders", "write"}}, time.Hour, now)
+	if err := Record(record, first); err != nil {
 		t.Fatal(err)
 	}
-	data, _ := os.ReadFile(record)
-	if !strings.HasPrefix(string(data), "partial\n"+issued.ID+"\t") {
-		t.Fatalf("record = %q, want the new entry on its own line", data)
+	f, err := os.OpenFile(record, os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = f.WriteString("cut\tshort")
+	_ = f.Close()
+	// Committed records stay readable while the last one is incomplete, and the next append clears it.
+	if entries, err := ReadRecord(record); err != nil || len(entries) != 1 || entries[0].Name != "first" {
+		t.Fatalf("record with an incomplete last line = %+v, %v", entries, err)
+	}
+	second, _ := k.Create("second", []Grant{{"orders", "read"}}, time.Hour, now)
+	if err := Record(record, second); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := ReadRecord(record)
+	if err != nil || len(entries) != 2 || entries[0].Name != "first" || entries[1].Name != "second" {
+		t.Fatalf("record after the next append = %+v, %v", entries, err)
+	}
+}
+
+// Appends from many writers at once all arrive whole: the file lock keeps them from interleaving.
+func TestConcurrentAppends(t *testing.T) {
+	revoked := filepath.Join(t.TempDir(), "revoked")
+	var wg sync.WaitGroup
+	for i := range 50 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := Revoke(revoked, fmt.Sprintf("%032x", i), "concurrent"); err != nil {
+				t.Error(err)
+			}
+		}()
+	}
+	wg.Wait()
+	ids, err := ReadRevoked(revoked)
+	if err != nil || len(ids) != 50 {
+		t.Fatalf("after 50 concurrent revocations the list holds %d IDs, %v", len(ids), err)
 	}
 }
 
@@ -332,4 +371,12 @@ func TestReadRecordTakesLongLines(t *testing.T) {
 	if entries, err := ReadRecord(path); err != nil || len(entries) != 1 || len(entries[0].Name) != 100_000 {
 		t.Fatalf("record with a long line = %d entries, %v", len(entries), err)
 	}
+}
+
+func manyGrants(n int) []Grant {
+	grants := make([]Grant, n)
+	for i := range grants {
+		grants[i] = Grant{fmt.Sprintf("ns%d", i), "read"}
+	}
+	return grants
 }

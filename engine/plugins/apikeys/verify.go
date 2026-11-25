@@ -17,7 +17,6 @@
 package apikeys
 
 import (
-	"bufio"
 	"errors"
 	"fmt"
 	"os"
@@ -147,28 +146,21 @@ func (r *revocationList) reload() error {
 	return nil
 }
 
-// ReadRevoked reads a revocation list; a missing file revokes nothing.
+// ReadRevoked reads a revocation list; a missing file revokes nothing, and a last line cut short is ignored.
 func ReadRevoked(path string) (map[string]bool, error) {
 	ids := map[string]bool{}
-	f, err := os.Open(path) //nolint:gosec // the configured revocation list
+	lines, err := completeLines(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return ids, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("unable to read the API key revocation list: %w", err)
 	}
-	defer func() { _ = f.Close() }()
-	lines := bufio.NewScanner(f)
-	// Room for lines longer than Revoke writes, so a hand-edited comment does not lock every key out.
-	lines.Buffer(make([]byte, 0, 64*1024), 1<<20)
-	for lines.Scan() {
-		line, _, _ := strings.Cut(lines.Text(), "#")
+	for _, line := range lines {
+		line, _, _ = strings.Cut(line, "#")
 		if line = strings.TrimSpace(line); line != "" {
 			ids[line] = true
 		}
-	}
-	if err := lines.Err(); err != nil {
-		return nil, fmt.Errorf("unable to read the API key revocation list: %w", err)
 	}
 	return ids, nil
 }

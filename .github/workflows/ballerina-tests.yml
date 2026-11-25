@@ -1,8 +1,8 @@
 name: Ballerina tests
 
 # Runs Ballerina programs on jBallerina (ballerina/workflow) against the engine binary built from this commit, started
-# from tests/engine/runtime-<database>.toml. Smoke on every pull request on SQLite, PostgreSQL and MySQL; smoke and full
-# on all three on main, nightly and on demand.
+# from tests/engine/runtime-<database>.toml. Smoke on every pull request on SQLite, PostgreSQL, MySQL, development mode
+# and API keys (SQLite with TLS and the runtime's own keys); smoke and full on all of them on main, nightly and on demand.
 
 on:
   pull_request:
@@ -23,7 +23,7 @@ on:
         required: true
         default: sqlite
         type: choice
-        options: [sqlite, postgresql, mysql, dev]
+        options: [sqlite, postgresql, mysql, dev, apikeys]
 
 permissions:
   contents: read
@@ -53,7 +53,7 @@ jobs:
         database: >-
           ${{ fromJSON(
             github.event_name == 'workflow_dispatch' && format('["{0}"]', inputs.database) ||
-            '["sqlite", "postgresql", "mysql", "dev"]') }}
+            '["sqlite", "postgresql", "mysql", "dev", "apikeys"]') }}
     services:
       postgres:
         image: postgres:16

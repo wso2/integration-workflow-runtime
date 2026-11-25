@@ -17,6 +17,7 @@
 package cli
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -152,7 +153,11 @@ func TestParseLifetime(t *testing.T) {
 			t.Errorf("parseLifetime(%q) = %v, %v", in, got, err)
 		}
 	}
-	for _, in := range []string{"0d", "-1h", "d", "1y", ""} {
+	if got, err := parseLifetime(fmt.Sprintf("%dd", maxLifetimeDays)); err != nil || got <= 0 {
+		t.Errorf("the longest lifetime = %v, %v", got, err)
+	}
+	// 250000 days would overflow time.Duration and wrap to about a hundred years.
+	for _, in := range []string{"0d", "-1h", "d", "1y", "", "250000d", fmt.Sprintf("%dd", maxLifetimeDays+1)} {
 		if _, err := parseLifetime(in); err == nil {
 			t.Errorf("parseLifetime(%q) was accepted", in)
 		}

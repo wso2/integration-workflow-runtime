@@ -20,6 +20,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"text/tabwriter"
@@ -196,11 +197,15 @@ func (c command) apiKeyRevoke(args []string) error {
 	return err
 }
 
+// maxLifetimeDays is the most days a time.Duration holds, about 292 years.
+const maxLifetimeDays = int(math.MaxInt64 / int64(24*time.Hour))
+
 // parseLifetime reads a Go duration or a number of days ("90d").
 func parseLifetime(s string) (time.Duration, error) {
 	if days, ok := strings.CutSuffix(s, "d"); ok {
 		n, err := strconv.Atoi(days)
-		if err == nil && n > 0 {
+		// A day count past what time.Duration holds would wrap to a shorter lifetime.
+		if err == nil && n > 0 && n <= maxLifetimeDays {
 			return time.Duration(n) * 24 * time.Hour, nil
 		}
 	} else if d, err := time.ParseDuration(s); err == nil && d > 0 {

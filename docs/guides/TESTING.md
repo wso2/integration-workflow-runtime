@@ -9,7 +9,7 @@
 | Tool and script tests | `tools/internal/...` (the coverage gate, the suite runner, the shell scripts run for real) | `make test`, every pull request | All pass |
 | workflow-cli tests | `cli/...`: every command against an in-memory fake engine, TLS, profiles | `make test`, every pull request | All pass |
 | Engine tests | `tools/internal/enginetest`: the real engine binary driven by the Temporal CLI and `workflow-cli` | `WORKFLOW_ENGINE=$PWD/../build/workflow-engine WORKFLOW_CLI=$PWD/../build/workflow-cli go test ./internal/enginetest` in `tools/` (absolute paths: tests run in their package directory); the SQLite smoke job of every pull request | All pass |
-| Ballerina smoke suite | `tests/ballerina/smoke` | `make test-smoke`, every pull request (SQLite, PostgreSQL, MySQL and `start-dev`) | All pass |
+| Ballerina smoke suite | `tests/ballerina/smoke` | `make test-smoke`, every pull request (SQLite, PostgreSQL, MySQL, `start-dev` and API keys) | All pass |
 | Ballerina full suite | `tests/ballerina/full` | `make test-full`, on `main`, nightly, on demand | All pass |
 | Upgrade run | `tests/ballerina/upgrade`, `balsuite upgrade` | The PostgreSQL and MySQL smoke jobs of every pull request | The workflow finishes |
 | License and vulnerability checks | `make license-check`, `make vulncheck` | Every pull request and daily | No findings |
@@ -56,11 +56,16 @@ are what proves the runtime runs `ballerina/workflow` integrations.
    `sqlite`). For `postgresql` and `mysql` the engine creates both databases and their schemas on start; the
    database must be running on 15432 or 13306, user `workflow` (PostgreSQL) or `root` (MySQL), password in
    `WORKFLOW_TEST_DB_PASSWORD`. `--database dev` runs `start-dev --port 17233` instead: in memory, with no
-   configuration file.
+   configuration file. `--database apikeys` adds TLS (a CA and certificate it generates) and `[engine.auth] type =
+   "apiKeys"` to the SQLite configuration, creates an admin key and a `write` key for `default` with
+   `workflow-engine api-key create`, and runs without `--allow-no-auth`.
 2. Waits until `temporal operator cluster health` reports `SERVING` on `localhost:17233`.
 3. Creates the `default` namespace and the `WorkflowKind` search attribute `ballerina/workflow` uses; with `dev` it
-   creates nothing, so the run proves that `start-dev` needs no setup.
-4. Runs `bal test` in the suite directory.
+   creates nothing, so the run proves that `start-dev` needs no setup. With `apikeys` the CLI calls carry the CA and,
+   through `TEMPORAL_API_KEY`, the admin key.
+4. Runs `bal test` in the suite directory. With `apikeys`, `BAL_CONFIG_VAR_BALLERINA_WORKFLOW_*` variables set
+   `mode = "SELF_HOSTED"`, `authApiKey` (the `write` key) and `authCaCert` over the suite's `Config.toml`, so the
+   integration connects as it would in production without an identity provider.
 5. Stops the engine and, if anything failed, prints the end of the engine log. The log is written to a temporary
    directory that is removed after the run; set `ENGINE_LOG_DIR` to keep it.
 

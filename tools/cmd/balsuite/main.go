@@ -44,7 +44,8 @@ func run(args []string) int {
 	root := flags.String("root", ".", "repository root")
 	engine := flags.String("engine", "", "path to the workflow-engine binary (required)")
 	database := flags.String("database", "sqlite",
-		"sqlite, postgresql or mysql: which tests/engine/runtime-<database>.toml to use; dev runs start-dev instead")
+		"sqlite, postgresql or mysql: which tests/engine/runtime-<database>.toml to use; dev runs start-dev instead; "+
+			"apikeys runs the SQLite engine with TLS and the runtime's own API keys")
 	bal := flags.String("bal", envOr("BAL", "bal"), "jBallerina `bal` command")
 	temporal := flags.String("temporal", envOr("TEMPORAL_CLI", "temporal"), "Temporal CLI")
 	startup := flags.Duration("startup-timeout", 90*time.Second, "limit for the engine to become SERVING")
@@ -52,7 +53,7 @@ func run(args []string) int {
 	docker := flags.String("docker", envOr("DOCKER", "docker"), "docker command (upgrade only)")
 	oldTemporal := flags.String("old-temporal", "1.30.9", "Temporal release the upgrade starts from (upgrade only)")
 	flags.Usage = func() {
-		fmt.Fprintln(os.Stderr, "usage: balsuite <smoke|full|upgrade> --engine <workflow-engine> [--database sqlite|postgresql|mysql|dev] [flags]")
+		fmt.Fprintln(os.Stderr, "usage: balsuite <smoke|full|upgrade> --engine <workflow-engine> [--database sqlite|postgresql|mysql|dev|apikeys] [flags]")
 		flags.PrintDefaults()
 	}
 	if len(args) == 0 || !slices.Contains([]string{"smoke", "full", balsuite.UpgradeSuite}, args[0]) {
@@ -66,7 +67,7 @@ func run(args []string) int {
 		fmt.Fprintln(os.Stderr, "--engine is required")
 		return 2
 	}
-	if !slices.Contains([]string{"sqlite", "postgresql", "mysql", "dev"}, *database) {
+	if !slices.Contains([]string{"sqlite", "postgresql", "mysql", "dev", "apikeys"}, *database) {
 		fmt.Fprintf(os.Stderr, "unknown database %q\n", *database)
 		return 2
 	}
@@ -104,7 +105,7 @@ func run(args []string) int {
 		engineArgs = []string{"start", "--runtime-config", filepath.Join(rootPath, "tests", "engine", "runtime-"+*database+".toml"),
 			"--allow-no-auth"}
 	}
-	return balsuite.Run(context.Background(), balsuite.Options{
+	o := balsuite.Options{
 		Suite:          args[0],
 		Database:       *database,
 		Root:           rootPath,
@@ -116,7 +117,25 @@ func run(args []string) int {
 		LogDir:         os.Getenv("ENGINE_LOG_DIR"),
 		StartupTimeout: *startup,
 		TestTimeout:    *testTimeout,
-	}, os.Stdout, os.Stderr)
+	}
+	if *database == "apikeys" {
+		// The integration connects as in production without an identity provider: TLS and an API key the engine issued.
+		dir, err := os.MkdirTemp("", "balsuite-apikeys-")
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		defer func() { _ = os.RemoveAll(dir) }()
+		secured, err := balsuite.PrepareAPIKeyEngine(enginePath,
+			filepath.Join(rootPath, "tests", "engine", "runtime-sqlite.toml"), dir)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		o.EngineArgs = []string{"start", "--runtime-config", secured.Config}
+		o.CLIFlags, o.CLIEnv, o.BalEnv = secured.CLIFlags(), secured.CLIEnv(), secured.BalEnv()
+	}
+	return balsuite.Run(context.Background(), o, os.Stdout, os.Stderr)
 }
 
 func envOr(name, fallback string) string {
