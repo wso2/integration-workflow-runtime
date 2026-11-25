@@ -129,8 +129,10 @@ license-check: $(GO_LICENSES)
 		GOARCH=$${p#*/} CGO_ENABLED=0 "$(GO_LICENSES)" check ./cmd/... \
 		--disallowed_types=forbidden,restricted,unknown $(LICENSE_IGNORES)) || exit 1; done
 
+# Fails on any vulnerability the code calls, except the reviewed ones in third-party/vulnerability-exceptions.txt.
 vulncheck: $(GOVULNCHECK)
-	@for m in $(MODULES); do (cd $$m && $(TOOLCHAIN_ENV) "$(GOVULNCHECK)" ./...) || exit 1; done
+	@set -o pipefail; for m in $(MODULES); do echo "Checking $$m"; (cd $$m && $(TOOLCHAIN_ENV) "$(GOVULNCHECK)" -format json ./...) | \
+		go run ./tools/cmd/vulnallow third-party/vulnerability-exceptions.txt || exit 1; done
 
 check: build vet lint fmt-check test-coverage license-check vulncheck
 
