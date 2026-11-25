@@ -129,10 +129,13 @@ license-check: $(GO_LICENSES)
 		GOARCH=$${p#*/} CGO_ENABLED=0 "$(GO_LICENSES)" check ./cmd/... \
 		--disallowed_types=forbidden,restricted,unknown $(LICENSE_IGNORES)) || exit 1; done
 
-# Fails on any vulnerability the code calls, except the reviewed ones in third-party/vulnerability-exceptions.txt.
+# Fails on any vulnerability the code calls, except the reviewed ones in third-party/vulnerability-exceptions.txt. One
+# vulnallow reads every module's results, one module after another, so it can tell an exception no module needs.
 vulncheck: $(GOVULNCHECK)
-	@set -o pipefail; for m in $(MODULES); do echo "Checking $$m"; (cd $$m && $(TOOLCHAIN_ENV) "$(GOVULNCHECK)" -format json ./...) | \
-		go run ./tools/cmd/vulnallow third-party/vulnerability-exceptions.txt || exit 1; done
+	@test -n "$(MODULES)" || { echo "make vulncheck: go list found no modules to check" >&2; exit 1; }
+	@set -o pipefail; for m in $(MODULES); do echo "Checking $$m" >&2; \
+		(cd $$m && $(TOOLCHAIN_ENV) "$(GOVULNCHECK)" -format json ./...) || exit 1; done | \
+		go run ./tools/cmd/vulnallow third-party/vulnerability-exceptions.txt
 
 check: build vet lint fmt-check test-coverage license-check vulncheck
 

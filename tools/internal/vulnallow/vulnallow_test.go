@@ -31,6 +31,9 @@ const stream = `{"config":{"protocol_version":"v1.0.0"}}
 {"finding":{"osv":"GO-2026-1111","fixed_version":"v2.0.0","trace":[{"module":"example.com/unused","version":"v1.0.0","package":"example.com/unused"}]}}
 `
 
+const cfg = `{"config":{"protocol_version":"v1.0.0"}}
+`
+
 const called = `{"finding":{"osv":"GO-2026-2222","fixed_version":"v1.1.0","trace":[{"module":"example.com/used","version":"v1.0.0","function":"Do"}]}}
 `
 
@@ -44,8 +47,10 @@ func TestCheck(t *testing.T) {
 		"allowed called finding":     {stream, map[string]string{"GO-2026-6974": "no compatible fix"}, 0, "allowed GO-2026-6974"},
 		"called finding not allowed": {stream, nil, 1, "GO-2026-6974 in go.opentelemetry.io/otel/sdk@v1.45.0"},
 		"another called finding":     {stream + called, map[string]string{"GO-2026-6974": "x"}, 1, "GO-2026-2222"},
-		"imports only":               {`{"finding":{"osv":"GO-1","trace":[{"module":"m"}]}}`, nil, 0, "No vulnerabilities called"},
-		"unused exception":           {"", map[string]string{"GO-2026-6974": "x"}, 0, "exception GO-2026-6974 is not reported in this module"},
+		"imports only":               {cfg + `{"finding":{"osv":"GO-1","trace":[{"module":"m"}]}}`, nil, 0, "No vulnerabilities called"},
+		"unused exception":           {cfg, map[string]string{"GO-2026-6974": "x"}, 0, "exception GO-2026-6974 is not reported by any module"},
+		"empty output":               {"", nil, 1, "govulncheck produced no results"},
+		"two modules, one reports":   {cfg + cfg + called, map[string]string{"GO-2026-2222": "x"}, 0, "allowed GO-2026-2222"},
 		"broken output":              {"{not json", nil, 1, "unable to read govulncheck's output"},
 	} {
 		var stdout, stderr bytes.Buffer

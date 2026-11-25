@@ -51,6 +51,7 @@ func ReadExceptions(path string) (map[string]string, error) {
 
 // message is the part of a govulncheck JSON message read here.
 type message struct {
+	Config  *json.RawMessage `json:"config"`
 	Finding *struct {
 		OSV          string `json:"osv"`
 		FixedVersion string `json:"fixed_version"`
@@ -62,10 +63,12 @@ type message struct {
 	} `json:"finding"`
 }
 
-// Check reads govulncheck's JSON stream and returns 0 when every vulnerability the code calls is allowed. Findings at
-// module or package level, which the code does not call, do not fail the run, as in govulncheck's own text mode.
+// Check reads govulncheck's JSON stream, one or more runs in a row, and returns 0 when every vulnerability the code
+// calls is allowed. Findings at module or package level, which the code does not call, do not fail the run, as in
+// govulncheck's own text mode. A stream without a run's config, such as empty output, fails.
 func Check(in io.Reader, allowed map[string]string, stdout, stderr io.Writer) int {
 	called := map[string]string{}
+	scans := 0
 	dec := json.NewDecoder(bufio.NewReader(in))
 	for {
 		var m message
@@ -75,11 +78,19 @@ func Check(in io.Reader, allowed map[string]string, stdout, stderr io.Writer) in
 			_, _ = fmt.Fprintf(stderr, "unable to read govulncheck's output: %v\n", err)
 			return 1
 		}
+		if m.Config != nil {
+			scans++
+		}
 		f := m.Finding
 		if f == nil || len(f.Trace) == 0 || f.Trace[0].Function == "" {
 			continue
 		}
 		called[f.OSV] = fmt.Sprintf("%s@%s (fixed in %s)", f.Trace[0].Module, f.Trace[0].Version, f.FixedVersion)
+	}
+	// Every govulncheck run starts with its config; without one, the scan did not run, so it must not pass.
+	if scans == 0 {
+		_, _ = fmt.Fprintln(stderr, "govulncheck produced no results; the scan did not run")
+		return 1
 	}
 	code := 0
 	for _, id := range sortedKeys(called) {
@@ -93,7 +104,7 @@ func Check(in io.Reader, allowed map[string]string, stdout, stderr io.Writer) in
 	}
 	for _, id := range sortedKeys(allowed) {
 		if _, ok := called[id]; !ok {
-			_, _ = fmt.Fprintf(stdout, "exception %s is not reported in this module; remove it once no module reports it\n", id)
+			_, _ = fmt.Fprintf(stdout, "exception %s is not reported by any module; remove it from the exceptions file\n", id)
 		}
 	}
 	if code == 0 {
