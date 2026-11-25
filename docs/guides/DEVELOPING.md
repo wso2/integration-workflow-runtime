@@ -4,7 +4,7 @@
 
 | Tool | Version | For |
 |---|---|---|
-| Go | 1.26.8 or later (the toolchain line in `go.work` selects the patched release) | Everything |
+| Go | 1.26.10 or later (the toolchain line in `go.work` selects the patched release) | Everything |
 | Bash | Any | CI glue scripts, the commit hook |
 | Ballerina Swan Lake (`bal`) | 2201.14.1 (2201.14.2 cannot load its bundled `ballerina/workflow`) | `make test-smoke`, `make test-full` |
 | Temporal CLI (`temporal`) | Any recent release | The Ballerina suite runner |

@@ -42,7 +42,7 @@ Decision records live in `docs/decisions/`; feature documentation in `docs/featu
 | `make dist` | Zip for one `GOOS`/`GOARCH` in `dist/` |
 | `make install-hooks` | Install the commit hook (subject format, license headers, gofmt, build, lint) |
 
-Go 1.26.8 or later; the toolchain line in `go.work` and `engine/go.mod` selects the patched Go release.
+Go 1.26.10 or later; the toolchain line in `go.work` and `engine/go.mod` selects the patched Go release.
 
 ## Rules for every change
 
