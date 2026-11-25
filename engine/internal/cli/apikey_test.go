@@ -31,8 +31,10 @@ import (
 	"github.com/wso2/integration-workflow-runtime/engine/plugins/apikeys"
 )
 
-// tomlPath writes a path as a TOML literal string, which keeps Windows backslashes as they are.
-func tomlPath(p string) string { return "'" + p + "'" }
+// tomlPath writes a path as a TOML basic string, escaping backslashes (Windows) and quotes.
+func tomlPath(p string) string {
+	return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(p) + `"`
+}
 
 // apiKeyRuntime writes a runtime.toml with TLS and the given auth section.
 func apiKeyRuntime(t *testing.T, auth string) string {
@@ -173,6 +175,17 @@ func TestClaimMapperWithBothProviderAndAPIKeys(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// A start never creates the key: a node with a key of its own would refuse the keys the other nodes accept.
+	if _, err := newClaimMapper(&rt.Temporal, rt, log.NewNoopLogger()); err == nil ||
+		!strings.Contains(err.Error(), "create it with workflow-runtime api-key create") {
+		t.Fatalf("a start without the signing key = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "k.pem")); err == nil {
+		t.Fatal("the start created a signing key")
+	}
+	if _, _, err := apikeys.LoadKey(filepath.Join(dir, "k.pem"), true); err != nil {
+		t.Fatal(err)
+	}
 	m, err := newClaimMapper(&rt.Temporal, rt, log.NewNoopLogger())
 	if err != nil {
 		t.Fatal(err)
@@ -180,7 +193,25 @@ func TestClaimMapperWithBothProviderAndAPIKeys(t *testing.T) {
 	if _, ok := m.(*apikeys.Mapper); !ok {
 		t.Fatalf("mapper = %T, want *apikeys.Mapper wrapping the identity provider's", m)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "k.pem")); err != nil {
-		t.Fatalf("the start did not create the signing key: %v", err)
+}
+
+// The api-key commands read only [engine.auth]: an operator's shell lacks the service's database password.
+func TestAPIKeyCommandsNeedNoDatabasePassword(t *testing.T) {
+	dir := t.TempDir()
+	cert, _ := filepath.Abs("testdata/certs/engine.crt")
+	key, _ := filepath.Abs("testdata/certs/engine.key")
+	toml := "[engine.tls]\ncertFile = " + tomlPath(cert) + "\nkeyFile = " + tomlPath(key) + "\n" + apiKeysOnly(dir) +
+		"[database]\ntype = \"postgresql\"\nhost = \"db\"\npassword = \"$env{WORKFLOW_TEST_UNSET_PASSWORD}\"\n"
+	path := filepath.Join(dir, "runtime.toml")
+	if err := os.WriteFile(path, []byte(toml), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c, stdout, stderr := newTestCommand(&fakeServer{}, nil)
+	if code := c.run([]string{"api-key", "create", "--runtime-config", path, "--name", "a", "--namespace", "b",
+		"--role", "write"}); code != 0 || !apikeys.IsAPIKey(strings.TrimSpace(stdout.String())) {
+		t.Fatalf("create with an unset database password = %d %q", code, stderr.String())
+	}
+	if _, err := os.Stat(filepath.Join(dir, "security", "revoked-api-keys.txt")); err != nil {
+		t.Fatalf("create did not start the revocation list: %v", err)
 	}
 }

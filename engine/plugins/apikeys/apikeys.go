@@ -72,7 +72,16 @@ func LoadKey(path string, create bool) (k *Key, created bool, err error) {
 		return newKey(path)
 	}
 	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, false, fmt.Errorf("the API key signing key %s does not exist; create it with workflow-runtime "+
+				"api-key create on one node and copy it to every node", path)
+		}
 		return nil, false, fmt.Errorf("unable to read the API key signing key: %w", err)
+	}
+	// Anyone who can read the key can create admin keys, so it must be its owner's alone.
+	if info, err := os.Stat(path); err == nil && openToOthers(info) {
+		return nil, false, fmt.Errorf("the API key signing key %s can be read by other users (mode %v); allow only its "+
+			"owner and group, for example chmod 600", path, info.Mode().Perm())
 	}
 	block, _ := pem.Decode(data)
 	if block == nil {

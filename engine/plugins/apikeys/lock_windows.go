@@ -43,6 +43,16 @@ func lockFile(f *os.File) error {
 	return nil
 }
 
+// lockShared takes LockFileEx's shared lock, which readers hold together while no writer does.
+func lockShared(f *os.File) error {
+	var o syscall.Overlapped
+	r, _, err := procLockFileEx.Call(f.Fd(), 0, 0, 0xFFFFFFFF, 0xFFFFFFFF, uintptr(unsafe.Pointer(&o)))
+	if r == 0 {
+		return err
+	}
+	return nil
+}
+
 func unlockFile(f *os.File) error {
 	var o syscall.Overlapped
 	r, _, err := procUnlockFileEx.Call(f.Fd(), 0, 0xFFFFFFFF, 0xFFFFFFFF, uintptr(unsafe.Pointer(&o)))
@@ -51,3 +61,6 @@ func unlockFile(f *os.File) error {
 	}
 	return nil
 }
+
+// openToOthers is false on Windows, whose file access is controlled by ACLs rather than mode bits.
+func openToOthers(os.FileInfo) bool { return false }

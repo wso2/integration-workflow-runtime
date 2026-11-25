@@ -1,6 +1,6 @@
 ---
 title: Deploy on AWS
-description: Choose the database, compute, load balancer and identity provider for the Workflow Runtime on AWS.
+description: Choose the database, compute, load balancer and authentication for the Workflow Runtime on AWS.
 keywords: [wso2 integrator, workflow runtime, aws, amazon rds, aurora, ecs, eks, ec2, cognito, nlb]
 ---
 
@@ -11,7 +11,7 @@ keywords: [wso2 integrator, workflow runtime, aws, amazon rds, aurora, ecs, eks,
 | Database | Amazon RDS for PostgreSQL (12 or later), or RDS for MySQL (8.0.17 or later), Aurora PostgreSQL or Aurora MySQL 3; with TLS ([Set up the database](database.md#amazon-rds-and-aurora)) |
 | Compute | EC2 with the zip and the systemd unit ([Install the runtime](install.md)), or the image on ECS or EKS ([Run in containers](run-in-containers.md)) |
 | Load balancer | A Network Load Balancer (TCP) on port 7233 in front of the frontend nodes: integrations keep long gRPC connections |
-| Identity | Amazon Cognito or your own identity provider ([Secure the engine](secure-the-engine.md)) |
+| Identity | The runtime's own API keys, or Amazon Cognito or your own identity provider ([Secure the engine](secure-the-engine.md)) |
 | Monitoring | Prometheus scraping each node, or the CloudWatch agent's Prometheus support ([Monitor the runtime](monitor.md)) |
 
 ## A single node to start

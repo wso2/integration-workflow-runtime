@@ -38,9 +38,16 @@ type Verifier struct {
 	now     func() time.Time
 }
 
-// NewVerifier verifies keys signed with key; revokedPath names the revocation list, which may not exist yet.
-func NewVerifier(key *Key, revokedPath string) *Verifier {
-	return &Verifier{key: key, revoked: &revocationList{path: revokedPath}, now: time.Now}
+// NewVerifier verifies keys signed with key; revokedPath names the revocation list. warn, when set, is told when the
+// list is missing: a node the list was not copied to would accept revoked keys.
+func NewVerifier(key *Key, revokedPath string, warn func(string)) *Verifier {
+	return &Verifier{key: key, revoked: &revocationList{path: revokedPath, warn: warn}, now: time.Now}
+}
+
+// Refresh reads the revocation list now, so a missing list is reported at start rather than at the first call.
+func (v *Verifier) Refresh() error {
+	_, err := v.revoked.has("", v.now())
+	return err
 }
 
 // Claims verifies a raw key and returns the roles it grants.
@@ -107,6 +114,8 @@ func grant(claims *authorization.Claims, namespace, roleName string) {
 // file changes, so a revocation reaches a running engine without a restart.
 type revocationList struct {
 	path    string
+	warn    func(string)
+	missing bool // the missing list was reported
 	mu      sync.Mutex
 	checked time.Time
 	modTime time.Time
@@ -129,9 +138,14 @@ func (r *revocationList) has(id string, now time.Time) (bool, error) {
 func (r *revocationList) reload() error {
 	info, err := os.Stat(r.path)
 	if errors.Is(err, os.ErrNotExist) {
-		r.ids, r.modTime, r.size = map[string]bool{}, time.Time{}, 0
+		if r.warn != nil && !r.missing {
+			r.warn(fmt.Sprintf("the API key revocation list %s does not exist, so no key is revoked on this node; "+
+				"copy it from the node where keys are revoked", r.path))
+		}
+		r.ids, r.modTime, r.size, r.missing = map[string]bool{}, time.Time{}, 0, true
 		return nil
 	}
+	r.missing = false
 	if err != nil {
 		return fmt.Errorf("unable to read the API key revocation list: %w", err)
 	}
@@ -146,10 +160,11 @@ func (r *revocationList) reload() error {
 	return nil
 }
 
-// ReadRevoked reads a revocation list; a missing file revokes nothing, and a last line cut short is ignored.
+// ReadRevoked reads a revocation list; a missing file revokes nothing. A last line without its newline is kept: it is
+// either a complete ID written by hand, or a fragment of one that matches no key.
 func ReadRevoked(path string) (map[string]bool, error) {
 	ids := map[string]bool{}
-	lines, err := completeLines(path)
+	lines, err := readLines(path, true)
 	if errors.Is(err, os.ErrNotExist) {
 		return ids, nil
 	}

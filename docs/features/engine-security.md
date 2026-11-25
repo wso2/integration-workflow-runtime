@@ -26,7 +26,7 @@ provider, mapped to Temporal's namespace roles.
 | Key | Default | Meaning |
 |---|---|---|
 | `type` | `none` | `apiKeys` checks the runtime's own API keys; `jwt` checks the identity provider's tokens, and API keys too when `[engine.auth.apiKeys]` is set; `none` needs `--allow-no-auth` |
-| `[engine.auth.apiKeys]` `signingKey` | | ECDSA P-256 key (PEM) that signs and verifies API keys, created when missing; the same file on every node |
+| `[engine.auth.apiKeys]` `signingKey` | | ECDSA P-256 key (PEM) that signs and verifies API keys, created by the first `api-key create`; the same file on every node, readable by its owner (and group) only |
 | `[engine.auth.apiKeys]` `revocationList` | `revoked-api-keys.txt` beside `signingKey` | Revoked key IDs, one per line, read again while the engine runs |
 | `jwksUrls` | discovered from `issuer` | The identity provider's key set (JWKS) URLs, when it has no OpenID Connect discovery document; https, or http to a loopback host |
 | `keyRefreshInterval` | `1m` | How often the key set is fetched again |
@@ -64,7 +64,7 @@ role = "write"
 
 | Command | Does |
 |---|---|
-| `workflow-engine api-key create --runtime-config <file> --name <name> --namespace <ns>... --role read\|write\|admin [--expires 365d]` | Signs a key and prints it once on standard output; records it, without the token, in `issued-api-keys.txt`. `--name` has at most 200 characters and no control characters; at most 100 namespaces of up to 255 characters; `--expires` up to about 292 years (what a Go duration holds) |
+| `workflow-engine api-key create --runtime-config <file> --name <name> --namespace <ns>... --role read\|write\|admin [--expires 365d]` | Signs a key and prints it once on standard output; records it, without the token, in `issued-api-keys.txt` beside the revocation list. `--name` has at most 200 characters and no control characters; at most 100 namespaces of up to 255 characters; `--expires` up to about 292 years (what a Go duration holds) |
 | `workflow-engine api-key list --runtime-config <file>` | The keys created: ID, name, grants, dates, and whether each is active, expired or revoked |
 | `workflow-engine api-key revoke --runtime-config <file> (--id <id> \| --name <name>) [--reason <text>]` | Adds the key, or every key with that name, to the revocation list |
 
@@ -79,8 +79,12 @@ role = "write"
   API keys. A key signed by another runtime's key is refused by its `kid`.
 - The revocation list is checked for changes at most every 10 seconds, so a revocation reaches a running engine
   without a restart. The issued-key record holds no tokens: a leaked record grants nothing.
-- The first `api-key create`, or a start, writes the signing key when the file is missing (mode 0600). Several nodes
-  need the same key, so create it on one node and copy it.
+- The first `api-key create` writes the signing key when the file is missing (mode 0600) and an empty revocation
+  list. A start never creates the key: it stops with an error when the key is missing, and when users other than its
+  owner and group can read it, since a node with a key of its own would refuse the keys the others accept. A missing
+  revocation list is logged as a warning, at start and when it disappears later.
+- The `api-key` commands read only `[engine.auth]` from `runtime.toml`, so they run from an operator's shell without
+  the service's database password.
 - **Three ways to read roles**, so any identity provider fits:
   - Rules map the provider's group, role or scope names to namespace roles. Use them when the provider knows
     nothing about namespaces, which is the usual case.

@@ -26,6 +26,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -105,7 +106,7 @@ func TestCreateAndVerify(t *testing.T) {
 	if !IsAPIKey(issued.Token) || len(issued.ID) != 32 || !issued.Expires.Equal(now.Add(365*24*time.Hour)) {
 		t.Fatalf("issued = %+v", issued)
 	}
-	v := NewVerifier(k, filepath.Join(filepath.Dir(path), "revoked-api-keys.txt"))
+	v := NewVerifier(k, filepath.Join(filepath.Dir(path), "revoked-api-keys.txt"), nil)
 	v.now = func() time.Time { return now.Add(time.Hour) }
 	claims, err := v.Claims(issued.Token)
 	if err != nil {
@@ -152,7 +153,7 @@ func TestCreateRefusesBadInput(t *testing.T) {
 
 func TestVerifierRefusesOtherKeys(t *testing.T) {
 	k, path := testKey(t)
-	v := NewVerifier(k, filepath.Join(filepath.Dir(path), "revoked"))
+	v := NewVerifier(k, filepath.Join(filepath.Dir(path), "revoked"), nil)
 	v.now = func() time.Time { return now }
 	other, _ := testKey(t)
 	foreign, _ := other.Create("x", []Grant{{"orders", "write"}}, time.Hour, now)
@@ -182,7 +183,7 @@ func TestVerifierRefusesOtherKeys(t *testing.T) {
 func TestRevocationReachesARunningVerifier(t *testing.T) {
 	k, path := testKey(t)
 	revoked := filepath.Join(filepath.Dir(path), "revoked-api-keys.txt")
-	v := NewVerifier(k, revoked)
+	v := NewVerifier(k, revoked, nil)
 	clock := now
 	v.now = func() time.Time { return clock }
 	issued, _ := k.Create("orders-app", []Grant{{"orders", "write"}}, time.Hour*24, now)
@@ -261,7 +262,7 @@ func (f *fakeProvider) GetClaims(*authorization.AuthInfo) (*authorization.Claims
 
 func TestMapperRoutesTokens(t *testing.T) {
 	k, path := testKey(t)
-	v := NewVerifier(k, filepath.Join(filepath.Dir(path), "revoked"))
+	v := NewVerifier(k, filepath.Join(filepath.Dir(path), "revoked"), nil)
 	issued, _ := k.Create("orders-app", []Grant{{"orders", "write"}}, time.Hour, time.Now())
 	provider := &fakeProvider{}
 	m := NewMapper(v, provider)
@@ -306,14 +307,15 @@ func TestAppendAfterAPartialLine(t *testing.T) {
 	if err := os.WriteFile(revoked, []byte("ffff\n0123456789abcdef"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if ids, err := ReadRevoked(revoked); err != nil || len(ids) != 1 || !ids["ffff"] {
-		t.Fatalf("before the retry the list = %v, %v; want only the complete line", ids, err)
+	// The revocation list keeps a last line without its newline: it may be an ID written by hand.
+	if ids, err := ReadRevoked(revoked); err != nil || len(ids) != 2 || !ids["ffff"] {
+		t.Fatalf("before the retry the list = %v, %v; want both lines", ids, err)
 	}
 	if err := Revoke(revoked, id, "retry"); err != nil {
 		t.Fatal(err)
 	}
-	if ids, err := ReadRevoked(revoked); err != nil || !ids[id] || !ids["ffff"] || len(ids) != 2 {
-		t.Fatalf("after the retry the list = %v, %v; want ffff and %s", ids, err, id)
+	if ids, err := ReadRevoked(revoked); err != nil || !ids[id] || !ids["ffff"] || ids["0123456789abcdef"] {
+		t.Fatalf("after the retry the list = %v, %v; want ffff and %s, the fragment replaced", ids, err, id)
 	}
 
 	k, _ := testKey(t)
@@ -379,4 +381,60 @@ func manyGrants(n int) []Grant {
 		grants[i] = Grant{fmt.Sprintf("ns%d", i), "read"}
 	}
 	return grants
+}
+
+func TestHandWrittenLastLineIsRevoked(t *testing.T) {
+	revoked := filepath.Join(t.TempDir(), "revoked")
+	id := "0123456789abcdef0123456789abcdef"
+	if err := os.WriteFile(revoked, []byte("ffff\n"+id), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if ids, err := ReadRevoked(revoked); err != nil || !ids[id] {
+		t.Fatalf("a hand-written last ID without a newline was dropped: %v, %v", ids, err)
+	}
+}
+
+func TestLoadKeyRefusesAKeyOthersCanRead(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows controls access with ACLs, not mode bits")
+	}
+	_, path := testKey(t)
+	if err := os.Chmod(path, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := LoadKey(path, false); err == nil || !strings.Contains(err.Error(), "can be read by other users") {
+		t.Fatalf("a world-readable signing key = %v", err)
+	}
+	if _, _, err := LoadKey(filepath.Join(t.TempDir(), "absent.pem"), false); err == nil ||
+		!strings.Contains(err.Error(), "create it with workflow-runtime api-key create") {
+		t.Fatalf("a missing key without create = %v", err)
+	}
+}
+
+func TestVerifierWarnsWhenTheListIsMissing(t *testing.T) {
+	k, path := testKey(t)
+	list := filepath.Join(filepath.Dir(path), "revoked-api-keys.txt")
+	var warnings []string
+	v := NewVerifier(k, list, func(msg string) { warnings = append(warnings, msg) })
+	clock := now
+	v.now = func() time.Time { return clock }
+	if err := v.Refresh(); err != nil || len(warnings) != 1 || !strings.Contains(warnings[0], "no key is revoked") {
+		t.Fatalf("a missing list at start: %v, warnings %q", err, warnings)
+	}
+	clock = clock.Add(revocationCheck)
+	_ = v.Refresh()
+	if len(warnings) != 1 {
+		t.Fatalf("a missing list warned again: %q", warnings)
+	}
+	if err := CreateList(list); err != nil {
+		t.Fatal(err)
+	}
+	clock = clock.Add(revocationCheck)
+	_ = v.Refresh()
+	_ = os.Remove(list)
+	clock = clock.Add(revocationCheck)
+	_ = v.Refresh()
+	if len(warnings) != 2 {
+		t.Fatalf("a list removed later was not reported: %q", warnings)
+	}
 }

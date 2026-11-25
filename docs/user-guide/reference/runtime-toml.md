@@ -76,10 +76,10 @@ loopback address.
 
 | Key | Default | Description |
 |---|---|---|
-| `signingKey` | | ECDSA P-256 private key (PEM) that signs and verifies API keys; written by the first `api-key create` or start when missing. Every node needs the same file |
+| `signingKey` | | ECDSA P-256 private key (PEM) that signs and verifies API keys; written by the first `api-key create` when missing; a start refuses to run without it, and refuses one other users can read. Every node needs the same file |
 | `revocationList` | `revoked-api-keys.txt` next to `signingKey` | Revoked key IDs, one per line; read again while the engine runs |
 
-`api-key create` also records each key, without its token, in `issued-api-keys.txt` next to `signingKey`.
+`api-key create` also records each key, without its token, in `issued-api-keys.txt` next to `revocationList`.
 
 ### `[[engine.auth.rules]]`
 

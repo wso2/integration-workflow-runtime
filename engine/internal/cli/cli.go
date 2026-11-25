@@ -37,7 +37,6 @@ import (
 	"go.temporal.io/server/common/config"
 	"go.temporal.io/server/common/headers"
 	"go.temporal.io/server/common/log"
-	"go.temporal.io/server/common/log/tag"
 	_ "go.temporal.io/server/common/persistence/sql/sqlplugin/mysql"
 	_ "go.temporal.io/server/common/persistence/sql/sqlplugin/postgresql"
 	_ "go.temporal.io/server/common/persistence/sql/sqlplugin/sqlite"
@@ -342,15 +341,16 @@ func newClaimMapper(cfg *config.Config, rt *runtimeconfig.Runtime, logger log.Lo
 	if rt.APIKeys == nil {
 		return provider, nil
 	}
-	key, created, err := apikeys.LoadKey(rt.APIKeys.SigningKey, true)
+	// A start never creates the key: a node with its own key would refuse every key the others accept.
+	key, _, err := apikeys.LoadKey(rt.APIKeys.SigningKey, false)
 	if err != nil {
 		return nil, err
 	}
-	if created {
-		logger.Info("Created the API key signing key; copy it to every node of this runtime",
-			tag.NewStringTag("file", rt.APIKeys.SigningKey))
+	verifier := apikeys.NewVerifier(key, rt.APIKeys.RevocationList, func(msg string) { logger.Warn(msg) })
+	if err := verifier.Refresh(); err != nil {
+		return nil, err
 	}
-	return apikeys.NewMapper(apikeys.NewVerifier(key, rt.APIKeys.RevocationList), provider), nil
+	return apikeys.NewMapper(verifier, provider), nil
 }
 
 // providerClaimMapper maps the identity provider's tokens, discovering its key set from the issuer when needed.

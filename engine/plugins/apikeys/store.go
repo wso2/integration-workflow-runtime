@@ -89,13 +89,23 @@ func appendLine(path, line string) (err error) {
 	return f.Sync()
 }
 
-// completeLines returns the file's lines that end with a newline; a last line without one was cut short.
-func completeLines(path string) ([]string, error) {
-	data, err := os.ReadFile(path) //nolint:gosec // a configured file
+// readLines reads a file's lines under a shared lock, so it never sees an append half done. A last line without its
+// newline was cut short; keepPartial keeps it (a revocation list must not drop a hand-written last ID).
+func readLines(path string, keepPartial bool) (lines []string, err error) {
+	f, err := os.Open(path) //nolint:gosec // a configured file
 	if err != nil {
 		return nil, err
 	}
-	if i := bytes.LastIndexByte(data, '\n'); i < len(data)-1 {
+	defer func() { _ = f.Close() }()
+	if err := lockShared(f); err != nil {
+		return nil, fmt.Errorf("unable to lock %s: %w", path, err)
+	}
+	defer func() { _ = unlockFile(f) }()
+	data, err := io.ReadAll(f)
+	if err != nil {
+		return nil, err
+	}
+	if i := bytes.LastIndexByte(data, '\n'); !keepPartial && i < len(data)-1 {
 		data = data[:i+1]
 	}
 	text := strings.TrimSuffix(string(data), "\n")
@@ -103,6 +113,15 @@ func completeLines(path string) ([]string, error) {
 		return nil, nil
 	}
 	return strings.Split(text, "\n"), nil
+}
+
+// CreateList makes an empty revocation list when there is none, so a list missing later means it was not copied.
+func CreateList(path string) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE, keyFileMode) //nolint:gosec // the configured list
+	if err != nil {
+		return err
+	}
+	return f.Close()
 }
 
 // maxReasonLength keeps every revocation line far below what ReadRevoked reads; an unreadable list would refuse
@@ -124,7 +143,7 @@ type Entry struct {
 
 // ReadRecord reads the issued-key record; a missing file has no keys.
 func ReadRecord(path string) ([]Entry, error) {
-	lines, err := completeLines(path)
+	lines, err := readLines(path, false)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}

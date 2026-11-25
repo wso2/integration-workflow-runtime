@@ -152,5 +152,7 @@ func writeCertificates(dir string) (caFile, certFile, keyFile string, err error)
 	return caFile, certFile, keyFile, nil
 }
 
-// tomlLiteral writes a path as a TOML literal string, which keeps Windows backslashes as they are.
-func tomlLiteral(path string) string { return "'" + path + "'" }
+// tomlLiteral writes a path as a TOML basic string, escaping backslashes (Windows) and quotes, so any path survives.
+func tomlLiteral(path string) string {
+	return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(path) + `"`
+}

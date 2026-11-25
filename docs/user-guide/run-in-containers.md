@@ -74,6 +74,24 @@ On a node that runs another profile, check its own service and port, for example
 ([Manage the engine with workflow-cli](manage-with-workflow-cli.md#check-the-engine)). In Kubernetes, use the same
 command as the readiness probe.
 
+## API keys in containers
+
+The image runs as a non-root user and its `conf/` is not writable, so keep the API key files on mounted volumes:
+
+```toml
+[engine.auth.apiKeys]
+signingKey = "/var/run/secrets/workflow-runtime/api-key-signing.pem"
+revocationList = "/var/lib/workflow-runtime/keys/revoked-api-keys.txt"
+```
+
+- Create the signing key and the first keys once, by running the image with a writable directory mounted for both
+  files; the image passes `api-key create ...` to `workflow-runtime`. Then store the signing key as a secret.
+- Mount the signing key read-only from that secret on every node. Other users must not be able to read it: in
+  Kubernetes, set the secret volume's `defaultMode` to `0440` and the pod's `fsGroup` so the runtime's user can.
+- Put the revocation list (and `issued-api-keys.txt`, which sits next to it) on a volume every node mounts, so a
+  revocation reaches all of them; run `api-key revoke` in a container that mounts it writable. A node that cannot see
+  the list logs a warning and accepts revoked keys.
+
 ## Amazon ECS and Kubernetes
 
 - Store `runtime.toml` in a config map (Kubernetes) or a mounted file (ECS) and the database password in a

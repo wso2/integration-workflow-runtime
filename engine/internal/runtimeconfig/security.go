@@ -89,7 +89,7 @@ type APIKeys struct {
 	SigningKey string
 	// RevocationList holds revoked key IDs, one per line; it is re-read while the engine runs.
 	RevocationList string
-	// IssuedRecord lists the keys created, without their tokens.
+	// IssuedRecord lists the keys created, without their tokens, next to the revocation list.
 	IssuedRecord string
 }
 
@@ -104,7 +104,9 @@ func (k apiKeySettings) files() *APIKeys {
 	if revoked == "" {
 		revoked = filepath.Join(dir, defaultRevocationList)
 	}
-	return &APIKeys{SigningKey: k.SigningKey, RevocationList: revoked, IssuedRecord: filepath.Join(dir, issuedRecordFile)}
+	// The record sits with the revocation list, which is writable even where the key is a read-only mounted secret.
+	return &APIKeys{SigningKey: k.SigningKey, RevocationList: revoked,
+		IssuedRecord: filepath.Join(filepath.Dir(revoked), issuedRecordFile)}
 }
 
 type ruleSettings struct {

@@ -30,7 +30,8 @@ workflow-cli config set --prop tls.caPath --value certs/engine-ca.pem
 workflow-cli config set --prop apiKeyFile --value ~/.config/wso2-workflow/admin.token
 ```
 
-The token is one from your identity provider whose groups map to a role ([Secure the engine](secure-the-engine.md));
+The token is one of the runtime's API keys (`workflow-runtime api-key create`), or one from your identity provider
+whose groups map to a role ([Secure the engine](secure-the-engine.md));
 creating namespaces needs `admin`. `workflow-cli` sends it only over TLS, or in plain text only to this machine.
 
 Keep one profile per environment and pick one with `--profile`:

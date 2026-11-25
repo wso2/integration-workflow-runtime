@@ -91,11 +91,13 @@ sets one as `authApiKey` and runs for as long as the key lasts, with no identity
    owner only; the key is printed once, on standard output:
 
    ```bash
-   (umask 077; bin/workflow-runtime api-key create --name ops --namespace '*' --role admin > ops.key)
-   bin/workflow-runtime api-key create --name orders-integration --namespace orders --role write --expires 365d
+   (umask 077; sudo -u workflow bin/workflow-runtime api-key create --name ops --namespace '*' --role admin > ops.key)
+   sudo -u workflow bin/workflow-runtime api-key create --name orders-integration --namespace orders --role write
    ```
 
-   The `umask` keeps `ops.key`, an admin token, readable by you only. `--namespace` repeats for a key that spans
+   Run the commands as the user the engine runs as (`workflow` in the [Linux service setup](install.md)), so the
+   files they create are that user's; they read only `[engine.auth]` from `runtime.toml`, so they need no database
+   password. The `umask` keeps `ops.key`, an admin token, readable by you only. `--namespace` repeats for a key that spans
    namespaces; `--expires` takes days (`90d`) or hours (`720h`) and
    defaults to a year.
 
@@ -108,7 +110,10 @@ holds no tokens. `api-key revoke --id <id>` or `--name <name>` adds the key to
 working without a restart. On several nodes, copy the signing key to every node once, and the revocation list after
 each change ([Run across several nodes](scale-across-nodes.md)).
 
-Keep the signing key like a private TLS key: anyone who holds it can create keys. The engine reads it only at start:
+Keep the signing key like a private TLS key: anyone who holds it can create keys. The engine refuses to start when
+the key is missing, or when users other than its owner and group can read it; it never creates one itself, because a
+node with a key of its own would refuse the keys every other node accepts. It warns when the revocation list is
+missing, which on a second node usually means the list was not copied. The engine reads it only at start:
 to replace it, move the old file away, create the new keys, copy the new signing key to every node and restart each
 node. Until a node restarts it still accepts keys signed by the old key and refuses the new ones; after the restart,
 every key signed by the old one stops working.

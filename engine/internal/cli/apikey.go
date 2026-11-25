@@ -55,14 +55,15 @@ func apiKeyFiles(path string) (*runtimeconfig.APIKeys, error) {
 	if path == "" {
 		return nil, errors.New("--runtime-config is required")
 	}
-	rt, err := runtimeconfig.Load(path)
+	// Only [engine.auth] is read, so the commands need neither the database password nor the service's environment.
+	files, err := runtimeconfig.LoadAPIKeys(path)
 	if err != nil {
 		return nil, err
 	}
-	if rt.APIKeys == nil {
+	if files == nil {
 		return nil, fmt.Errorf("%s has no [engine.auth.apiKeys]; set signingKey there first", path)
 	}
-	return rt.APIKeys, nil
+	return files, nil
 }
 
 func (c command) apiKeyCreate(args []string) error {
@@ -100,6 +101,10 @@ func (c command) apiKeyCreate(args []string) error {
 	if created {
 		_, _ = fmt.Fprintf(c.stderr, "Created the signing key %s; copy it to every node of this runtime.\n",
 			files.SigningKey)
+	}
+	// The list exists from the first key on, so a node without it is one the list was not copied to.
+	if err := apikeys.CreateList(files.RevocationList); err != nil {
+		return fmt.Errorf("unable to create the revocation list: %w", err)
 	}
 	issued, err := key.Create(*name, grants, ttl, time.Now())
 	if err != nil {

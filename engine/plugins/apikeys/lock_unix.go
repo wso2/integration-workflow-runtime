@@ -25,4 +25,10 @@ import (
 
 func lockFile(f *os.File) error { return syscall.Flock(int(f.Fd()), syscall.LOCK_EX) } //nolint:gosec // a file descriptor
 
+func lockShared(f *os.File) error { return syscall.Flock(int(f.Fd()), syscall.LOCK_SH) } //nolint:gosec // a file descriptor
+
 func unlockFile(f *os.File) error { return syscall.Flock(int(f.Fd()), syscall.LOCK_UN) } //nolint:gosec // a file descriptor
+
+// openToOthers reports a file users outside its owner and group can read or write; the group may read it, as a
+// Kubernetes secret mounted with fsGroup for a non-root user needs.
+func openToOthers(info os.FileInfo) bool { return info.Mode().Perm()&0o007 != 0 }

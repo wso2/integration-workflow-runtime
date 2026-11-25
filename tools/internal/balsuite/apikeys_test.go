@@ -46,7 +46,7 @@ func TestPrepareAPIKeyEngine(t *testing.T) {
 		t.Fatalf("keys = %q, %q", e.AdminKey, e.IntegrationKey)
 	}
 	config, _ := os.ReadFile(e.Config)
-	for _, want := range []string{"inMemory = true", "[engine.tls]", "type = \"apiKeys\"", "signingKey = '"} {
+	for _, want := range []string{"inMemory = true", "[engine.tls]", "type = \"apiKeys\"", "signingKey = \""} {
 		if !strings.Contains(string(config), want) {
 			t.Errorf("runtime.toml lacks %q:\n%s", want, config)
 		}
@@ -109,5 +109,14 @@ func TestRunPassesSecuredSettings(t *testing.T) {
 	}
 	if env, _ := os.ReadFile(filepath.Join(o.Root, "bal-env")); strings.TrimSpace(string(env)) != "integration" {
 		t.Errorf("bal test saw the integration key as %q", env)
+	}
+}
+
+func TestTOMLLiteralKeepsAnyPath(t *testing.T) {
+	for in, want := range map[string]string{`/tmp/o'neil/key.pem`: `"/tmp/o'neil/key.pem"`,
+		`C:\keys\a "b".pem`: `"C:\\keys\\a \"b\".pem"`} {
+		if got := tomlLiteral(in); got != want {
+			t.Errorf("tomlLiteral(%q) = %s, want %s", in, got, want)
+		}
 	}
 }
