@@ -83,10 +83,11 @@ jobs:
             tools/go.sum
       - name: Build the engine
         run: make engine && ./build/workflow-engine version
-      - name: Set up Ballerina (latest)
+      # 2201.14.2 bundles a ballerina/workflow 1.0.4 BIR it cannot load; return to latest once that is fixed.
+      - name: Set up Ballerina (2201.14.1)
         uses: ballerina-platform/setup-ballerina@585120e3f0e540bf127376ee6e75d39e8ce6aaa4 # v1.1.5
         with:
-          version: latest
+          version: 2201.14.1
       - name: Install the Temporal CLI (test harness only)
         run: |
           base="https://github.com/temporalio/cli/releases/download/v${TEMPORAL_CLI_VERSION}"
