@@ -417,7 +417,7 @@ func lastMessageID(ctx context.Context, admin adminservice.AdminServiceClient, k
 	return last, nil
 }
 
-// maxMergeBatchSize is Temporal's dlq.MaxMergeBatchSize (v1.32.1).
+// maxMergeBatchSize is Temporal's dlq.MaxMergeBatchSize (v1.32.2).
 const maxMergeBatchSize = 1000
 
 func (c *cli) dlqMergeCommand() *cobra.Command {

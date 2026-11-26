@@ -1,6 +1,6 @@
 module github.com/wso2/integration-workflow-runtime/cli
 
-go 1.26.8
+go 1.26.10
 
 toolchain go1.26.11
 
@@ -10,7 +10,7 @@ require (
 	github.com/knadh/koanf/v2 v2.3.8
 	github.com/spf13/cobra v1.10.2
 	go.temporal.io/api v1.63.5
-	go.temporal.io/server v1.32.1
+	go.temporal.io/server v1.32.2
 	google.golang.org/grpc v1.83.2
 	google.golang.org/protobuf v1.36.11
 )

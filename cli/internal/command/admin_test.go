@@ -300,7 +300,7 @@ func TestDeadLetterQueues(t *testing.T) {
 	}
 }
 
-// The expected names come from Temporal's persistence.GetHistoryTaskQueueName in v1.32.1, which the CLI does not
+// The expected names come from Temporal's persistence.GetHistoryTaskQueueName in v1.32.2, which the CLI does not
 // import: it would add the engine's dependencies to the client.
 func TestQueueNamesMatchTheEngines(t *testing.T) {
 	for _, c := range []struct {

@@ -183,10 +183,18 @@ type File struct {
 
 // Open reads the profile file at path.
 func Open(path string) (*File, error) {
-	f := &File{path: path, k: koanf.New(".")}
+	k, err := read(path)
+	if err != nil {
+		return nil, err
+	}
+	return &File{path: path, k: k}, nil
+}
+
+func read(path string) (*koanf.Koanf, error) {
+	k := koanf.New(".")
 	data, err := os.ReadFile(path) //nolint:gosec // the user's own configuration file
 	if errors.Is(err, os.ErrNotExist) {
-		return f, nil
+		return k, nil
 	}
 	if err != nil {
 		return nil, err
@@ -195,10 +203,10 @@ func Open(path string) (*File, error) {
 	if err != nil {
 		return nil, fmt.Errorf("invalid %s: %w", path, err)
 	}
-	if err := f.k.Load(confmap.Provider(values, "."), nil); err != nil {
+	if err := k.Load(confmap.Provider(values, "."), nil); err != nil {
 		return nil, fmt.Errorf("invalid %s: %w", path, err)
 	}
-	for _, key := range f.k.Keys() {
+	for _, key := range k.Keys() {
 		parts := strings.SplitN(key, ".", 3)
 		if len(parts) < 3 || parts[0] != "profile" {
 			return nil, fmt.Errorf("invalid %s: %q is not under [profile.<name>]", path, key)
@@ -207,7 +215,36 @@ func Open(path string) (*File, error) {
 			return nil, fmt.Errorf("invalid %s: profile %q: %w", path, parts[1], err)
 		}
 	}
-	return f, nil
+	return k, nil
+}
+
+// update applies change to the file as it is on disk now and writes it, holding a lock on a sidecar file for the
+// whole read-modify-write, so two config commands at once never lose each other's change.
+func (f *File) update(change func(k *koanf.Koanf) error) error {
+	if err := os.MkdirAll(filepath.Dir(f.path), 0o700); err != nil {
+		return err
+	}
+	lock, err := os.OpenFile(f.path+".lock", os.O_RDWR|os.O_CREATE, 0o600) //nolint:gosec // beside the user's file
+	if err != nil {
+		return err
+	}
+	defer func() { _ = lock.Close() }()
+	if err := lockFile(lock); err != nil {
+		return fmt.Errorf("unable to lock %s: %w", f.path, err)
+	}
+	defer func() { _ = unlockFile(lock) }()
+	k, err := read(f.path)
+	if err != nil {
+		return err
+	}
+	if err := change(k); err != nil {
+		return err
+	}
+	if err := save(f.path, k); err != nil {
+		return err
+	}
+	f.k = k
+	return nil
 }
 
 // Profiles lists the profile names, sorted.
@@ -282,19 +319,13 @@ func (f *File) Set(profile, name, value string) error {
 	if name == "tls.enabled" {
 		v, _ = strconv.ParseBool(value)
 	}
-	if err := f.k.Set("profile."+profile+"."+name, v); err != nil {
-		return err
-	}
-	return f.save()
+	return f.update(func(k *koanf.Koanf) error { return k.Set("profile."+profile+"."+name, v) })
 }
 
 // Delete removes one property of a profile, or the whole profile when name is empty, and writes the file.
 func (f *File) Delete(profile, name string) error {
 	if err := CheckProfile(profile); err != nil {
 		return err
-	}
-	if !f.Has(profile) {
-		return fmt.Errorf("no profile %q in %s", profile, f.path)
 	}
 	key := "profile." + profile
 	if name != "" {
@@ -303,21 +334,23 @@ func (f *File) Delete(profile, name string) error {
 		}
 		key += "." + name
 	}
-	f.k.Delete(key)
-	return f.save()
+	return f.update(func(k *koanf.Koanf) error {
+		if !slices.Contains(k.MapKeys("profile"), profile) {
+			return fmt.Errorf("no profile %q in %s", profile, f.path)
+		}
+		k.Delete(key)
+		return nil
+	})
 }
 
-// save writes the file readable by its owner only, since a profile can hold an API key.
-func (f *File) save() error {
-	data, err := toml.Parser().Marshal(f.k.Raw())
+// save writes the file readable by its owner only, since a profile can hold an API key, through a temporary file
+// renamed over it, so a reader never sees half a file.
+func save(path string, k *koanf.Koanf) error {
+	data, err := toml.Parser().Marshal(k.Raw())
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(f.path), 0o700); err != nil {
-		return err
-	}
-	// A temporary file of its own per save, so two config commands at once never publish each other's half-written file.
-	tmp, err := os.CreateTemp(filepath.Dir(f.path), filepath.Base(f.path)+".*.tmp")
+	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".*.tmp")
 	if err != nil {
 		return err
 	}
@@ -326,7 +359,7 @@ func (f *File) save() error {
 		err = closeErr
 	}
 	if err == nil {
-		err = os.Rename(tmp.Name(), f.path)
+		err = os.Rename(tmp.Name(), path)
 	}
 	if err != nil {
 		_ = os.Remove(tmp.Name())

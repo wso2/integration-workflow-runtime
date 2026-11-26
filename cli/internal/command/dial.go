@@ -42,12 +42,32 @@ func dial(s clientconfig.Settings) (*grpc.ClientConn, error) {
 	if err != nil {
 		return nil, err
 	}
-	// Go's dialer tries every address of a name in turn, so "localhost" reaching an IPv4-only engine reports the
-	// engine's answer rather than a refused [::1].
-	opts = append(opts, grpc.WithContextDialer(func(ctx context.Context, addr string) (net.Conn, error) {
-		return (&net.Dialer{}).DialContext(ctx, "tcp", addr)
-	}))
 	return grpc.NewClient("passthrough:///"+s.Address, opts...)
+}
+
+// dialTCP connects with Go's dialer, which tries every address of a name in turn, so "localhost" reaching an
+// IPv4-only engine reports the engine's answer rather than a refused [::1]. With loopbackOnly, a peer that is not this
+// machine is refused, since a name such as localhost can resolve elsewhere and the API key would go out in plain text.
+func dialTCP(loopbackOnly bool) func(context.Context, string) (net.Conn, error) {
+	return func(ctx context.Context, addr string) (net.Conn, error) {
+		conn, err := (&net.Dialer{}).DialContext(ctx, "tcp", addr)
+		if err != nil || !loopbackOnly {
+			return conn, err
+		}
+		if err := checkLoopbackPeer(conn); err != nil {
+			_ = conn.Close()
+			return nil, err
+		}
+		return conn, nil
+	}
+}
+
+func checkLoopbackPeer(conn net.Conn) error {
+	if peer, ok := conn.RemoteAddr().(*net.TCPAddr); ok && peer.IP.IsLoopback() {
+		return nil
+	}
+	return fmt.Errorf("an API key is sent without TLS only to this machine, but the engine answered from %s; "+
+		"add --tls or --tls-ca-path", conn.RemoteAddr())
 }
 
 // maxResponseSize matches the Temporal Go SDK: a history page holds up to 256 events of up to 2 MiB each, far above
@@ -76,6 +96,7 @@ func dialOptions(s clientconfig.Settings) ([]grpc.DialOption, error) {
 	if err != nil {
 		return nil, err
 	}
+	opts = append(opts, grpc.WithContextDialer(dialTCP(key != "" && !s.TLS.On())))
 	if key != "" {
 		// A token in plain text could be read on the way; send it unencrypted only to this machine.
 		if !s.TLS.On() && !isLoopback(s.Address) {

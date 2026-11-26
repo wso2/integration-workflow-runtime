@@ -17,10 +17,12 @@
 package clientconfig
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -222,5 +224,50 @@ func TestDefaultPath(t *testing.T) {
 	path, err := DefaultPath()
 	if err != nil || !strings.HasSuffix(path, filepath.Join("wso2-workflow", "cli.toml")) {
 		t.Fatalf("DefaultPath = %q, %v", path, err)
+	}
+}
+
+func TestConcurrentChangesAreAllKept(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "cli.toml")
+	a, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Set("prod", "address", "prod:7233"); err != nil {
+		t.Fatal(err)
+	}
+	// b opened before a wrote; its change must not drop a's.
+	if err := b.Set("staging", "namespace", "orders"); err != nil {
+		t.Fatal(err)
+	}
+	var wg sync.WaitGroup
+	for i := range 20 {
+		wg.Go(func() {
+			f, err := Open(path)
+			if err == nil {
+				err = f.Set(fmt.Sprintf("p%d", i), "address", "e:7233")
+			}
+			if err != nil {
+				t.Error(err)
+			}
+		})
+	}
+	wg.Wait()
+	f, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := len(f.Profiles()); got != 22 {
+		t.Errorf("profiles = %d (%v), want 22", got, f.Profiles())
+	}
+	if v, _ := f.Get("prod", "address"); v != "prod:7233" {
+		t.Errorf("prod.address = %q, lost by a later change", v)
+	}
+	if err := b.Delete("prod", ""); err != nil {
+		t.Errorf("deleting a profile another handle created: %v", err)
 	}
 }

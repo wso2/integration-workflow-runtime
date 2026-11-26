@@ -32,11 +32,16 @@ workflow-cli config set --prop apiKeyFile --value ~/.config/wso2-workflow/admin.
 
 The token is one from your identity provider whose groups map to a role ([Secure the engine](secure-the-engine.md));
 creating namespaces needs `admin`. `workflow-cli` sends it only over TLS, or in plain text only to this machine.
+Keep the token in a file and point to it with `apiKeyFile` (or `--api-key-file`): a token given with `--api-key` or
+`config set --prop apiKey` sits on the command line, where shell history and process listings can show it.
 
-Keep one profile per environment and pick one with `--profile`:
+Keep one profile per environment and pick one with `--profile`. A profile holds its own settings only, so give each
+one its CA and token:
 
 ```bash
 workflow-cli config set --profile staging --prop address --value engine.staging.example.com:7233
+workflow-cli config set --profile staging --prop tls.caPath --value certs/staging-ca.pem
+workflow-cli config set --profile staging --prop apiKeyFile --value ~/.config/wso2-workflow/staging.token
 workflow-cli operator namespace list --profile staging
 ```
 
@@ -72,7 +77,7 @@ shows the cluster's version, history shards and stores, and the nodes behind eac
 
 ```text
 Cluster         active
-Server version  1.32.1
+Server version  1.32.2
 History shards  512
 ...
 
@@ -226,10 +231,19 @@ workflow-cli admin shard describe --shard-id 42
 workflow-cli admin shard close --shard-id 42
 ```
 
-`describe` names the node that owns the shard. `close` makes that node load the shard again from the database, for
-a shard whose workflows stopped making progress, for example after a database failover.
+`describe` names the node that owns the shard. `close` asks that node to load the shard again from the database, for
+a shard whose workflows stopped making progress, for example after a database failover. The engine answers the same
+whether or not the node it reached owns the shard, so run `describe` again afterwards and check that the shard's
+workflows move.
 
 ## Use it in scripts
 
-Every command takes `-o json` for the Temporal API's JSON form, and exits with 1 on any error, the message on
-standard error.
+Every command takes `-o json` and exits with 1 on any error, the message on standard error. What `-o json` writes
+to standard output depends on the command:
+
+- Commands that return engine data (`list`, `describe`, `show`, `read` and so on) write the Temporal API's JSON form.
+- Commands that change something (`workflow cancel`, `signal` and `terminate`, `operator namespace create`, `schedule
+  create` and `delete`, `batch stop`, `config set` and so on) write nothing there; their confirmation goes to standard
+  error, so check the exit status.
+- `version`, `config get` and `config list` write a plain JSON object or list, such as
+  `{"version": "1.0.0"}`.

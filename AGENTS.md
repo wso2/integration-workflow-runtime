@@ -72,8 +72,8 @@ These are requirements, not suggestions. A change that misses one is not done.
    given; never make an open frontend the default, never log or commit secrets, and never disable TLS or token
    checks to make a test pass.
 4. **Never copy or patch Temporal's source in this repository.** Use Temporal's public extension points
-   (`temporal.With...` server options, `sql.RegisterPlugin`). Bump Temporal only through `engine/go.mod`, one minor
-   version at a time; a fix upstream has not shipped goes through the fork and a `replace` line
+   (`temporal.With...` server options, `sql.RegisterPlugin`). Bump Temporal through `engine/go.mod`, one minor
+   version at a time, with `cli/go.mod` raised to match (`tools/internal/temporalpin` checks it); a fix upstream has not shipped goes through the fork and a `replace` line
    ([0001](docs/decisions/0001-temporal-packaging.md)).
 5. **Dependencies stay clean.** After any `go.mod` change run `make licenses` and commit the regenerated
    `third-party/go-licenses.csv` and `go.work.sum`; `make license-check` and `make vulncheck` must pass. A module

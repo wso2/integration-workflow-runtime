@@ -14,7 +14,7 @@
 // specific language governing permissions and limitations
 // under the License.
 //
-// queueName follows GetHistoryTaskQueueName and combineUnique in Temporal's common/persistence (v1.32.1):
+// queueName follows GetHistoryTaskQueueName and combineUnique in Temporal's common/persistence (v1.32.2):
 // Copyright (c) 2025 Temporal Technologies Inc.  All rights reserved.
 // Copyright (c) 2020 Uber Technologies, Inc.
 // Used under the MIT License; see third-party/licenses/temporal-server-LICENSE.

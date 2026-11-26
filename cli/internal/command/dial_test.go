@@ -208,3 +208,36 @@ func TestDialSendsNothingUntilACall(t *testing.T) {
 		t.Fatal("a call to a closed port succeeded")
 	}
 }
+
+// fakeConn is a connection that reports a remote address of the test's choosing.
+type fakeConn struct {
+	net.Conn
+	remote net.Addr
+}
+
+func (c fakeConn) RemoteAddr() net.Addr { return c.remote }
+
+func TestPlainTextKeyGoesOnlyToALoopbackPeer(t *testing.T) {
+	if err := checkLoopbackPeer(fakeConn{remote: &net.TCPAddr{IP: net.ParseIP("10.0.0.5"), Port: 7233}}); err == nil ||
+		!strings.Contains(err.Error(), "answered from 10.0.0.5:7233") {
+		t.Errorf("a non-loopback peer = %v, want refused", err)
+	}
+	if err := checkLoopbackPeer(fakeConn{remote: &net.TCPAddr{IP: net.IPv6loopback, Port: 7233}}); err != nil {
+		t.Errorf("[::1] = %v", err)
+	}
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = ln.Close() }()
+	for _, loopbackOnly := range []bool{true, false} {
+		conn, err := dialTCP(loopbackOnly)(t.Context(), ln.Addr().String())
+		if err != nil {
+			t.Fatalf("loopbackOnly=%v: %v", loopbackOnly, err)
+		}
+		_ = conn.Close()
+	}
+	if _, err := dialTCP(true)(t.Context(), "127.0.0.1:1"); err == nil {
+		t.Error("a refused connection reported no error")
+	}
+}

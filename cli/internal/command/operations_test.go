@@ -110,7 +110,7 @@ func (f workflowFake) CreateSchedule(ctx context.Context, r *workflowservice.Cre
 }
 
 // canonical stores a schedule as Temporal does: each cron string becomes a structured calendar and is cleared. The
-// fake knows only the crons the tests use, written as Temporal's canonicalizeSpec (v1.32.1) writes them.
+// fake knows only the crons the tests use, written as Temporal's canonicalizeSpec (v1.32.2) writes them.
 func canonical(sc *schedulepb.Schedule) *schedulepb.Schedule {
 	sc = proto.Clone(sc).(*schedulepb.Schedule)
 	spec := sc.GetSpec()

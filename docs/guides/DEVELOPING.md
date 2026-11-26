@@ -100,7 +100,8 @@ Integrator.
 
 ## Dependencies
 
-- Temporal is bumped only in `engine/go.mod`, one minor version at a time.
+- Temporal is bumped in `engine/go.mod`, one minor version at a time, and `cli/go.mod` follows in the same change:
+  in workspace mode a lower CLI pin changes the engine's module graph. `tools/internal/temporalpin` fails when they differ.
 - A dependency with a fix Temporal has not released is raised with `go get <module>@<version>` in `engine/`.
 - An advisory whose fix does not build with Temporal goes in `third-party/vulnerability-exceptions.txt`, with the
   reason and when to remove it; `make vulncheck` then reports it as allowed and notes when it is no longer needed.

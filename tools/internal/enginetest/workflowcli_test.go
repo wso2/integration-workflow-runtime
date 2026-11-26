@@ -142,7 +142,13 @@ func TestWorkflowCLIOnADevEngine(t *testing.T) {
 		}
 	}
 	w.mustContain(out, "Completed", "Done        2")
-	w.mustContain(cli("batch", "list", "-n", "orders"), jobID)
+	// The list reads visibility, which can lag the job's own state.
+	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(time.Second) {
+		if out = cli("batch", "list", "-n", "orders"); strings.Contains(out, jobID) {
+			break
+		}
+	}
+	w.mustContain(out, jobID)
 	for _, id := range []string{"job-a", "job-b"} {
 		if got := e.workflow("orders", id); got.Status != "WORKFLOW_EXECUTION_STATUS_TERMINATED" {
 			t.Errorf("%s after the batch job: %s", id, got.Status)
