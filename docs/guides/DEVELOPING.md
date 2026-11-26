@@ -57,6 +57,8 @@ Integrator.
 
 - Temporal is bumped only in `engine/go.mod`, one minor version at a time.
 - A dependency with a fix Temporal has not released is raised with `go get <module>@<version>` in `engine/`.
+- An advisory whose fix does not build with Temporal goes in `third-party/vulnerability-exceptions.txt`, with the
+  reason and when to remove it; `make vulncheck` then reports it as allowed and notes when it is no longer needed.
 - After any change: `go mod tidy`, `make licenses`, commit `third-party/go-licenses.csv` and `go.work.sum`, then
   `make license-check` and `make vulncheck`.
 

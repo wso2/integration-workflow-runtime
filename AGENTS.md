@@ -36,7 +36,7 @@ Decision records live in `docs/decisions/`; feature documentation in `docs/featu
 | `make lint` / `make vet` / `make fmt-check` | golangci-lint v2.13.2, go vet, gofmt |
 | `make test-smoke` / `make test-full` | Ballerina suites against the engine (needs `bal` and the `temporal` CLI on `PATH`, or `BAL` / `TEMPORAL_CLI` set) |
 | `make test-docker` | The CI gates and both suites in Docker, PostgreSQL and MySQL included (`DOCKER_TARGET`, `DATABASES`) |
-| `make license-check` / `make vulncheck` | License gate and `govulncheck` |
+| `make license-check` / `make vulncheck` | License gate and `govulncheck`, which fails on any called vulnerability not listed with its reason in `third-party/vulnerability-exceptions.txt` |
 | `make sbom` | CycloneDX SBOM per binary in `build/sbom/` (included by `make dist`) |
 | `make check` | Every gate CI runs, except the Ballerina suites |
 | `make dist` | Zip for one `GOOS`/`GOARCH` in `dist/` |
@@ -76,7 +76,8 @@ These are requirements, not suggestions. A change that misses one is not done.
    ([0001](docs/decisions/0001-temporal-packaging.md)).
 5. **Dependencies stay clean.** After any `go.mod` change run `make licenses` and commit the regenerated
    `third-party/go-licenses.csv` and `go.work.sum`; `make license-check` and `make vulncheck` must pass. A module
-   whose license needs a manual decision goes in `third-party/license-exceptions.txt` with the reason. A new
+   whose license needs a manual decision goes in `third-party/license-exceptions.txt` with the reason. An advisory
+   with no fix that builds goes in `third-party/vulnerability-exceptions.txt`, with the reason and when to remove it. A new
    direct dependency must be in [WSO2's dependency registry](https://github.com/wso2/engineering-governance/blob/main/dependency-registry/go.yaml)
    for the `integrator` scope; the Dependency validation workflow blocks the PR otherwise. `go.temporal.io` modules
    are reported without blocking until the one registry request for all of them is accepted.
