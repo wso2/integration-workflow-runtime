@@ -9,7 +9,7 @@
 | Engine tests | `tools/internal/enginetest`: the real engine binary driven by the Temporal CLI | `WORKFLOW_ENGINE=build/workflow-engine go test ./internal/enginetest` in `tools/`; the SQLite smoke job of every pull request | All pass |
 | Ballerina smoke suite | `tests/ballerina/smoke` | `make test-smoke`, every pull request | All pass |
 | Ballerina full suite | `tests/ballerina/full` | `make test-full`, on `main`, nightly, on demand | All pass |
-| License and vulnerability checks | `make license-check`, `make vulncheck` | Every pull request and daily | No findings |
+| License and vulnerability checks | `make license-check`, `make vulncheck` (with `tools/cmd/vulnallow`) | Every pull request and daily | No findings, except reviewed advisories in `third-party/vulnerability-exceptions.txt` |
 | SBOM | `make sbom` | Every pull request, daily, and in every distribution | Builds for both binaries |
 
 ## Go unit tests
