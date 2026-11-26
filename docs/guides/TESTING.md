@@ -11,7 +11,7 @@
 | Ballerina smoke suite | `tests/ballerina/smoke` | `make test-smoke`, every pull request (SQLite, PostgreSQL, MySQL and `start-dev`) | All pass |
 | Ballerina full suite | `tests/ballerina/full` | `make test-full`, on `main`, nightly, on demand | All pass |
 | Upgrade run | `tests/ballerina/upgrade`, `balsuite upgrade` | The PostgreSQL and MySQL smoke jobs of every pull request | The workflow finishes |
-| License and vulnerability checks | `make license-check`, `make vulncheck` | Every pull request and daily | No findings |
+| License and vulnerability checks | `make license-check`, `make vulncheck` (with `tools/cmd/vulnallow`) | Every pull request and daily | No findings, except reviewed advisories in `third-party/vulnerability-exceptions.txt` |
 | SBOM | `make sbom` | Every pull request, daily, and in every distribution | Builds for both binaries |
 
 ## Go unit tests
