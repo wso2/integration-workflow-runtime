@@ -30,7 +30,7 @@ production setup ([Install the runtime](install.md)) for anything shared.
 |---|---|---|
 | `--db-file <file>` | in memory | Keeps the data in a SQLite file across restarts; missing directories in the path are created |
 | `--namespace <name>` | | Creates another namespace besides `default`; repeat for more |
-| `--port <port>` | `7233` | Frontend port; the engine also uses the next ten ports |
+| `--port <port>` | `7233` | Frontend port, above 300. The engine also uses the next ten ports, and each service's membership port 300 below its own (6933–6936 and 6939 for 7233) |
 | `--ip <address>` | `127.0.0.1` | Address to listen on; with `0.0.0.0` the engine advertises the first non-loopback address |
 | `--log-level <level>` | `warn` | `debug`, `info`, `warn` or `error` |
 
