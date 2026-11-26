@@ -4,8 +4,8 @@ Durable workflow engine for WSO2 Integrator: embedded Temporal, a Go Manager wit
 user portals, in one distribution.
 
 The runtime is the engine that runs WSO2 Integrator's durable workflows. It is built on the open-source Temporal
-server, which runs inside it as an internal component: customers provide a database and an identity provider,
-and never install or patch Temporal themselves.
+server, which runs inside it as an internal component: customers provide a database (and, if they want, an identity
+provider instead of the runtime's own API keys), and never install or patch Temporal themselves.
 
 Status: early development. The engine, its security, schema management, development mode and packaging work; the
 Manager (API server) and portals are being built.
@@ -30,7 +30,8 @@ Documentation: [architecture](docs/guides/ARCHITECTURE.md), [developing](docs/gu
 
 Installing and running the runtime: the [user guide](docs/user-guide/README.md). On PostgreSQL and MySQL the engine
 creates and upgrades its databases on start, which needs the right to create databases and change their schema;
-`[database] manageSchema = false` leaves that to a DBA. For a local engine with nothing to
+`[database] manageSchema = false` leaves that to a DBA. Callers authenticate with the runtime's own API keys
+(`bin/workflow-runtime api-key create`), your identity provider's tokens, or both. For a local engine with nothing to
 configure, run `bin/workflow-runtime dev` from a distribution, or `build/workflow-engine start-dev` after `make build`
 (see [DEVELOPING.md](docs/guides/DEVELOPING.md)).
 Contributors and coding agents: read [AGENTS.md](AGENTS.md) first.

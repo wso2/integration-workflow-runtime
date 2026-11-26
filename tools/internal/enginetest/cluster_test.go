@@ -21,12 +21,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
-// TestTwoSecuredNodesFormOneEngine runs the secured configuration as two nodes on one SQLite file: the first runs the
-// frontend, matching and worker, the second the frontend and history. A workflow started through the first node needs
-// the second node's history, so it runs only if the nodes find each other over TLS-protected membership and call each
-// other over internode TLS.
 // startBusy is start, tried again when the engine stopped on SQLITE_BUSY: two processes on one SQLite file, which
 // only this test does, can collide on the start-up write of the cluster metadata.
 func startBusy(t *testing.T, binary string, base int, flags []string, args ...string) *engine {
@@ -40,6 +37,27 @@ func startBusy(t *testing.T, binary string, base int, flags []string, args ...st
 			t.Fatal(err)
 		}
 		t.Logf("attempt %d stopped on SQLITE_BUSY; starting the node again", attempt)
+	}
+}
+
+// TestTwoSecuredNodesFormOneEngine runs the secured configuration as two nodes on one SQLite file: the first runs the
+// frontend, matching and worker, the second the frontend and history. A workflow started through the first node needs
+// the second node's history, so it runs only if the nodes find each other over TLS-protected membership and call each
+// other over internode TLS.
+// untilJoined runs a Temporal CLI call until the cluster stops answering that it lacks hosts for it.
+func untilJoined(t *testing.T, e *engine, args ...string) {
+	t.Helper()
+	deadline := time.Now().Add(time.Minute)
+	for {
+		out, err := e.temporal(args...)
+		if err == nil {
+			return
+		}
+		joining := strings.Contains(out, "Not enough hosts") || strings.Contains(out, "Unavailable")
+		if !joining || time.Now().After(deadline) {
+			t.Fatalf("temporal %s: %v\n%s\n%s", strings.Join(args, " "), err, out, e.log)
+		}
+		time.Sleep(time.Second)
 	}
 }
 
@@ -67,7 +85,8 @@ func TestTwoSecuredNodesFormOneEngine(t *testing.T) {
 		node(se.base, `["frontend", "matching", "worker"]`))
 	base := freeBase(t)
 	second := startBusy(t, binary, base, admin, "start", "--runtime-config", node(base, `["frontend", "history"]`))
-	first.must("operator", "namespace", "create", "--namespace", "orders", "--retention", "24h")
+	// The first node reports SERVING before it sees the second node's history, so calls that need history wait for it.
+	untilJoined(t, first, "operator", "namespace", "create", "--namespace", "orders", "--retention", "24h")
 	first.must("workflow", "start", "--namespace", "orders", "--type", "Order", "--task-queue", "orders",
 		"--workflow-id", "order-1")
 	if got := second.workflow("orders", "order-1"); got.Status != "WORKFLOW_EXECUTION_STATUS_RUNNING" {

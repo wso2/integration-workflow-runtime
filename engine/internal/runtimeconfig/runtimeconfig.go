@@ -80,8 +80,10 @@ type Runtime struct {
 	Temporal config.Config
 	// Services are the Temporal services this node runs, from [runtime] profiles.
 	Services []string
-	// Auth configures the identity-provider claim mapper; nil when [engine.auth] is off.
+	// Auth configures the identity-provider claim mapper; nil without an identity provider.
 	Auth *jwtclaims.Settings
+	// APIKeys are the runtime's own API keys; nil when they are off.
+	APIKeys *APIKeys
 	// ManageSchema is whether the engine creates and upgrades the SQL databases and schemas before it starts.
 	ManageSchema bool
 	// DynamicConfig holds the dynamic settings the configuration needs; nil when it needs none.
@@ -162,6 +164,34 @@ func Render(cfg *config.Config) ([]byte, error) {
 	return yaml.Marshal(&copied)
 }
 
+// LoadAPIKeys reads only the API key files from a runtime.toml, resolving no secret, so the api-key commands run from
+// an operator's shell without the service's environment. It returns nil when API keys are off.
+func LoadAPIKeys(path string) (*APIKeys, error) {
+	data, err := os.ReadFile(path) //nolint:gosec // the runtime's configuration
+	if err != nil {
+		return nil, err
+	}
+	values, err := toml.Parser().Unmarshal(data)
+	if err != nil {
+		return nil, fmt.Errorf("invalid runtime configuration: %w", err)
+	}
+	k := koanf.New(".")
+	if err := k.Load(confmap.Provider(values, ""), nil); err != nil {
+		return nil, fmt.Errorf("invalid runtime configuration: %w", err)
+	}
+	var e engineSettings
+	if err := decodeTable(k, "engine", &e); err != nil {
+		return nil, err
+	}
+	if problems := e.Auth.problems(); len(problems) > 0 {
+		return nil, fmt.Errorf("invalid runtime configuration: %s", strings.Join(problems, "; "))
+	}
+	if !e.Auth.on() {
+		return nil, nil
+	}
+	return e.Auth.APIKeys.files(), nil
+}
+
 func parse(data []byte, lookupEnv func(string) (string, bool)) (*Runtime, error) {
 	return parseOn(data, lookupEnv, net.InterfaceAddrs)
 }
@@ -211,10 +241,11 @@ func parseOn(data []byte, lookupEnv func(string) (string, bool), interfaceAddrs 
 	if s.Engine.TLS.Internode.Enabled {
 		rt.DynamicConfig = dynamicconfig.StaticClient{dynamicconfig.EnableRingpopTLS.Key(): true}
 	}
-	if s.Engine.Auth.on() {
+	if s.Engine.Auth.Type == authTypeJWT {
 		claims := s.Engine.Auth.claimSettings()
 		rt.Auth = &claims
 	}
+	rt.APIKeys = s.Engine.Auth.APIKeys.files()
 	return rt, nil
 }
 

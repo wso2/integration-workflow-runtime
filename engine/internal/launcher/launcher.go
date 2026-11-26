@@ -33,6 +33,7 @@ const ConfigEnv = "WORKFLOW_RUNTIME_CONFIG"
 const usageText = `usage: workflow-runtime [start] [--allow-no-auth] [--service <name>]...
        workflow-runtime dev [--db-file <file>] [--namespace <name>]... [--port <port>] [--ip <address>]
        workflow-runtime render-config
+       workflow-runtime api-key (create | list | revoke) ...
        workflow-runtime version
 
 Starts the engine from <home>/conf/runtime.toml, or from the file %s names.
@@ -72,6 +73,12 @@ func run(version string, args []string, executable func() (string, error), geten
 	switch command {
 	case "start", "render-config":
 		engineArgs = append([]string{command, "--runtime-config", config}, rest...)
+	case "api-key":
+		engineArgs = []string{command}
+		if len(rest) > 0 {
+			engineArgs = append(engineArgs, rest[0], "--runtime-config", config)
+			engineArgs = append(engineArgs, rest[1:]...)
+		}
 	case "dev":
 		engineArgs = append([]string{"start-dev"}, rest...)
 	case "version":

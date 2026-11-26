@@ -57,11 +57,12 @@ MySQL, membership ports must be at most 32767, so service ports at most 33067.
 
 ### `[engine.auth]`
 
-`type = "jwt"` needs `[engine.tls]`, and `[engine.tls.internode]` when `bindAddress` is not a loopback address.
+`type = "jwt"` or `"apiKeys"` needs `[engine.tls]`, and `[engine.tls.internode]` when `bindAddress` is not a
+loopback address.
 
 | Key | Default | Description |
 |---|---|---|
-| `type` | `none` | `jwt` to require tokens; `none` needs `--allow-no-auth` |
+| `type` | `none` | `apiKeys` to require the runtime's own API keys; `jwt` to require your identity provider's tokens, and also API keys when `[engine.auth.apiKeys]` is set; `none` needs `--allow-no-auth` |
 | `jwksUrls` | discovered from `issuer` | Your identity provider's key set URLs (https; plain http only to a loopback host); set them when the provider has no OpenID Connect discovery document |
 | `keyRefreshInterval` | `1m` | How often the key set is fetched again (a duration, at least `1s`) |
 | `issuer` | | Required `iss`, exactly as tokens carry it; also where the key set is discovered over https (`<issuer>/.well-known/openid-configuration`). `issuer` or `jwksUrls` is required for `jwt` |
@@ -70,6 +71,15 @@ MySQL, membership ports must be at most 32767, so service ports at most 33067.
 | `rolesClaim` | `permissions` | Claim holding groups, roles or scopes; a dotted path reads a nested claim |
 | `valueRegex` | | Without rules: a regex with the named groups `namespace` and `role` |
 | `leewaySeconds` | `0` | Clock skew allowed on `exp`, `nbf` and `iat` |
+
+### `[engine.auth.apiKeys]`
+
+| Key | Default | Description |
+|---|---|---|
+| `signingKey` | | ECDSA P-256 private key (PEM) that signs and verifies API keys; written by the first `api-key create` when missing (mode 0600; on Windows an access list for its creator and SYSTEM); a start refuses to run without it, and on Linux and macOS refuses one its group can write or other users can use. Every node needs the same file |
+| `revocationList` | `revoked-api-keys.txt` next to `signingKey` | Revoked key IDs, one per line; read again while the engine runs. Once read, a list that disappears makes the engine refuse API keys until it is back; a list other users can write is refused |
+
+`api-key create` also records each key, without its token, in `issued-api-keys.txt` next to `revocationList`.
 
 ### `[[engine.auth.rules]]`
 

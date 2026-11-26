@@ -23,7 +23,8 @@ portals, packaging and updates.
 ## How the pieces connect
 
 1. **Integrations run workflows.** An integration uses the `ballerina/workflow` module, which embeds the Temporal
-   SDK. Its workers connect to the engine endpoint over gRPC, with TLS and a token the runtime issues, and poll
+   SDK. Its workers connect to the engine endpoint over gRPC, with TLS and a token (one of the runtime's API keys, or
+   a token from the customer's identity provider), and poll
    their task queues through it.
 2. **Integrations register** (later, with a workflow module release): at startup the module sends its workflow
    definitions to `/runtime/register` on the same host and port, with the same token. On plain Temporal the call
@@ -45,8 +46,8 @@ housekeeping; integration workers never connect to it.
   public server options and plugin registration. See [0001](../decisions/0001-temporal-packaging.md).
 - **Secure by default.** The engine refuses to start with no authorizer, or with an authorizer but no claim mapper
   (Temporal's no-op claim mapper grants every caller system-admin claims), unless `--allow-no-auth` is given, which
-  is for development and tests only. Production uses Temporal's JWT authorizer trusting the Manager's keys, over
-  TLS.
+  is for development and tests only. Production uses Temporal's default authorizer over TLS, with our claim mapper:
+  it verifies the runtime's own API keys, an identity provider's tokens, or both (see the security model).
 - `start` creates Temporal's databases and brings their schemas up to date before the services start, with the
   schema tool built from the same Temporal version; `workflow-engine-sql` is that tool, for DBAs who apply it by hand.
 
@@ -72,9 +73,20 @@ Both can share one database server, in separate schemas.
 
 ## Security model
 
-- Integrations authenticate to the engine endpoint with namespace tokens issued by the Manager, optionally bound
-  to a task queue. Temporal's default authorizer is namespace-wide; the engine will add its own authorizer that
-  limits each token to its task queue.
+- Integrations and operators authenticate to the engine endpoint with a bearer token that carries namespace roles
+  (`read`, `write`, `admin`). The runtime authenticates only these machine callers; people who act on human tasks
+  are checked inside the integration, so the runtime needs no user store and no identity provider of its own.
+- **The runtime's API keys** (`[engine.auth] type = "apiKeys"`, `engine/plugins/apikeys`) are long-lived JWTs the
+  engine signs with its own ES256 key, like Temporal Cloud's API keys: `workflow-runtime api-key create` issues
+  one, a revocation list ends one before it expires, and `ballerina/workflow` uses one as `authApiKey` unchanged.
+  The signing key is read at start; the revocation list is re-read while the engine runs. They are files, so with
+  several nodes the operator copies the signing key to every node once and the revocation list after each change.
+- **An identity provider's tokens** (`type = "jwt"`, `engine/plugins/jwtclaims`) are verified against its JWKS, and
+  its groups or roles map to namespace roles through rules. With `[engine.auth.apiKeys]` beside it, the engine
+  accepts both; a token is routed by its issuer.
+- Later, the Manager will issue and revoke keys through an API and keep their records in the Runtime DB instead of
+  files, and an authorizer of our own will limit a key to its task queue (Temporal's default authorizer is
+  namespace-wide).
 - People sign in through OIDC against the customer's identity provider. Roles are scoped to the runtime, a
   namespace or an integration.
 - Every API route checks roles and permissions, whichever UI or script calls it.

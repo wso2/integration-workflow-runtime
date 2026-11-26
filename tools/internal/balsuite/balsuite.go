@@ -59,6 +59,9 @@ type Options struct {
 	Engine         string   // workflow-engine binary
 	EngineArgs     []string // the engine's command and its arguments
 	DevMode        bool     // the engine runs start-dev, which creates the namespace and its search attributes itself
+	CLIFlags       []string // added to every Temporal CLI call, such as --tls-ca-path for a secured engine
+	CLIEnv         []string // environment of every Temporal CLI call, such as TEMPORAL_API_KEY, kept out of argv
+	BalEnv         []string // environment of bal test, such as BAL_CONFIG_VAR_BALLERINA_WORKFLOW_* settings
 	Bal            string   // bal command
 	Temporal       string   // temporal CLI
 	LogDir         string   // engine log directory; a temporary one, removed after the run, when empty
@@ -164,13 +167,28 @@ func (p *engineProcess) stop() {
 	p.done = true
 }
 
+// temporalCLI is the Temporal CLI with the flags and environment every call needs.
+type temporalCLI struct {
+	path  string
+	flags []string
+	env   []string
+}
+
+func (c temporalCLI) run(ctx context.Context, args ...string) result {
+	return runQuietEnv(ctx, cliTimeout, c.env, c.path, append(args, c.flags...)...)
+}
+
 func waitUntilServing(ctx context.Context, temporal string, engine *engineProcess, timeout time.Duration) error {
+	return waitUntilServingWith(ctx, temporalCLI{path: temporal}, engine, timeout)
+}
+
+func waitUntilServingWith(ctx context.Context, cli temporalCLI, engine *engineProcess, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		if done, code := engine.exitedWith(); done {
 			return fmt.Errorf("workflow-engine exited with code %d before it was ready", code)
 		}
-		r := runQuiet(ctx, cliTimeout, temporal, "operator", "cluster", "health", "--address", Address)
+		r := cli.run(ctx, "operator", "cluster", "health", "--address", Address)
 		if r.code == 0 && strings.Contains(r.stdout, "SERVING") {
 			return nil
 		}
@@ -180,22 +198,25 @@ func waitUntilServing(ctx context.Context, temporal string, engine *engineProces
 }
 
 func ensureNamespace(ctx context.Context, temporal string, timeout time.Duration) error {
-	create := runQuiet(ctx, cliTimeout, temporal, "operator", "namespace", "create", "--namespace", namespace,
-		"--retention", "24h", "--address", Address)
+	return ensureNamespaceWith(ctx, temporalCLI{path: temporal}, timeout)
+}
+
+func ensureNamespaceWith(ctx context.Context, cli temporalCLI, timeout time.Duration) error {
+	create := cli.run(ctx, "operator", "namespace", "create", "--namespace", namespace, "--retention", "24h",
+		"--address", Address)
 	if create.code != 0 && !strings.Contains(create.output(), "already") {
 		return fmt.Errorf("could not create namespace %s: %s", namespace, create.message())
 	}
 	deadline := time.Now().Add(timeout)
-	for runQuiet(ctx, cliTimeout, temporal, "operator", "namespace", "describe", "--namespace", namespace,
-		"--address", Address).code != 0 {
+	for cli.run(ctx, "operator", "namespace", "describe", "--namespace", namespace, "--address", Address).code != 0 {
 		if time.Now().After(deadline) {
 			return fmt.Errorf("namespace %s did not become available", namespace)
 		}
 		time.Sleep(time.Second)
 	}
 	for name, kind := range searchAttributes {
-		added := runQuiet(ctx, cliTimeout, temporal, "operator", "search-attribute", "create", "--namespace", namespace,
-			"--name", name, "--type", kind, "--address", Address)
+		added := cli.run(ctx, "operator", "search-attribute", "create", "--namespace", namespace, "--name", name,
+			"--type", kind, "--address", Address)
 		if added.code != 0 && !strings.Contains(added.output(), "already") {
 			return fmt.Errorf("could not add search attribute %s: %s", name, added.message())
 		}
@@ -207,8 +228,17 @@ func ensureNamespace(ctx context.Context, temporal string, timeout time.Duration
 // running otherwise.
 func runBalTest(ctx context.Context, bal string, suiteDir string, timeout time.Duration, stderr io.Writer,
 	args ...string) int {
+	return runBalTestEnv(ctx, bal, suiteDir, timeout, stderr, nil, args...)
+}
+
+// runBalTestEnv is runBalTest with extra environment variables.
+func runBalTestEnv(ctx context.Context, bal string, suiteDir string, timeout time.Duration, stderr io.Writer,
+	env []string, args ...string) int {
 	cmd := exec.Command(bal, append([]string{"test"}, args...)...)
 	cmd.Dir = suiteDir
+	if env != nil {
+		cmd.Env = append(os.Environ(), env...)
+	}
 	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 	setProcessGroup(cmd)
 	if err := cmd.Start(); err != nil {
@@ -285,18 +315,19 @@ func Run(ctx context.Context, o Options, stdout, stderr io.Writer) int {
 		return 1
 	}
 	code := func() int {
-		if err := waitUntilServing(ctx, o.Temporal, engine, o.StartupTimeout); err != nil {
+		cli := temporalCLI{path: o.Temporal, flags: o.CLIFlags, env: o.CLIEnv}
+		if err := waitUntilServingWith(ctx, cli, engine, o.StartupTimeout); err != nil {
 			_, _ = fmt.Fprintf(stderr, "error: %v\n", err)
 			return 1
 		}
 		if !o.DevMode {
-			if err := ensureNamespace(ctx, o.Temporal, namespaceTimeout); err != nil {
+			if err := ensureNamespaceWith(ctx, cli, namespaceTimeout); err != nil {
 				_, _ = fmt.Fprintf(stderr, "error: %v\n", err)
 				return 1
 			}
 		}
 		_, _ = fmt.Fprintf(stdout, "workflow-engine SERVING on %s (%s); running the %s suite\n", Address, o.Database, o.Suite)
-		return runBalTest(ctx, o.Bal, suiteDir, o.TestTimeout, stderr)
+		return runBalTestEnv(ctx, o.Bal, suiteDir, o.TestTimeout, stderr, o.BalEnv)
 	}()
 	engine.stop()
 	if code != 0 {

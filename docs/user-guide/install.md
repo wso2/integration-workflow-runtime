@@ -11,7 +11,8 @@ The engine is a single static binary: no Java or other runtime is needed.
 
 :::info Prerequisites
 - A PostgreSQL or MySQL server for production ([Set up the database](database.md)).
-- Your identity provider's key set URL and the groups to grant ([Secure the engine](secure-the-engine.md)).
+- A way to authenticate callers: the runtime's own API keys, which need nothing else, or your identity provider's
+  issuer and the groups to grant ([Secure the engine](secure-the-engine.md)).
 - A certificate and key for the engine's address, for TLS.
 :::
 
@@ -49,6 +50,7 @@ The engine is a single static binary: no Java or other runtime is needed.
 | `bin/workflow-runtime start --allow-no-auth` | Starts without `[engine.auth]`; development on your own machine only |
 | `bin/workflow-runtime dev` | Development mode: in-memory SQLite, no authentication, the `default` namespace ([Quick start](quick-start.md)) |
 | `bin/workflow-runtime render-config` | Prints the generated configuration, password hidden |
+| `bin/workflow-runtime api-key create`, `list`, `revoke` | Manages the runtime's own API keys ([Secure the engine](secure-the-engine.md#use-the-runtimes-api-keys)) |
 | `bin/workflow-runtime version` | Prints the runtime's and the embedded Temporal server's versions |
 | `bin/workflow-cli ...` | The client: health checks, the cluster's nodes, namespaces and search attributes ([Manage the engine with workflow-cli](manage-with-workflow-cli.md)) |
 

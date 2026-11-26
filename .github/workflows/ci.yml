@@ -66,7 +66,8 @@ jobs:
             engine/go.sum
       - run: make build GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }}
 
-  # The launcher starts the engine as a child process on Windows (exec elsewhere); run its process tests there.
+  # The launcher starts the engine as a child process on Windows (exec elsewhere); run its process tests there, and the
+  # API key file tests, which set Windows access lists and file locks. The job keeps its name: it is a required check.
   windows-tests:
     name: Launcher tests on Windows
     runs-on: windows-latest
@@ -81,3 +82,6 @@ jobs:
       - name: Launcher tests
         working-directory: engine
         run: go test -count=1 -v ./internal/launcher/...
+      - name: API key file tests
+        working-directory: engine
+        run: go test -count=1 -v ./plugins/apikeys/...

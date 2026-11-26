@@ -22,6 +22,10 @@ other through the shared database: there is no list of peers to maintain.
 ## Set up the nodes
 
 1. Use the same `conf/runtime.toml` on every node (same `[database]`, same `historyShards`, same `[engine.auth]`).
+   With the runtime's API keys, copy the same signing key to every node, and the revocation list after each
+   `api-key revoke`; create keys on one node. Copy the list over the old one rather than deleting it first: a node
+   whose list disappears refuses every API key until it is back. On another node, revoke a key with
+   `api-key revoke --id <id> --force`, since its issued-key record does not hold the key.
 2. On each node, set its profiles and its own address:
 
    ```toml

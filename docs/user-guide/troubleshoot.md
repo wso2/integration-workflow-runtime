@@ -9,6 +9,9 @@ keywords: [wso2 integrator, workflow runtime, troubleshooting, errors]
 | Message | Cause | Fix |
 |---|---|---|
 | `no authorizer configured; set one or pass --allow-no-auth for development` | No `[engine.auth]` | Configure your identity provider ([Secure the engine](secure-the-engine.md)), or use `--allow-no-auth` on your own machine only |
+| `Request unauthorized`, and `API key <id> is revoked` in the engine log | The key was revoked | Create a new key for the caller ([Secure the engine](secure-the-engine.md#use-the-runtimes-api-keys)) |
+| `Request unauthorized`, and `the key was signed by another signing key` in the engine log | The key was created on a node with a different signing key, or before the key was replaced | Copy the same signing key to every node, or create the key again |
+| `... has no [engine.auth.apiKeys]; set signingKey there first` | `api-key` run against a `runtime.toml` without API keys | Add `[engine.auth.apiKeys] signingKey` |
 | `unknown runtime configuration keys: engine.logLvl` | A typo in `runtime.toml` | Correct the key; see the [reference](reference/runtime-toml.md) |
 | `engine.logFile logs/engine.log: open logs/engine.log: permission denied` | The engine's user cannot create or write the log file | Give that user write access to the directory, or change `logFile` |
 | `database.password refers to environment variable WORKFLOW_DB_PASSWORD, which is not set` | The variable is missing in the engine's environment | Export it, or set it in the service's environment file |

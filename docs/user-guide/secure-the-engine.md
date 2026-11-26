@@ -6,14 +6,16 @@ keywords: [wso2 integrator, workflow runtime, security, tls, jwt, identity provi
 
 # Secure the engine
 
-A production engine needs two things: TLS on its frontend (port 7233), and tokens from your identity provider on
-every call. Without `[engine.auth]` the engine refuses to start; `--allow-no-auth` exists for development on your
-own machine only.
+A production engine needs two things: TLS on its frontend (port 7233), and a token on every call. The token is
+either one of **the runtime's own API keys**, which need nothing outside the runtime, or one from **your identity
+provider**; the engine can trust both at once. Without `[engine.auth]` the engine refuses to start;
+`--allow-no-auth` exists for development on your own machine only.
 
 ## The permission model
 
-The runtime stores no users, groups or roles. Your identity provider owns them and puts them in the tokens it
-issues; `conf/runtime.toml` says which group, role or scope gives which permission in which namespace.
+The runtime stores no users, groups or roles. Each token carries the roles it grants: an API key the roles you gave
+it when you created it, and an identity provider's token the groups, roles or scopes that `conf/runtime.toml` maps to
+roles.
 
 | Role | Allows |
 |---|---|
@@ -28,7 +30,7 @@ A role in namespace `*` applies to every namespace. Roles add up: a caller in tw
 
 | Caller | Typical grant |
 |---|---|
-| An integration (its workers and the code that starts workflows) | `write` in its namespace, through a client-credentials token |
+| An integration (its workers and the code that starts workflows) | `write` in its namespace, through an API key or a client-credentials token |
 | An operator or a CI pipeline | `admin` in `*`, or in one namespace |
 | Auditors and dashboards | `read` |
 
@@ -69,6 +71,63 @@ A role in namespace `*` applies to every namespace. Roles add up: a caller in tw
    from the internode CA reach them; also allow them only between the engine's nodes in your firewall or security
    groups.
    :::
+
+## Use the runtime's API keys
+
+API keys are long-lived tokens the runtime signs with its own key, like Temporal Cloud's API keys: an integration
+sets one as `authApiKey` and runs for as long as the key lasts, with no identity provider and nothing to refresh.
+
+1. Add `[engine.auth]` with the signing key's file, next to `[engine.tls]`:
+
+   ```toml
+   [engine.auth]
+   type = "apiKeys"            # or "jwt" with your identity provider's settings, to trust both
+
+   [engine.auth.apiKeys]
+   signingKey = "conf/security/api-key-signing.pem"
+   ```
+
+2. Create a key for yourself and one per integration. The first `create` writes the signing key, readable by its
+   owner only (mode 0600 on Linux and macOS; on Windows an access list for the user who ran it and SYSTEM); the key
+   is printed once, on standard output:
+
+   ```bash
+   (umask 077; sudo -u workflow bin/workflow-runtime api-key create --name ops --namespace '*' --role admin > ops.key)
+   sudo -u workflow bin/workflow-runtime api-key create --name orders-integration --namespace orders --role write
+   ```
+
+   Run the commands as the user the engine runs as (`workflow` in the [Linux service setup](install.md)), so the
+   files they create are that user's; they read only `[engine.auth]` from `runtime.toml`, so they need no database
+   password. The `umask` keeps `ops.key`, an admin token, readable by you only. `--namespace` repeats for a key that spans
+   namespaces; `--expires` takes days (`90d`) or hours (`720h`) and
+   defaults to a year.
+
+3. Start the engine, create the integration's namespace with your admin key, and give the integration its key
+   ([Connect an integration](connect-an-integration.md)).
+
+`api-key list` shows every key created (ID, name, roles, dates, state) from `conf/security/issued-api-keys.txt`, which
+holds no tokens. `api-key revoke --id <id>` or `--name <name>` adds the key to
+`conf/security/revoked-api-keys.txt`; a running engine reads that file again within seconds, so a revoked key stops
+working without a restart. `--id` takes the 32-character ID from `api-key list`, not the key itself, and refuses an
+ID the issued-key record does not hold; add `--force` to revoke a key created on another node. On several nodes,
+copy the signing key to every node once, and the revocation list after each change
+([Run across several nodes](scale-across-nodes.md)).
+
+Keep the signing key like a private TLS key: anyone who holds it can create keys. The engine refuses to start when
+the key is missing; on Linux and macOS it also refuses a key its group can write or other users can use at all
+(modes 0600 and 0640 pass). It never creates one itself, because a node with a key of its own would refuse the keys
+every other node accepts. Windows has no mode bits to check, and the files `api-key create` writes are its runner's
+and SYSTEM's alone: run it as the service's account, or, for those files and a key you copy in by hand, grant that
+account yourself, for example
+`icacls conf\security\api-key-signing.pem /inheritance:r /grant:r "<service account>:F" "SYSTEM:F"`.
+
+The engine reads the signing key only at start: to replace it, move the old file away, create the new keys, copy the
+new signing key to every node and restart each node. Until a node restarts it still accepts keys signed by the old
+key and refuses the new ones; after the restart, every key signed by the old one stops working.
+
+The engine warns when the revocation list is missing at start, which on a second node usually means the list was not
+copied. A list it has read that disappears later, such as a shared volume that did not mount, makes it refuse every
+API key until the list is back, so revoked keys never work again. It also refuses a list other users can write.
 
 ## Turn on your identity provider's tokens
 
@@ -138,12 +197,12 @@ named by `subjectClaim`).
 
 ## Check it
 
-With `workflow-cli` and a token from your provider:
+With `workflow-cli` and an API key or a token from your provider:
 
 ```bash
 workflow-cli operator namespace list --address engine.example.com:7233 \
   --tls-ca-path ca.pem --api-key "$TOKEN"
 ```
 
-A token that maps to no role gets `Request unauthorized`; the engine log says why (expired, wrong issuer, unknown
-key, no matching group).
+A token that maps to no role gets `Request unauthorized`; the engine log says why (expired, revoked, signed by
+another runtime's key, wrong issuer, unknown key, no matching group).

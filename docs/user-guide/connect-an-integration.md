@@ -23,8 +23,13 @@ An integration that uses the `ballerina/workflow` module connects to the runtime
   The integration registers `WorkflowKind` itself when it is missing, but its first workflow can then be refused for
   a few seconds until the engine sees the new attribute.
 
-- The integration has a token with `write` in that namespace
-  ([Secure the engine](secure-the-engine.md)), and the CA certificate that signed the engine's certificate.
+- The integration has a token with `write` in that namespace, and the CA certificate that signed the engine's
+  certificate. With the runtime's API keys, create one on a node
+  ([Secure the engine](secure-the-engine.md#use-the-runtimes-api-keys)):
+
+  ```bash
+  bin/workflow-runtime api-key create --name orders-integration --namespace orders --role write
+  ```
 
 ## Configure the integration
 
@@ -45,5 +50,6 @@ For a development engine ([Quick start](quick-start.md)) or one started with `--
 `authApiKey` and `authCaCert`.
 :::
 
-Tokens expire. Give the integration a token whose lifetime covers its run, or a way to refresh it, per your
-identity provider's guidance for client-credentials tokens.
+Tokens expire, and the integration reads `authApiKey` once, at start. An API key lasts a year by default (`--expires`
+sets it): create a new key and restart the integration before the old one expires. A token from your identity
+provider usually lasts minutes to hours, so give the integration one whose lifetime covers its run.
