@@ -86,8 +86,8 @@ github.com/huandu/xstrings,https://github.com/huandu/xstrings/blob/v1.5.0/LICENS
 github.com/iancoleman/strcase,https://github.com/iancoleman/strcase/blob/v0.3.0/LICENSE,MIT
 github.com/jackc/pgpassfile,https://github.com/jackc/pgpassfile/blob/v1.0.0/LICENSE,MIT
 github.com/jackc/pgservicefile,https://github.com/jackc/pgservicefile/blob/5a60cdf6a761/LICENSE,MIT
-github.com/jackc/pgx/v5,https://github.com/jackc/pgx/blob/v5.10.0/LICENSE,MIT
-github.com/jackc/puddle/v2,https://github.com/jackc/puddle/blob/v2.2.2/LICENSE,MIT
+github.com/jackc/pgx/v5,https://github.com/jackc/pgx/blob/v5.12.0/LICENSE,MIT
+github.com/jackc/puddle/v2,https://github.com/jackc/puddle/blob/v2.2.3/LICENSE,MIT
 github.com/jmoiron/sqlx,https://github.com/jmoiron/sqlx/blob/v1.4.0/LICENSE,MIT
 github.com/josharian/intern,https://github.com/josharian/intern/blob/v1.0.0/license.md,MIT
 github.com/klauspost/compress,https://github.com/klauspost/compress/blob/v1.20.2/LICENSE,Apache-2.0
