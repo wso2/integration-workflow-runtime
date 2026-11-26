@@ -39,6 +39,10 @@ other through the shared database: there is no list of peers to maintain.
    ([Secure the engine](secure-the-engine.md#turn-on-tls)).
 4. Put a load balancer in front of the frontend nodes. Integrations keep long-lived gRPC connections, so use a
    TCP (layer 4) load balancer, such as an AWS Network Load Balancer.
+5. Check that every node joined: `workflow-cli operator cluster describe`, with an `admin` token, lists the nodes
+   behind each service. Each node's own service answers `workflow-cli operator cluster health --service <service>`
+   on its port, for health checks
+   ([Manage the engine with workflow-cli](manage-with-workflow-cli.md#check-the-engine)).
 
 A starting point: two frontend nodes, three history nodes, two matching nodes and one worker node. Grow history
 with workflow throughput and frontend with the number of connected workers.

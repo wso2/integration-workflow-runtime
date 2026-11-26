@@ -15,6 +15,7 @@ Read [docs/guides/ARCHITECTURE.md](docs/guides/ARCHITECTURE.md) before changing 
 | Engine | `engine/` | Our Go binary that embeds Temporal's server (frontend, history, matching, worker) as a library, pinned in `engine/go.mod` |
 | Engine endpoint | `engine/` (planned) | The integrations' one port (7233): gRPC to Temporal's frontend, `/runtime/...` HTTPS to the Manager |
 | Launcher | `engine/internal/launcher` | `bin/workflow-runtime`, the command customers run: finds the runtime home, works from there and hands the command to `workflow-engine` (`dev` for development mode). It does not supervise or restart |
+| workflow-cli | `cli/` | `bin/workflow-cli`, the operators' client over the engine's gRPC API; its own module with no server code |
 | Manager | `manager/` (planned) | Go service: engine administration, Workflow Management API, SSO sign-in, roles; serves both portals |
 | Portals | `portals/` (planned) | Admin Portal and User Portal, static TypeScript apps served by the Manager |
 | Distribution | `distribution/` | Zip and Docker layout, `conf/runtime.toml` |
@@ -28,7 +29,7 @@ Decision records live in `docs/decisions/`; feature documentation in `docs/featu
 
 | Command | What it does |
 |---|---|
-| `make build` | Build `build/workflow-engine` and `build/workflow-engine-sql` |
+| `make build` | Build `build/workflow-runtime`, `build/workflow-engine`, `build/workflow-engine-sql` and `build/workflow-cli` (`make engine` or `make cli` for one module) |
 | `make test` | Go unit tests in every `go.work` module |
 | `make test-coverage` | Unit tests plus the coverage gate (75% minimum, `cmd/` wrappers excluded) |
 | `make test-race` | Unit tests with the race detector (CI runs it on every pull request) |
@@ -40,7 +41,6 @@ Decision records live in `docs/decisions/`; feature documentation in `docs/featu
 | `make sbom` | CycloneDX SBOM per binary in `build/sbom/` (included by `make dist`) |
 | `make dist` / `make image` | A distribution zip for `GOOS`/`GOARCH`; the container image from the linux zips (`IMAGE_PLATFORMS`, `IMAGE_ARGS=--load` or `--push`) |
 | `make check` | Every gate CI runs, except the Ballerina suites |
-| `make dist` | Zip for one `GOOS`/`GOARCH` in `dist/` |
 | `make install-hooks` | Install the commit hook (subject format, license headers, gofmt, build, lint) |
 
 Go 1.26.10 or later; the toolchain line in `go.work` and `engine/go.mod` selects the patched Go release.
@@ -72,8 +72,8 @@ These are requirements, not suggestions. A change that misses one is not done.
    given; never make an open frontend the default, never log or commit secrets, and never disable TLS or token
    checks to make a test pass.
 4. **Never copy or patch Temporal's source in this repository.** Use Temporal's public extension points
-   (`temporal.With...` server options, `sql.RegisterPlugin`). Bump Temporal only through `engine/go.mod`, one minor
-   version at a time; a fix upstream has not shipped goes through the fork and a `replace` line
+   (`temporal.With...` server options, `sql.RegisterPlugin`). Bump Temporal through `engine/go.mod`, one minor
+   version at a time, with `cli/go.mod` raised to match (`tools/internal/temporalpin` checks it); a fix upstream has not shipped goes through the fork and a `replace` line
    ([0001](docs/decisions/0001-temporal-packaging.md)).
 5. **Dependencies stay clean.** After any `go.mod` change run `make licenses` and commit the regenerated
    `third-party/go-licenses.csv` and `go.work.sum`; `make license-check` and `make vulncheck` must pass. A module

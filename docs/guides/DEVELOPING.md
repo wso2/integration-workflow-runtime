@@ -15,8 +15,8 @@ named after its version, so a version bump in the `Makefile` installs the new on
 
 ## Layout
 
-The repository is a Go workspace (`go.work`). Each component is its own module (`engine/` today, which also holds
-the launcher; `manager/` as it arrives), so `make` targets loop over the workspace modules. `tools/` is the module for the
+The repository is a Go workspace (`go.work`). Each component is its own module (`engine/`, which also holds the
+launcher; `cli/` for `workflow-cli`, which imports no server code; `manager/` as it arrives), so `make` targets loop over the workspace modules. `tools/` is the module for the
 repository's own tools: the coverage gate (`covercheck`), the Ballerina suite runner (`balsuite`) and the tests
 of the shell scripts in `.github/scripts`.
 
@@ -40,7 +40,8 @@ runs the same with the same flags.
 To run the engine as it runs in production, from a runtime configuration:
 
 ```sh
-make build                                  # build/workflow-runtime, build/workflow-engine, build/workflow-engine-sql
+make build                                  # build/workflow-runtime, workflow-engine, workflow-engine-sql, workflow-cli
+make cli                                    # only build/workflow-cli
 ./build/workflow-engine version
 ./build/workflow-engine render-config --runtime-config tests/engine/runtime-sqlite.toml   # inspect the generated config
 ./build/workflow-engine start --runtime-config tests/engine/runtime-sqlite.toml --allow-no-auth
@@ -53,13 +54,15 @@ gRPC), 17243 (frontend HTTP), 17234, 17235 and 17239. The PostgreSQL and MySQL v
 On PostgreSQL and MySQL the engine prepares the databases on every start: it creates the workflow and visibility
 databases when missing and applies the schema versions it ships, so the user needs the right to create databases
 (or databases a DBA created) and to change their schema. Set `manageSchema = false` under `[database]` to leave
-the schema to a DBA; see [database schema](../features/database-schema.md). These configurations create no namespace: point the Temporal CLI at
-`localhost:17233` to check health and create one:
+the schema to a DBA; see [database schema](../features/database-schema.md). These configurations create no
+namespace: use `workflow-cli` to check health and create one with the `WorkflowKind` search attribute:
 
 ```sh
-temporal operator cluster health --address localhost:17233
-temporal operator namespace create --namespace default --address localhost:17233
+./build/workflow-cli operator cluster health --address localhost:17233
+./build/workflow-cli operator namespace create --namespace default --address localhost:17233
 ```
+
+The [workflow-cli reference](../user-guide/reference/workflow-cli.md) lists every command.
 
 `--allow-no-auth` is for development and tests only: without it the engine refuses to start unless an
 authorizer is configured.
@@ -98,7 +101,8 @@ Integrator.
 
 ## Dependencies
 
-- Temporal is bumped only in `engine/go.mod`, one minor version at a time.
+- Temporal is bumped in `engine/go.mod`, one minor version at a time, and `cli/go.mod` follows in the same change:
+  in workspace mode a lower CLI pin changes the engine's module graph. `tools/internal/temporalpin` fails when they differ.
 - A dependency with a fix Temporal has not released is raised with `go get <module>@<version>` in `engine/`.
 - An advisory whose fix does not build with Temporal goes in `third-party/vulnerability-exceptions.txt`, with the
   reason and when to remove it; `make vulncheck` then reports it as allowed and notes when it is no longer needed.

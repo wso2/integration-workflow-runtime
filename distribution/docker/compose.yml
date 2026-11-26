@@ -1,6 +1,7 @@
 # Try the runtime with PostgreSQL on one machine. Build the image first, or point WORKFLOW_RUNTIME_IMAGE at a release:
 #   make image IMAGE_PLATFORMS=linux/$(go env GOARCH) IMAGE_ARGS=--load VERSION=0.1.0-SNAPSHOT
 #   docker compose -f distribution/docker/compose.yml up
+# The setup service creates the default namespace with workflow-cli once the engine is healthy.
 # Not for production: no TLS or authentication (--allow-no-auth), and a throwaway database password.
 services:
   postgres:
@@ -22,6 +23,17 @@ services:
     ports:
       # Loopback only: this try-out has no authentication.
       - "127.0.0.1:${WORKFLOW_RUNTIME_PORT:-7233}:7233"
+    healthcheck:
+      test: ["CMD", "/opt/wso2-workflow-runtime/bin/workflow-cli", "operator", "cluster", "health"]
+      interval: 5s
+      retries: 30
     depends_on:
       postgres:
+        condition: service_healthy
+  setup:
+    image: ${WORKFLOW_RUNTIME_IMAGE:-wso2-workflow-runtime:0.1.0-SNAPSHOT}
+    entrypoint: ["/opt/wso2-workflow-runtime/bin/workflow-cli"]
+    command: ["operator", "namespace", "create", "--namespace", "default", "--address", "runtime:7233"]
+    depends_on:
+      runtime:
         condition: service_healthy

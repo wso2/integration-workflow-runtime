@@ -11,13 +11,14 @@ Temporal server.
 3. Put the database password in the environment variable the file names (`WORKFLOW_DB_PASSWORD`).
 4. Run `bin/workflow-runtime` (`bin\workflow-runtime.exe` on Windows). The engine creates the databases and their
    schemas, then listens on port 7233.
-5. Create the namespace the integrations use, with the `WorkflowKind` search attribute `ballerina/workflow` needs,
-   using the [Temporal CLI](https://docs.temporal.io/cli) and a token with the `admin` role:
+5. Create the namespace the integrations use with `bin/workflow-cli` and a token with the `admin` role. It adds the
+   `WorkflowKind` search attribute `ballerina/workflow` needs, and keeps closed workflows for 30 days:
 
    ```bash
-   OPTS="--address workflow-runtime.example.com:7233 --tls-ca-path certs/engine-ca.pem --api-key $ADMIN_TOKEN"
-   temporal operator namespace create --namespace default --retention 720h $OPTS
-   temporal operator search-attribute create --namespace default --name WorkflowKind --type Keyword $OPTS
+   bin/workflow-cli config set --prop address --value workflow-runtime.example.com:7233
+   bin/workflow-cli config set --prop tls.caPath --value certs/engine-ca.pem
+   bin/workflow-cli config set --prop apiKeyFile --value admin.token
+   bin/workflow-cli operator namespace create --namespace default
    ```
 
 To try it on your own machine first, run `bin/workflow-runtime dev`: an in-memory engine with the `default`
@@ -43,7 +44,7 @@ authCaCert = "certs/engine-ca.pem"
 
 | Path | What |
 |---|---|
-| `bin/` | `workflow-runtime` (the command you run), `workflow-engine`, and `workflow-engine-sql` (schema tool for DBAs) |
+| `bin/` | `workflow-runtime` (the command you run), `workflow-engine`, `workflow-engine-sql` (schema tool for DBAs), and `workflow-cli` (the client for operators: cluster health, namespaces, search attributes) |
 | `conf/runtime.toml` | The one file to edit |
 | `systemd/` | Example service unit (Linux) |
 | `sbom/` | CycloneDX SBOM per binary |

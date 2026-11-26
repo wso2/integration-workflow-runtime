@@ -61,7 +61,9 @@ func newDockerRunner(t *testing.T) *dockerRunner {
 	d.git(main, "config", "user.email", "runner@example.com")
 	d.git(main, "config", "user.name", "Runner Test")
 	d.git(main, "config", "commit.gpgsign", "false")
-	for name, content := range map[string]string{"tracked.txt": "tracked\n", "engine/go.mod": "module engine\n"} {
+	for name, content := range map[string]string{
+		"tracked.txt": "tracked\n", "cli/go.mod": "module cli\n", "engine/go.mod": "module engine\n",
+	} {
 		path := filepath.Join(main, name)
 		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 			t.Fatal(err)
@@ -70,7 +72,7 @@ func newDockerRunner(t *testing.T) *dockerRunner {
 			t.Fatal(err)
 		}
 	}
-	d.git(main, "add", "tracked.txt", "engine/go.mod")
+	d.git(main, "add", "tracked.txt", "cli/go.mod", "engine/go.mod")
 	d.git(main, "commit", "-q", "-m", "chore: start")
 	d.git(main, "worktree", "add", "-q", "-b", "feature", d.worktree)
 	if err := os.WriteFile(filepath.Join(d.worktree, "untracked.txt"), []byte("local change\n"), 0o600); err != nil {

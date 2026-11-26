@@ -1,0 +1,401 @@
+// Copyright (c) 2026, WSO2 LLC. (http://www.wso2.com).
+//
+// WSO2 LLC. licenses this file to you under the Apache License,
+// Version 2.0 (the "License"); you may not use this file except
+// in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+// Package clientconfig holds how workflow-cli reaches an engine: named profiles in a TOML file, environment
+// variables and flags, in that order of precedence, as the Temporal CLI resolves its own.
+package clientconfig
+
+import (
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
+	"slices"
+	"sort"
+	"strconv"
+	"strings"
+
+	"github.com/knadh/koanf/parsers/toml/v2"
+	"github.com/knadh/koanf/providers/confmap"
+	"github.com/knadh/koanf/v2"
+)
+
+// DefaultProfile is used when no profile is named.
+const DefaultProfile = "default"
+
+// profileName is a TOML bare key: a dot would nest the profile inside another one.
+var profileName = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+
+// CheckProfile refuses a profile name the file cannot hold as one table.
+func CheckProfile(name string) error {
+	if !profileName.MatchString(name) {
+		return fmt.Errorf("invalid profile name %q: use letters, digits, '-' and '_'", name)
+	}
+	return nil
+}
+
+// Settings is the connection to one engine.
+type Settings struct {
+	Address    string
+	Namespace  string
+	APIKey     string
+	APIKeyFile string
+	TLS        TLS
+}
+
+// TLS is the client side of the engine's TLS. It is on when Enabled is set, or when any file or name is given.
+type TLS struct {
+	Enabled    *bool
+	CAPath     string
+	CertPath   string
+	KeyPath    string
+	ServerName string
+}
+
+// On reports whether the connection uses TLS.
+func (t TLS) On() bool {
+	if t.Enabled != nil {
+		return *t.Enabled
+	}
+	return t.CAPath != "" || t.CertPath != "" || t.KeyPath != "" || t.ServerName != ""
+}
+
+// ImplyTLS turns TLS on when a layer sets a TLS file or name, over an earlier layer's enabled = false, unless the
+// same layer also sets enabled. It sets enabled rather than clearing it, so a flag that empties a value keeps TLS on.
+func ImplyTLS(s *Settings, paramsSet, enabledSet bool) {
+	if paramsSet && !enabledSet {
+		on := true
+		s.TLS.Enabled = &on
+	}
+}
+
+// Defaults reach a development engine on this machine.
+func Defaults() Settings {
+	return Settings{Address: "localhost:7233", Namespace: "default"}
+}
+
+// property is one key of a profile, with how it reads and writes Settings.
+type property struct {
+	name string
+	get  func(*Settings) string
+	set  func(*Settings, string) error
+}
+
+func text(field func(*Settings) *string) (func(*Settings) string, func(*Settings, string) error) {
+	return func(s *Settings) string { return *field(s) },
+		func(s *Settings, v string) error { *field(s) = v; return nil }
+}
+
+var properties = func() []property {
+	p := func(name string, field func(*Settings) *string) property {
+		get, set := text(field)
+		return property{name, get, set}
+	}
+	return []property{
+		p("address", func(s *Settings) *string { return &s.Address }),
+		p("namespace", func(s *Settings) *string { return &s.Namespace }),
+		p("apiKey", func(s *Settings) *string { return &s.APIKey }),
+		p("apiKeyFile", func(s *Settings) *string { return &s.APIKeyFile }),
+		{"tls.enabled", func(s *Settings) string {
+			if s.TLS.Enabled == nil {
+				return ""
+			}
+			return strconv.FormatBool(*s.TLS.Enabled)
+		}, func(s *Settings, v string) error {
+			b, err := strconv.ParseBool(v)
+			if err != nil {
+				return fmt.Errorf("tls.enabled %q must be true or false", v)
+			}
+			s.TLS.Enabled = &b
+			return nil
+		}},
+		p("tls.caPath", func(s *Settings) *string { return &s.TLS.CAPath }),
+		p("tls.certPath", func(s *Settings) *string { return &s.TLS.CertPath }),
+		p("tls.keyPath", func(s *Settings) *string { return &s.TLS.KeyPath }),
+		p("tls.serverName", func(s *Settings) *string { return &s.TLS.ServerName }),
+	}
+}()
+
+// Properties are the keys a profile can hold, in the order they are shown.
+func Properties() []string {
+	names := make([]string, len(properties))
+	for i, p := range properties {
+		names[i] = p.name
+	}
+	return names
+}
+
+func lookup(name string) (property, error) {
+	for _, p := range properties {
+		if p.name == name {
+			return p, nil
+		}
+	}
+	return property{}, fmt.Errorf("unknown property %q; one of %s", name, strings.Join(Properties(), ", "))
+}
+
+// Set sets one property on s.
+func (s *Settings) Set(name, value string) error {
+	p, err := lookup(name)
+	if err != nil {
+		return err
+	}
+	return p.set(s, value)
+}
+
+// Get returns one property of s, empty when unset.
+func (s *Settings) Get(name string) (string, error) {
+	p, err := lookup(name)
+	if err != nil {
+		return "", err
+	}
+	return p.get(s), nil
+}
+
+// DefaultPath is <user config directory>/wso2-workflow/cli.toml.
+func DefaultPath() (string, error) {
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		return "", fmt.Errorf("unable to find the user configuration directory: %w", err)
+	}
+	return filepath.Join(dir, "wso2-workflow", "cli.toml"), nil
+}
+
+// File is the profile file. A missing file has no profiles.
+type File struct {
+	path string
+	k    *koanf.Koanf
+}
+
+// Open reads the profile file at path.
+func Open(path string) (*File, error) {
+	k, err := read(path)
+	if err != nil {
+		return nil, err
+	}
+	return &File{path: path, k: k}, nil
+}
+
+func read(path string) (*koanf.Koanf, error) {
+	k := koanf.New(".")
+	data, err := os.ReadFile(path) //nolint:gosec // the user's own configuration file
+	if errors.Is(err, os.ErrNotExist) {
+		return k, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	values, err := toml.Parser().Unmarshal(data)
+	if err != nil {
+		return nil, fmt.Errorf("invalid %s: %w", path, err)
+	}
+	if err := k.Load(confmap.Provider(values, "."), nil); err != nil {
+		return nil, fmt.Errorf("invalid %s: %w", path, err)
+	}
+	for _, key := range k.Keys() {
+		parts := strings.SplitN(key, ".", 3)
+		if len(parts) < 3 || parts[0] != "profile" {
+			return nil, fmt.Errorf("invalid %s: %q is not under [profile.<name>]", path, key)
+		}
+		if _, err := lookup(parts[2]); err != nil {
+			return nil, fmt.Errorf("invalid %s: profile %q: %w", path, parts[1], err)
+		}
+	}
+	return k, nil
+}
+
+// update applies change to the file as it is on disk now and writes it, holding a lock on a sidecar file for the
+// whole read-modify-write, so two config commands at once never lose each other's change.
+func (f *File) update(change func(k *koanf.Koanf) error) error {
+	if err := os.MkdirAll(filepath.Dir(f.path), 0o700); err != nil {
+		return err
+	}
+	lock, err := os.OpenFile(f.path+".lock", os.O_RDWR|os.O_CREATE, 0o600) //nolint:gosec // beside the user's file
+	if err != nil {
+		return err
+	}
+	defer func() { _ = lock.Close() }()
+	if err := lockFile(lock); err != nil {
+		return fmt.Errorf("unable to lock %s: %w", f.path, err)
+	}
+	defer func() { _ = unlockFile(lock) }()
+	k, err := read(f.path)
+	if err != nil {
+		return err
+	}
+	if err := change(k); err != nil {
+		return err
+	}
+	if err := save(f.path, k); err != nil {
+		return err
+	}
+	f.k = k
+	return nil
+}
+
+// Profiles lists the profile names, sorted.
+func (f *File) Profiles() []string {
+	names := f.k.MapKeys("profile")
+	sort.Strings(names)
+	return names
+}
+
+// Has reports whether the profile exists.
+func (f *File) Has(profile string) bool {
+	return slices.Contains(f.Profiles(), profile)
+}
+
+// Apply sets on s every property the profile holds.
+func (f *File) Apply(profile string, s *Settings) error {
+	if err := CheckProfile(profile); err != nil {
+		return err
+	}
+	for _, p := range properties {
+		key := "profile." + profile + "." + p.name
+		if !f.k.Exists(key) {
+			continue
+		}
+		if err := p.set(s, f.k.String(key)); err != nil {
+			return fmt.Errorf("profile %q: %w", profile, err)
+		}
+	}
+	prefix := "profile." + profile + "."
+	ReplaceCredential(s, f.k.Exists(prefix+"apiKey"), f.k.Exists(prefix+"apiKeyFile"))
+	return nil
+}
+
+// ReplaceCredential makes a layer that set the key or the key file replace both, so a later layer's file is not
+// shadowed by an earlier layer's key; key and file say which of the two the layer set.
+func ReplaceCredential(s *Settings, key, file bool) {
+	if !key && !file {
+		return
+	}
+	if !key {
+		s.APIKey = ""
+	}
+	if !file {
+		s.APIKeyFile = ""
+	}
+}
+
+// Get returns one property of a profile, empty when unset.
+func (f *File) Get(profile, name string) (string, error) {
+	if err := CheckProfile(profile); err != nil {
+		return "", err
+	}
+	if _, err := lookup(name); err != nil {
+		return "", err
+	}
+	return f.k.String("profile." + profile + "." + name), nil
+}
+
+// Set stores one property of a profile and writes the file.
+func (f *File) Set(profile, name, value string) error {
+	if err := CheckProfile(profile); err != nil {
+		return err
+	}
+	p, err := lookup(name)
+	if err != nil {
+		return err
+	}
+	if err := p.set(&Settings{}, value); err != nil {
+		return err
+	}
+	var v any = value
+	if name == "tls.enabled" {
+		v, _ = strconv.ParseBool(value)
+	}
+	return f.update(func(k *koanf.Koanf) error { return k.Set("profile."+profile+"."+name, v) })
+}
+
+// Delete removes one property of a profile, or the whole profile when name is empty, and writes the file.
+func (f *File) Delete(profile, name string) error {
+	if err := CheckProfile(profile); err != nil {
+		return err
+	}
+	key := "profile." + profile
+	if name != "" {
+		if _, err := lookup(name); err != nil {
+			return err
+		}
+		key += "." + name
+	}
+	return f.update(func(k *koanf.Koanf) error {
+		if !slices.Contains(k.MapKeys("profile"), profile) {
+			return fmt.Errorf("no profile %q in %s", profile, f.path)
+		}
+		k.Delete(key)
+		return nil
+	})
+}
+
+// save writes the file readable by its owner only, since a profile can hold an API key, through a temporary file
+// renamed over it, so a reader never sees half a file.
+func save(path string, k *koanf.Koanf) error {
+	data, err := toml.Parser().Marshal(k.Raw())
+	if err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".*.tmp")
+	if err != nil {
+		return err
+	}
+	_, err = tmp.Write(data)
+	if closeErr := tmp.Close(); err == nil {
+		err = closeErr
+	}
+	if err == nil {
+		err = os.Rename(tmp.Name(), path)
+	}
+	if err != nil {
+		_ = os.Remove(tmp.Name())
+	}
+	return err
+}
+
+// Environment variables, one per property; WORKFLOW_PROFILE and WORKFLOW_CONFIG_FILE choose the profile and file.
+var envVars = map[string]string{ //nolint:gosec // variable names, not credentials
+	"address":        "WORKFLOW_ADDRESS",
+	"namespace":      "WORKFLOW_NAMESPACE",
+	"apiKey":         "WORKFLOW_API_KEY",
+	"apiKeyFile":     "WORKFLOW_API_KEY_FILE",
+	"tls.enabled":    "WORKFLOW_TLS",
+	"tls.caPath":     "WORKFLOW_TLS_CA_PATH",
+	"tls.certPath":   "WORKFLOW_TLS_CERT_PATH",
+	"tls.keyPath":    "WORKFLOW_TLS_KEY_PATH",
+	"tls.serverName": "WORKFLOW_TLS_SERVER_NAME",
+}
+
+// EnvVar names the environment variable of a property.
+func EnvVar(property string) string { return envVars[property] }
+
+// ApplyEnv sets on s every property whose environment variable is set and not empty.
+func ApplyEnv(s *Settings, lookupEnv func(string) (string, bool)) error {
+	set := map[string]bool{}
+	for _, p := range properties {
+		if v, ok := lookupEnv(envVars[p.name]); ok && v != "" {
+			if err := p.set(s, v); err != nil {
+				return fmt.Errorf("%s: %w", envVars[p.name], err)
+			}
+			set[p.name] = true
+		}
+	}
+	ReplaceCredential(s, set["apiKey"], set["apiKeyFile"])
+	ImplyTLS(s, set["tls.caPath"] || set["tls.certPath"] || set["tls.keyPath"] || set["tls.serverName"],
+		set["tls.enabled"])
+	return nil
+}
