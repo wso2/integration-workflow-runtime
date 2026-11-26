@@ -98,7 +98,7 @@ github.com/klauspost/compress/zstd/internal/xxhash,https://github.com/klauspost/
 github.com/knadh/koanf/maps,https://github.com/knadh/koanf/blob/maps/v0.1.2/maps/LICENSE,MIT
 github.com/knadh/koanf/parsers/toml/v2,https://github.com/knadh/koanf/blob/parsers/toml/v2.2.2/parsers/toml/LICENSE,MIT
 github.com/knadh/koanf/providers/confmap,https://github.com/knadh/koanf/blob/providers/confmap/v1.0.1/providers/confmap/LICENSE,MIT
-github.com/knadh/koanf/v2,https://github.com/knadh/koanf/blob/v2.3.8/LICENSE,MIT
+github.com/knadh/koanf/v2,https://github.com/knadh/koanf/blob/v2.4.1/LICENSE,MIT
 github.com/lib/pq,https://github.com/lib/pq/blob/v1.12.3/LICENSE,MIT
 github.com/mailru/easyjson,https://github.com/mailru/easyjson/blob/v0.9.2/LICENSE,MIT
 github.com/mattn/go-isatty,https://github.com/mattn/go-isatty/blob/v0.0.21/LICENSE,MIT
