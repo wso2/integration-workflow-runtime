@@ -26,6 +26,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -166,7 +167,8 @@ func (c command) startDev(args []string) error {
 	flags := flag.NewFlagSet("start-dev", flag.ContinueOnError)
 	flags.SetOutput(c.stderr)
 	ip := flags.String("ip", "127.0.0.1", "address to listen on; keep 127.0.0.1 unless others must reach this engine")
-	port := flags.Int("port", 7233, "frontend port; the other services use the next ports up to port+10")
+	port := flags.Int("port", 7233, "frontend port, above 300; the services use the next ports up to port+10, "+
+		"and their membership ports 300 lower (6933-6936 and 6939 for 7233)")
 	dbFile := flags.String("db-file", "", "keep the data in this SQLite file; in memory and lost on exit when empty")
 	logLevel := flags.String("log-level", "warn", "debug, info, warn or error")
 	var namespaces serviceList
@@ -194,6 +196,10 @@ func (c command) startDev(args []string) error {
 	}
 	_, _ = fmt.Fprintf(c.stderr, "Development engine on %s:%d (namespaces %s; data %s; no TLS or authorization)\n",
 		*ip, *port, strings.Join(names, ", "), storage)
+	if addr := net.ParseIP(*ip); addr == nil || !addr.IsLoopback() {
+		_, _ = fmt.Fprintf(c.stderr, "WARNING: %s is not a loopback address, so anyone who can reach it can use this "+
+			"engine without authorization\n", *ip)
+	}
 	prepare := func(log.Logger) error {
 		if err := c.devNamespaces(rt.Temporal.Persistence, names); err != nil {
 			return fmt.Errorf("unable to create the namespaces: %w", err)

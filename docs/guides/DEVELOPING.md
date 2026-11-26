@@ -31,7 +31,8 @@ make build
 ./build/workflow-engine start-dev --port 17233 --db-file data/dev.db --namespace orders --log-level info
 ```
 
-`--ip` (default `127.0.0.1`) and `--port` (default 7233; the other services take the next ports up to `--port`+10)
+`--ip` (default `127.0.0.1`) and `--port` (default 7233, above 300; the other services take the next ports up to
+`--port`+10, and each service's membership port sits 300 below its own: 6933–6936 and 6939 for 7233)
 set where it listens, `--db-file` keeps the data in a SQLite file instead of memory, `--namespace` adds namespaces
 besides `default` (repeatable) and `--log-level` defaults to `warn`. In a distribution, `bin/workflow-runtime dev`
 runs the same with the same flags.

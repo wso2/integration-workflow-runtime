@@ -533,6 +533,19 @@ func TestStartDev(t *testing.T) {
 	}
 }
 
+func TestStartDevWarnsOffLoopback(t *testing.T) {
+	for ip, warns := range map[string]bool{"0.0.0.0": true, "192.0.2.1": true, "127.0.0.1": false, "::1": false} {
+		c, _, stderr := newTestCommand(&fakeServer{}, nil)
+		c.devNamespaces = func(config.Persistence, []string) error { return nil }
+		if code := c.run([]string{"start-dev", "--ip", ip, "--port", "18233"}); code != 0 {
+			t.Fatalf("%s: exit code = %d, stderr = %s", ip, code, stderr.String())
+		}
+		if got := strings.Contains(stderr.String(), "is not a loopback address"); got != warns {
+			t.Errorf("%s: warning = %v, want %v; stderr = %q", ip, got, warns, stderr.String())
+		}
+	}
+}
+
 func TestStartDevCreatesTheDatabaseDirectory(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "data", "nested")
 	c, _, stderr := newTestCommand(&fakeServer{}, nil)
