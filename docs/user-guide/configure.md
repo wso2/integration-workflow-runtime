@@ -18,21 +18,9 @@ configuration in memory, so passwords never reach the disk. Every key is listed 
 | MySQL 8.0.17 or later | Production |
 | SQLite (a file, or memory) | Trying out and development only: one connection, one node |
 
-The runtime uses two databases on the same server: `temporal` (workflow state) and `temporal_visibility`
-(search). Create them and their schemas once with the schema tool shipped next to the engine:
-
-```bash
-export SQL_PASSWORD='<password>'   # read by the tool, so the password stays out of the command line
-sql() { bin/workflow-engine-sql --plugin postgres12 --ep db.example.com -p 5432 -u workflow "$@"; }
-sql --db temporal create-database
-sql --db temporal_visibility create-database
-sql --db temporal setup-schema -v 0.0
-sql --db temporal update-schema --schema-name postgresql/v12/temporal
-sql --db temporal_visibility setup-schema -v 0.0
-sql --db temporal_visibility update-schema --schema-name postgresql/v12/visibility
-```
-
-For MySQL use `--plugin mysql8`, port 3306 and the schema names `mysql/v8/temporal` and `mysql/v8/visibility`.
+The runtime uses two databases on one server and creates them, and their schemas, on start. See
+[Set up the database](database.md) for the user's rights, Amazon RDS and Aurora, and installations where a DBA
+applies schema changes.
 
 ## Write the configuration
 
@@ -55,7 +43,7 @@ For MySQL use `--plugin mysql8`, port 3306 and the schema names `mysql/v8/tempor
    ```toml
    [engine]
    bindAddress = "0.0.0.0"
-   broadcastAddress = "10.0.0.5"
+   broadcastAddress = "10.0.0.5"   # or "auto" to use this host's address
    ```
 
 3. For production, add `[engine.tls]` and `[engine.auth]` ([Secure the engine](secure-the-engine.md)).
@@ -69,7 +57,7 @@ For MySQL use `--plugin mysql8`, port 3306 and the schema names `mysql/v8/tempor
 Print the configuration the engine generates, with the password hidden:
 
 ```bash
-WORKFLOW_DB_PASSWORD=<password> bin/workflow-engine render-config --runtime-config conf/runtime.toml
+WORKFLOW_DB_PASSWORD=<password> bin/workflow-runtime render-config
 ```
 
 The engine checks every key before it starts. Unknown keys (usually typos), invalid ports, missing files and unset
@@ -79,8 +67,11 @@ The engine checks every key before it starts. Unknown keys (usually typos), inva
 
 ```bash
 export WORKFLOW_DB_PASSWORD=<password>
-bin/workflow-engine start --runtime-config conf/runtime.toml
+bin/workflow-runtime
 ```
 
-Without `[engine.auth]` the engine refuses to start. Add `--allow-no-auth` only for development on your own
-machine; never expose such an engine on a network.
+`workflow-runtime` works from the runtime's directory, so relative paths in `runtime.toml` resolve against it. See
+[Install the runtime](install.md) for the commands and for running it as a service.
+
+Without `[engine.auth]` the engine refuses to start. For development on your own machine, use development mode
+([Quick start](quick-start.md)) or add `--allow-no-auth`; never expose such an engine on a network.

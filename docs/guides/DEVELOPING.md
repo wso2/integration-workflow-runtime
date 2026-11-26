@@ -15,23 +15,46 @@ named after its version, so a version bump in the `Makefile` installs the new on
 
 ## Layout
 
-The repository is a Go workspace (`go.work`). Each component is its own module (`engine/` today; `launcher/` and
-`manager/` as they arrive), so `make` targets loop over the workspace modules. `tools/` is the module for the
+The repository is a Go workspace (`go.work`). Each component is its own module (`engine/` today, which also holds
+the launcher; `manager/` as it arrives), so `make` targets loop over the workspace modules. `tools/` is the module for the
 repository's own tools: the coverage gate (`covercheck`), the Ballerina suite runner (`balsuite`) and the tests
 of the shell scripts in `.github/scripts`.
 
 ## Build and run
 
+The quickest engine for local work is development mode: every service on SQLite, no TLS or authorization, and the
+`default` namespace with the `WorkflowKind` search attribute already created, like `temporal server start-dev`.
+
 ```sh
-make build                                  # build/workflow-engine, build/workflow-engine-sql
+make build
+./build/workflow-engine start-dev           # frontend on 127.0.0.1:7233, in memory
+./build/workflow-engine start-dev --port 17233 --db-file data/dev.db --namespace orders --log-level info
+```
+
+`--ip` (default `127.0.0.1`) and `--port` (default 7233, above 300; the other services take the next ports up to
+`--port`+10, and each service's membership port sits 300 below its own: 6933–6936 and 6939 for 7233)
+set where it listens, `--db-file` keeps the data in a SQLite file instead of memory, `--namespace` adds namespaces
+besides `default` (repeatable) and `--log-level` defaults to `warn`. In a distribution, `bin/workflow-runtime dev`
+runs the same with the same flags.
+
+To run the engine as it runs in production, from a runtime configuration:
+
+```sh
+make build                                  # build/workflow-runtime, build/workflow-engine, build/workflow-engine-sql
 ./build/workflow-engine version
 ./build/workflow-engine render-config --runtime-config tests/engine/runtime-sqlite.toml   # inspect the generated config
 ./build/workflow-engine start --runtime-config tests/engine/runtime-sqlite.toml --allow-no-auth
 ```
 
 `tests/engine/runtime-sqlite.toml` runs every service in one process on in-memory SQLite, on ports 17233 (frontend
-gRPC), 17243 (frontend HTTP), 17234, 17235 and 17239. The PostgreSQL and MySQL variants expect a database on 15432
-or 13306 and the password in `WORKFLOW_TEST_DB_PASSWORD`; see [TESTING.md](TESTING.md). Point the Temporal CLI at `localhost:17233` to inspect it:
+gRPC), 17243 (frontend HTTP), 17234, 17235 and 17239. The PostgreSQL and MySQL variants expect a database server on
+15432 or 13306 and the password in `WORKFLOW_TEST_DB_PASSWORD`; see [TESTING.md](TESTING.md).
+
+On PostgreSQL and MySQL the engine prepares the databases on every start: it creates the workflow and visibility
+databases when missing and applies the schema versions it ships, so the user needs the right to create databases
+(or databases a DBA created) and to change their schema. Set `manageSchema = false` under `[database]` to leave
+the schema to a DBA; see [database schema](../features/database-schema.md). These configurations create no namespace: point the Temporal CLI at
+`localhost:17233` to check health and create one:
 
 ```sh
 temporal operator cluster health --address localhost:17233
@@ -41,6 +64,21 @@ temporal operator namespace create --namespace default --address localhost:17233
 `--allow-no-auth` is for development and tests only: without it the engine refuses to start unless an
 authorizer is configured.
 
+## Distribution and image
+
+```sh
+make dist                                   # dist/wso2-workflow-runtime-<version>-<os>-<arch>.zip for GOOS/GOARCH
+make image IMAGE_PLATFORMS=linux/arm64 IMAGE_ARGS=--load   # build the linux zip, then load the image locally
+```
+
+`IMAGE` names the image, `IMAGE_PLATFORMS` lists its platforms (default `linux/amd64,linux/arm64`) and `IMAGE_ARGS`
+passes extra `docker buildx` arguments, such as `--push`. In an unzipped distribution, `bin/workflow-runtime` starts
+the engine from `conf/runtime.toml`, or from the file `WORKFLOW_RUNTIME_CONFIG` names, and passes `render-config`,
+`version` and the engine's flags through. In `runtime.toml`, `engine.logFile` writes the log to a file instead of
+standard output, and `engine.broadcastAddress = "auto"` advertises the host's own address, as a container needs; see
+the [runtime.toml reference](../user-guide/reference/runtime-toml.md) and
+[distribution](../features/distribution.md).
+
 ## Checks
 
 ```sh
@@ -48,7 +86,12 @@ make check          # build, vet, lint, gofmt, unit tests with the 75% coverage 
 make test-smoke     # Ballerina smoke suite against the engine
 make test-full      # Ballerina full suite
 make test-docker    # all of the above and both suites on SQLite, PostgreSQL and MySQL, in Docker
+go run ./tools/cmd/balsuite upgrade --engine build/workflow-engine --database postgresql   # or mysql
 ```
+
+`balsuite upgrade` starts a workflow on Temporal 1.30.9 in Docker (`--old-temporal` picks another release,
+`--docker` another docker command), then starts the engine on the same databases and checks that the workflow
+upgrades its schema and completes.
 
 Set `BAL` or `TEMPORAL_CLI` if those commands are not on `PATH`, for example the `bal` bundled with WSO2
 Integrator.

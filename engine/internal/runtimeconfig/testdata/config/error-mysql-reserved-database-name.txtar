@@ -1,0 +1,8 @@
+-- runtime.toml --
+[database]
+type = "mysql"
+host = "db"
+name = "order"
+password = "secret"
+-- error --
+invalid runtime configuration: database.name "order" is a MySQL reserved word; choose another name, or create the databases yourself and set manageSchema = false

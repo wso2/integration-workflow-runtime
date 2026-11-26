@@ -1,0 +1,234 @@
+-- runtime.toml --
+[database]
+type = "mysql"
+host = "db"
+name = "order"
+password = "secret"
+manageSchema = false
+-- temporal.yaml --
+global:
+    membership:
+        maxJoinDuration: 30s
+        broadcastAddress: 127.0.0.1
+    pprof:
+        port: 0
+        host: ""
+    tls:
+        internode:
+            client:
+                serverName: ""
+                disableHostVerification: false
+                rootCaFiles: []
+                rootCaData: []
+                forceTLS: false
+            server:
+                certFile: ""
+                keyFile: ""
+                clientCaFiles: []
+                certData: ""
+                keyData: ""
+                clientCaData: []
+                requireClientAuth: false
+            hostOverrides: {}
+        frontend:
+            client:
+                serverName: ""
+                disableHostVerification: false
+                rootCaFiles: []
+                rootCaData: []
+                forceTLS: false
+            server:
+                certFile: ""
+                keyFile: ""
+                clientCaFiles: []
+                certData: ""
+                keyData: ""
+                clientCaData: []
+                requireClientAuth: false
+            hostOverrides: {}
+        systemWorker:
+            certFile: ""
+            keyFile: ""
+            certData: ""
+            keyData: ""
+            client:
+                serverName: ""
+                disableHostVerification: false
+                rootCaFiles: []
+                rootCaData: []
+                forceTLS: false
+        remoteClusters: {}
+        expirationChecks:
+            warningWindow: 0s
+            errorWindow: 0s
+            checkInterval: 0s
+        refreshInterval: 0s
+    metrics: null
+    authorization:
+        jwtKeyProvider:
+            keySourceURIs: []
+            refreshInterval: 0s
+        permissionsClaimName: ""
+        permissionsRegex: ""
+        authorizer: ""
+        claimMapper: ""
+        authHeaderName: ""
+        authExtraHeaderName: ""
+        audience: ""
+        remoteClusterAuth:
+            require: false
+persistence:
+    defaultStore: default
+    visibilityStore: visibility
+    secondaryVisibilityStore: ""
+    numHistoryShards: 512
+    datastores:
+        default:
+            faultInjection: null
+            cassandra: null
+            sql:
+                user: ""
+                password: '******'
+                passwordCommand: null
+                pluginName: mysql8
+                databaseName: order
+                connectAddr: db:3306
+                connectProtocol: tcp
+                connectAttributes: {}
+                maxConns: 20
+                maxIdleConns: 20
+                maxConnLifetime: 1h0m0s
+                taskScanPartitions: 1
+                tls: null
+            customDatastore: null
+            elasticsearch: null
+        visibility:
+            faultInjection: null
+            cassandra: null
+            sql:
+                user: ""
+                password: '******'
+                passwordCommand: null
+                pluginName: mysql8
+                databaseName: temporal_visibility
+                connectAddr: db:3306
+                connectProtocol: tcp
+                connectAttributes: {}
+                maxConns: 20
+                maxIdleConns: 20
+                maxConnLifetime: 1h0m0s
+                taskScanPartitions: 1
+                tls: null
+            customDatastore: null
+            elasticsearch: null
+log:
+    stdout: true
+    level: info
+    outputFile: ""
+    format: ""
+    development: false
+clusterMetadata:
+    enableGlobalNamespace: false
+    failoverVersionIncrement: 10
+    masterClusterName: active
+    currentClusterName: active
+    clusterInformation:
+        active:
+            enabled: true
+            initialFailoverVersion: 1
+            rpcAddress: 127.0.0.1:7233
+            httpAddress: 127.0.0.1:7243
+    tags: {}
+dcRedirectionPolicy:
+    policy: noop
+services:
+    frontend:
+        rpc:
+            grpcPort: 7233
+            membershipPort: 6933
+            bindOnLocalHost: false
+            bindOnIP: 127.0.0.1
+            httpPort: 7243
+            httpAdditionalForwardedHeaders: []
+            keepAliveServerConfig:
+                keepAliveServerParameters: null
+                keepAliveEnforcementPolicy: null
+            clientConnectionConfig:
+                keepAliveClientParameters: null
+    history:
+        rpc:
+            grpcPort: 7234
+            membershipPort: 6934
+            bindOnLocalHost: false
+            bindOnIP: 127.0.0.1
+            httpPort: 0
+            httpAdditionalForwardedHeaders: []
+            keepAliveServerConfig:
+                keepAliveServerParameters: null
+                keepAliveEnforcementPolicy: null
+            clientConnectionConfig:
+                keepAliveClientParameters: null
+    internal-frontend:
+        rpc:
+            grpcPort: 7236
+            membershipPort: 6936
+            bindOnLocalHost: false
+            bindOnIP: 127.0.0.1
+            httpPort: 0
+            httpAdditionalForwardedHeaders: []
+            keepAliveServerConfig:
+                keepAliveServerParameters: null
+                keepAliveEnforcementPolicy: null
+            clientConnectionConfig:
+                keepAliveClientParameters: null
+    matching:
+        rpc:
+            grpcPort: 7235
+            membershipPort: 6935
+            bindOnLocalHost: false
+            bindOnIP: 127.0.0.1
+            httpPort: 0
+            httpAdditionalForwardedHeaders: []
+            keepAliveServerConfig:
+                keepAliveServerParameters: null
+                keepAliveEnforcementPolicy: null
+            clientConnectionConfig:
+                keepAliveClientParameters: null
+    worker:
+        rpc:
+            grpcPort: 7239
+            membershipPort: 6939
+            bindOnLocalHost: false
+            bindOnIP: 127.0.0.1
+            httpPort: 0
+            httpAdditionalForwardedHeaders: []
+            keepAliveServerConfig:
+                keepAliveServerParameters: null
+                keepAliveEnforcementPolicy: null
+            clientConnectionConfig:
+                keepAliveClientParameters: null
+archival:
+    history:
+        state: ""
+        enableRead: false
+        provider: null
+    visibility:
+        state: ""
+        enableRead: false
+        provider: null
+publicClient:
+    hostPort: ""
+    httpHostPort: ""
+    forceTLSConfig: ""
+dynamicConfigClient: null
+namespaceDefaults:
+    archival:
+        history:
+            state: ""
+            URI: ""
+        visibility:
+            state: ""
+            URI: ""
+otel: {}
+visibility:
+    persistenceCustomSearchAttributes: {}

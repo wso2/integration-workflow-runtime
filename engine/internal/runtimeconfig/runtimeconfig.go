@@ -25,6 +25,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -69,6 +70,8 @@ var (
 	pluginNames    = map[databaseType]string{typePostgreSQL: "postgres12", typeMySQL: "mysql8", typeSQLite: "sqlite"}
 	defaultDBPorts = map[databaseType]int{typePostgreSQL: 5432, typeMySQL: 3306}
 	logLevels      = []string{"debug", "info", "warn", "error"}
+	// databaseName is what the engine can create on both servers; MySQL's CREATE DATABASE takes the name unquoted.
+	databaseName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,62}$`)
 )
 
 // Runtime is what the engine takes from runtime.toml.
@@ -79,6 +82,8 @@ type Runtime struct {
 	Services []string
 	// Auth configures the identity-provider claim mapper; nil when [engine.auth] is off.
 	Auth *jwtclaims.Settings
+	// ManageSchema is whether the engine creates and upgrades the SQL databases and schemas before it starts.
+	ManageSchema bool
 	// DynamicConfig holds the dynamic settings the configuration needs; nil when it needs none.
 	DynamicConfig dynamicconfig.StaticClient
 }
@@ -93,6 +98,7 @@ type engineSettings struct {
 	BroadcastAddress string            `toml:"broadcastAddress"`
 	HistoryShards    int32             `toml:"historyShards"`
 	LogLevel         string            `toml:"logLevel"`
+	LogFile          string            `toml:"logFile"`
 	Ports            portsSettings     `toml:"ports"`
 	TLS              engineTLSSettings `toml:"tls"`
 	Auth             authSettings      `toml:"auth"`
@@ -119,6 +125,7 @@ type databaseSettings struct {
 	Path           string       `toml:"path"`
 	InMemory       bool         `toml:"inMemory"`
 	MaxConns       int          `toml:"maxConns"`
+	ManageSchema   *bool        `toml:"manageSchema"`
 	TLS            tlsSettings  `toml:"tls"`
 }
 
@@ -156,6 +163,11 @@ func Render(cfg *config.Config) ([]byte, error) {
 }
 
 func parse(data []byte, lookupEnv func(string) (string, bool)) (*Runtime, error) {
+	return parseOn(data, lookupEnv, net.InterfaceAddrs)
+}
+
+// parseOn parses with the environment variables and network interfaces it is given.
+func parseOn(data []byte, lookupEnv func(string) (string, bool), interfaceAddrs func() ([]net.Addr, error)) (*Runtime, error) {
 	values, err := toml.Parser().Unmarshal(data)
 	if err != nil {
 		return nil, fmt.Errorf("invalid runtime configuration: %w", err)
@@ -170,6 +182,13 @@ func parse(data []byte, lookupEnv func(string) (string, bool)) (*Runtime, error)
 	}
 	if err := decodeTable(k, "database", &s.Database); err != nil {
 		return nil, err
+	}
+	if s.Engine.BroadcastAddress == autoAddress {
+		ip, err := hostAddress(interfaceAddrs)
+		if err != nil {
+			return nil, fmt.Errorf(`invalid runtime configuration: engine.broadcastAddress "auto": %w`, err)
+		}
+		s.Engine.BroadcastAddress = ip
 	}
 	nodeServices, err := services(k)
 	if err != nil {
@@ -187,7 +206,7 @@ func parse(data []byte, lookupEnv func(string) (string, bool)) (*Runtime, error)
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid Temporal configuration: %w", err)
 	}
-	rt := &Runtime{Temporal: *cfg, Services: nodeServices}
+	rt := &Runtime{Temporal: *cfg, Services: nodeServices, ManageSchema: *s.Database.ManageSchema}
 	// Temporal keeps membership (ringpop) in plain text unless this switch is on, even with internode TLS.
 	if s.Engine.TLS.Internode.Enabled {
 		rt.DynamicConfig = dynamicconfig.StaticClient{dynamicconfig.EnableRingpopTLS.Key(): true}
@@ -231,6 +250,10 @@ func (s *settings) applyDefaults() {
 	e.Ports.History = withDefault(e.Ports.History, 7234)
 	e.Ports.Matching = withDefault(e.Ports.Matching, 7235)
 	e.Ports.Worker = withDefault(e.Ports.Worker, 7239)
+	if d.ManageSchema == nil {
+		manage := true
+		d.ManageSchema = &manage
+	}
 
 	if d.Type == typeSQLite {
 		e.HistoryShards = withDefault(e.HistoryShards, 1)
@@ -256,9 +279,14 @@ func (s *settings) validate() error {
 	if net.ParseIP(e.BindAddress) == nil {
 		problems = append(problems, fmt.Sprintf("engine.bindAddress %q must be an IP address", e.BindAddress))
 	}
-	if e.BroadcastAddress == "" {
+	switch {
+	case e.BroadcastAddress == "":
 		problems = append(problems, "engine.broadcastAddress is required when engine.bindAddress is 0.0.0.0")
-	} else if ip := net.ParseIP(e.BroadcastAddress); ip != nil && ip.IsUnspecified() {
+	// A broadcast address copied from an invalid bind address is reported once, as the bind address.
+	case net.ParseIP(e.BroadcastAddress) == nil && e.BroadcastAddress != e.BindAddress:
+		problems = append(problems, fmt.Sprintf(`engine.broadcastAddress %q must be an IP address or "auto"`,
+			e.BroadcastAddress))
+	case net.ParseIP(e.BroadcastAddress).IsUnspecified():
 		problems = append(problems, fmt.Sprintf("engine.broadcastAddress %q must be an address other nodes can reach",
 			e.BroadcastAddress))
 	}
@@ -266,6 +294,9 @@ func (s *settings) validate() error {
 		problems = append(problems, "engine.historyShards must be at least 1")
 	}
 	problems = append(problems, e.Ports.problems()...)
+	if d.Type == typePostgreSQL || d.Type == typeMySQL {
+		problems = append(problems, e.Ports.membershipRangeProblems()...)
+	}
 	problems = append(problems, e.TLS.problems()...)
 	problems = append(problems, e.Auth.problems()...)
 	problems = append(problems, e.securityProblems()...)
@@ -295,8 +326,19 @@ func (s *settings) validate() error {
 		if !validPort(d.Port) {
 			problems = append(problems, fmt.Sprintf("database.port %d is not a valid port", d.Port))
 		}
-		if d.Name == d.VisibilityName {
+		// MySQL folds database names to lower case when lower_case_table_names is set; PostgreSQL keeps them as written.
+		if d.Name == d.VisibilityName || (d.Type == typeMySQL && strings.EqualFold(d.Name, d.VisibilityName)) {
 			problems = append(problems, "database.name and database.visibilityName must differ")
+		}
+		for _, n := range []struct{ key, value string }{{"name", d.Name}, {"visibilityName", d.VisibilityName}} {
+			if *d.ManageSchema && !databaseName.MatchString(n.value) {
+				problems = append(problems, fmt.Sprintf("database.%s %q must be letters, digits and underscores, "+
+					"starting with a letter or underscore, when the engine manages the schema", n.key, n.value))
+			}
+			if _, reserved := mysqlReservedWords[strings.ToLower(n.value)]; *d.ManageSchema && d.Type == typeMySQL && reserved {
+				problems = append(problems, fmt.Sprintf("database.%s %q is a MySQL reserved word; choose another name, "+
+					"or create the databases yourself and set manageSchema = false", n.key, n.value))
+			}
 		}
 	}
 	if (d.TLS.CertFile == "") != (d.TLS.KeyFile == "") {
@@ -320,6 +362,26 @@ func (s *settings) validate() error {
 		return errors.New("invalid runtime configuration: " + strings.Join(problems, "; "))
 	}
 	return nil
+}
+
+// maxSQLMembershipPort is the largest port Temporal's PostgreSQL and MySQL schemas store (rpc_port is SMALLINT).
+const maxSQLMembershipPort = 32767
+
+func (p portsSettings) membershipRangeProblems() []string {
+	var problems []string
+	for _, n := range []struct {
+		name string
+		port int
+	}{
+		{"frontend", p.Frontend}, {"internalFrontend", p.InternalFrontend}, {"history", p.History},
+		{"matching", p.Matching}, {"worker", p.Worker},
+	} {
+		if m := n.port - membershipPortOffset; m > maxSQLMembershipPort {
+			problems = append(problems, fmt.Sprintf("engine.ports.%s %d: its membership port %d is above %d, the largest "+
+				"port Temporal's PostgreSQL and MySQL schemas store", n.name, n.port, m, maxSQLMembershipPort))
+		}
+	}
+	return problems
 }
 
 func (p portsSettings) problems() []string {
@@ -389,7 +451,7 @@ func (s *settings) temporalConfig(password string) *config.Config {
 				visibilityStore: {SQL: s.Database.sqlStore(s.Database.VisibilityName, password)},
 			},
 		},
-		Log: log.Config{Stdout: true, Level: e.LogLevel},
+		Log: e.logConfig(),
 		ClusterMetadata: &cluster.Config{
 			FailoverVersionIncrement: 10,
 			MasterClusterName:        clusterName,
@@ -408,6 +470,14 @@ func (s *settings) temporalConfig(password string) *config.Config {
 			"worker":            {RPC: e.rpc(e.Ports.Worker, 0)},
 		},
 	}
+}
+
+// logConfig writes to standard output, or only to logFile when it is set.
+func (e engineSettings) logConfig() log.Config {
+	if e.LogFile != "" {
+		return log.Config{Level: e.LogLevel, OutputFile: e.LogFile}
+	}
+	return log.Config{Stdout: true, Level: e.LogLevel}
 }
 
 func (e engineSettings) rpc(grpcPort, httpPort int) config.RPC {
@@ -437,9 +507,13 @@ func (d databaseSettings) sqlStore(name, password string) *config.SQL {
 	}
 }
 
+var sqliteURIEscaper = strings.NewReplacer("%", "%25", "?", "%3F", "#", "%23")
+
 // sqliteStore keeps both stores in one database: a file that creates its own schema, or memory for tests.
 func (d databaseSettings) sqliteStore() *config.SQL {
-	name := d.Path
+	// Temporal writes the name into a "file:<name>?<options>" URI as it is, and SQLite decodes %HH there, so the
+	// delimiters are escaped to keep a name with "?" or "#" the file the user asked for.
+	name := sqliteURIEscaper.Replace(d.Path)
 	lifetime := time.Hour
 	attributes := map[string]string{"cache": "private", "setup": "true", "journal_mode": "wal", "synchronous": "2"}
 	if d.InMemory {

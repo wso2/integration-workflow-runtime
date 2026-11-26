@@ -12,12 +12,12 @@ portals, packaging and updates.
 |---|---|---|
 | Engine | Temporal's four services (frontend, history, matching, worker) in our Go binary, `workflow-engine` | Builds and runs |
 | Engine endpoint | The integrations' one port (7233): gRPC to Temporal's frontend, `/runtime/...` HTTPS to the Manager | Planned |
-| Launcher | Starts the components of a profile, writes Temporal's configuration from `conf/runtime.toml`, supervises and restarts | Planned |
+| Launcher | The `workflow-runtime` command in `engine/internal/launcher`: finds the runtime home from its own location, works from there and hands the command to `workflow-engine` (on Linux and macOS by replacing itself), or starts development mode. Restarts are left to systemd or the container runtime | Builds and runs |
 | Manager | Go service: engine administration, the Workflow Management API, SSO sign-in, roles; serves the portals | Planned |
 | Admin Portal | UI for administrators and operators, at `/admin` | Planned |
 | User Portal | Business users' human-task inbox, at `/portal` | Planned |
 | Runtime DB | The Manager's data: integrations, definitions and versions, users, roles, audit | Planned |
-| Temporal persistence | Temporal's data: workflow state, history, task queues, visibility | Configured by the launcher |
+| Temporal persistence | Temporal's data: workflow state, history, task queues, visibility | Configured from `conf/runtime.toml` |
 
 ## How the pieces connect
 
@@ -46,7 +46,8 @@ housekeeping; integration workers never connect to it.
   (Temporal's no-op claim mapper grants every caller system-admin claims), unless `--allow-no-auth` is given, which
   is for development and tests only. Production uses Temporal's JWT authorizer trusting the Manager's keys, over
   TLS.
-- `workflow-engine-sql` creates and upgrades Temporal's schema, built from the same Temporal version.
+- `start` creates Temporal's databases and brings their schemas up to date before the services start, with the
+  schema tool built from the same Temporal version; `workflow-engine-sql` is that tool, for DBAs who apply it by hand.
 
 ## Profiles
 
@@ -57,7 +58,7 @@ One distribution; each node runs the profiles in its `runtime.toml` (`[runtime] 
 | `all` (default), `engine` | Every engine service |
 | `frontend` | The frontend and the internal frontend (and the engine endpoint, when it exists) |
 | `history`, `matching`, `worker` | One Temporal service |
-| `api` | The API server, the Manager's planned name (the engine starts nothing for it) |
+| `api` | The API server (planned; the engine starts nothing for it) |
 
 ## Data
 

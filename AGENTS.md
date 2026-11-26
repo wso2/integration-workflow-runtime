@@ -14,7 +14,7 @@ Read [docs/guides/ARCHITECTURE.md](docs/guides/ARCHITECTURE.md) before changing 
 |---|---|---|
 | Engine | `engine/` | Our Go binary that embeds Temporal's server (frontend, history, matching, worker) as a library, pinned in `engine/go.mod` |
 | Engine endpoint | `engine/` (planned) | The integrations' one port (7233): gRPC to Temporal's frontend, `/runtime/...` HTTPS to the Manager |
-| Launcher | `launcher/` (planned) | Starts components per profile, writes Temporal's configuration from `conf/runtime.toml`, enforces one-minor upgrades |
+| Launcher | `engine/internal/launcher` | `bin/workflow-runtime`, the command customers run: finds the runtime home, works from there and hands the command to `workflow-engine` (`dev` for development mode). It does not supervise or restart |
 | Manager | `manager/` (planned) | Go service: engine administration, Workflow Management API, SSO sign-in, roles; serves both portals |
 | Portals | `portals/` (planned) | Admin Portal and User Portal, static TypeScript apps served by the Manager |
 | Distribution | `distribution/` | Zip and Docker layout, `conf/runtime.toml` |
@@ -38,6 +38,7 @@ Decision records live in `docs/decisions/`; feature documentation in `docs/featu
 | `make test-docker` | The CI gates and both suites in Docker, PostgreSQL and MySQL included (`DOCKER_TARGET`, `DATABASES`) |
 | `make license-check` / `make vulncheck` | License gate and `govulncheck`, which fails on any called vulnerability not listed with its reason in `third-party/vulnerability-exceptions.txt` |
 | `make sbom` | CycloneDX SBOM per binary in `build/sbom/` (included by `make dist`) |
+| `make dist` / `make image` | A distribution zip for `GOOS`/`GOARCH`; the container image from the linux zips (`IMAGE_PLATFORMS`, `IMAGE_ARGS=--load` or `--push`) |
 | `make check` | Every gate CI runs, except the Ballerina suites |
 | `make dist` | Zip for one `GOOS`/`GOARCH` in `dist/` |
 | `make install-hooks` | Install the commit hook (subject format, license headers, gofmt, build, lint) |
@@ -100,6 +101,10 @@ These are requirements, not suggestions. A change that misses one is not done.
   `go run ./tools/cmd/<tool>`); no Python or JavaScript scripts. A shell script with logic gets its tests in
   `tools/internal/scripts/`, which runs the script for real.
 - Binary and product names never use "Temporal" (`workflow-engine`, not `temporal-server`).
+- SQL stays in `engine/internal/sqlschema`: it alone opens database connections and runs statements, to create the
+  databases and manage Temporal's schema. Everything else delegates: Temporal's persistence plugins (the blank
+  `sqlplugin/...` imports), the DBA tool `cmd/workflow-engine-sql`, and test fixtures. The `depguard` rule in
+  `.golangci.yml` enforces this; widen it only with a reason in the PR.
 
 ## Tests
 
@@ -111,10 +116,13 @@ These are requirements, not suggestions. A change that misses one is not done.
 
 ### Ballerina suites
 
-- `go run ./tools/cmd/balsuite <smoke|full> --engine build/workflow-engine [--database sqlite|postgresql|mysql]`
-  starts the engine from `tests/engine/runtime-<database>.toml` (ports 17xxx, `--allow-no-auth`), creating the SQL
-  schemas first for PostgreSQL and MySQL; then it creates the `default` namespace and the `WorkflowKind` search
-  attribute, runs `bal test` in the suite, and stops the engine.
+- `go run ./tools/cmd/balsuite <smoke|full> --engine build/workflow-engine [--database sqlite|postgresql|mysql|dev]`
+  starts the engine from `tests/engine/runtime-<database>.toml` (ports 17xxx, `--allow-no-auth`); on PostgreSQL and
+  MySQL the engine creates both databases and their schemas on start. The runner then creates the `default` namespace
+  and the `WorkflowKind` search attribute; with `--database dev` it runs `start-dev --port 17233` instead and creates nothing, since development
+  mode does that itself. It then runs `bal test` in the suite and stops the engine.
+- `balsuite upgrade --database postgresql|mysql` runs `tests/ballerina/upgrade` across an upgrade: its `before` group
+  on Temporal 1.30.9 in Docker, its `after` group on the engine started on the same databases.
 - Each suite is a Ballerina package: workflows and activities in `workflows.bal`, tests in `tests/*_test.bal`
   (one file per feature area), connection settings in `tests/Config.toml`.
 - Tests use the public `ballerina/workflow` API only (`workflow:run`, `workflow:sendData`,

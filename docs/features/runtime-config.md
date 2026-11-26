@@ -27,10 +27,11 @@ other, not both.
 | `port` | 5432 (PostgreSQL), 3306 (MySQL) | Database port |
 | `user`, `password` | empty | Credentials. `password` is a literal or `$env{NAME}` (read from the environment) |
 | `name` | `temporal` | Database for Temporal's workflow state |
-| `visibilityName` | `temporal_visibility` | Database for Temporal's visibility (instance lists and search); must differ from `name` |
+| `visibilityName` | `temporal_visibility` | Database for Temporal's visibility (instance lists and search); must differ from `name`, ignoring case on MySQL, where `lower_case_table_names` can fold names |
 | `path` | | SQLite only: the database file. Both stores share it, and its schema is created on first start |
 | `inMemory` | false | SQLite only: keep everything in memory (tests and trying out); use instead of `path` |
 | `maxConns` | 20 (1 for SQLite) | Connections per store; must be 1 for an in-memory SQLite database, where each connection would get its own empty database; that one connection is never retired |
+| `manageSchema` | `true` | Create the databases and bring their schemas up to date on start ([database schema](database-schema.md)) |
 | `[database.tls]` `enabled`, `caFile`, `certFile` and `keyFile` (both or neither), `serverName` (MySQL only) | off | TLS to the database (PostgreSQL and MySQL; refused for SQLite) |
 | `[database.tls]` `enableHostVerification` | `true` | Verify the server's certificate and host name; `false` turns verification off, which lets anyone between the engine and the database impersonate it |
 
@@ -48,10 +49,11 @@ node with a different `profiles` and its own `broadcastAddress`.
 | Key | Default | Meaning |
 |---|---|---|
 | `bindAddress` | `127.0.0.1` | Address every service listens on |
-| `broadcastAddress` | `bindAddress` | Address other nodes and clients use to reach this node; required when `bindAddress` is `0.0.0.0`, and never `0.0.0.0` itself |
+| `broadcastAddress` | `bindAddress` | IP address other nodes and clients use to reach this node; required when `bindAddress` is `0.0.0.0`, and never `0.0.0.0` itself. `auto` picks this host's first non-loopback address (containers) |
 | `historyShards` | 512 (1 for SQLite) | Temporal history shards. **Cannot be changed after the first start** |
 | `logLevel` | `info` | `debug`, `info`, `warn` or `error` |
-| `[engine.ports]` `frontend`, `frontendHttp`, `internalFrontend`, `history`, `matching`, `worker` | 7233, 7243, 7236, 7234, 7235, 7239 | Service ports; each gRPC service's membership port is its port minus 300 (6933, 6936, …) |
+| `logFile` | standard output | Write the log to this file instead; a missing directory is created, and a file the engine cannot write stops the start |
+| `[engine.ports]` `frontend`, `frontendHttp`, `internalFrontend`, `history`, `matching`, `worker` | 7233, 7243, 7236, 7234, 7235, 7239 | Service ports; each gRPC service's membership port is its port minus 300 (6933, 6936, …), at most 32767 on PostgreSQL and MySQL |
 | `[engine.tls]`, `[engine.auth]` | off | TLS and identity-provider tokens; see [engine security](engine-security.md) |
 | `[engine.metrics]` `prometheusAddress` | off | `host:port` serving Prometheus metrics at `/metrics` |
 
@@ -72,8 +74,8 @@ Other tables (`[users]`, the portals) and other `[runtime]` keys belong to other
 - With `[database.tls]` enabled, the server's certificate is verified unless `enableHostVerification = false`.
 - The generated configuration is then checked with Temporal's own validation.
 - `$secret{...}` references are rejected with a clear message until secure-vault support exists.
-- For PostgreSQL and MySQL, the databases and their schemas must exist; for now create them with
-  `workflow-engine-sql` (see `engine/README.md`). Creating them on first start is a separate feature.
+- For PostgreSQL and MySQL, `start` creates the databases and brings their schemas up to date before Temporal
+  starts, unless `manageSchema = false` ([database schema](database-schema.md)).
 
 ## Limits
 
@@ -86,7 +88,7 @@ Other tables (`[users]`, the portals) and other `[runtime]` keys belong to other
 
 ## Not covered yet
 
-Schema creation and upgrade on first start, Cassandra, and secure-vault secrets.
+Cassandra and secure-vault secrets.
 
 ## Tests
 

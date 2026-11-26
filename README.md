@@ -7,17 +7,18 @@ The runtime is the engine that runs WSO2 Integrator's durable workflows. It is b
 server, which runs inside it as an internal component: customers provide a database and an identity provider,
 and never install or patch Temporal themselves.
 
-Status: early development. The engine builds and runs; the launcher, Manager and portals are being built.
+Status: early development. The engine, its security, schema management, development mode and packaging work; the
+Manager (API server) and portals are being built.
 
 ## Layout
 
 | Path | Component | Language |
 |---|---|---|
 | `engine/` | Temporal's services in our own binary (`workflow-engine`) and the schema tool (`workflow-engine-sql`) | Go |
-| `launcher/` | Starts and supervises components per profile; writes Temporal's configuration from `runtime.toml`; enforces one-minor upgrades | Go |
+| `engine/internal/launcher` | `workflow-runtime`: finds the runtime home and hands the command to `workflow-engine`, or starts development mode (notes in `launcher/`) | Go |
 | `manager/` | The Manager: administration API, SSO sign-in, roles; serves the portals | Go |
 | `portals/` | Admin Portal and User Portal, static web apps served by the Manager | TypeScript |
-| `distribution/` | Zip and Docker assembly, configuration templates, start scripts | Shell, Docker |
+| `distribution/` | Zip and Docker assembly, configuration templates, the systemd example | Docker |
 | `tests/` | Ballerina smoke and full suites run against the engine binary | Ballerina |
 | `tools/` | The repository's own tools: coverage gate, Ballerina suite runner, script tests | Go |
 | `third-party/` | License inventory and notices for everything we ship | |
@@ -26,7 +27,11 @@ Status: early development. The engine builds and runs; the launcher, Manager and
 Documentation: [architecture](docs/guides/ARCHITECTURE.md), [developing](docs/guides/DEVELOPING.md),
 [testing](docs/guides/TESTING.md), [features](docs/features/README.md), [decisions](docs/decisions/).
 
-Installing and running the runtime: the [user guide](docs/user-guide/README.md).
+Installing and running the runtime: the [user guide](docs/user-guide/README.md). On PostgreSQL and MySQL the engine
+creates and upgrades its databases on start, which needs the right to create databases and change their schema;
+`[database] manageSchema = false` leaves that to a DBA. For a local engine with nothing to
+configure, run `bin/workflow-runtime dev` from a distribution, or `build/workflow-engine start-dev` after `make build`
+(see [DEVELOPING.md](docs/guides/DEVELOPING.md)).
 Contributors and coding agents: read [AGENTS.md](AGENTS.md) first.
 
 ## Build
