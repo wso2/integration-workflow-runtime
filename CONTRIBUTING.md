@@ -12,7 +12,7 @@ The runtime is licensed under the [Apache License 2.0](LICENSE). Contributions a
 
 ## Build
 
-- Go 1.26.8 or later. For the Ballerina suites: Ballerina Swan Lake (`bal`) and the Temporal CLI.
+- Go 1.26.10 or later. For the Ballerina suites: Ballerina Swan Lake (`bal`) and the Temporal CLI.
 - `make build`, `make test-coverage`, `make check`; `make test-smoke` and `make test-full` for the Ballerina suites.
 
 ## Submit a change

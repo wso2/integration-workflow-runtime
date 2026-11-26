@@ -38,7 +38,7 @@ Contributors and coding agents: read [AGENTS.md](AGENTS.md) first.
 
 ## Build
 
-Needs Go 1.26.8 or later; the Go toolchain downloads it on demand.
+Needs Go 1.26.10 or later; the Go toolchain downloads it on demand.
 
 ```sh
 make install-hooks   # commit checks

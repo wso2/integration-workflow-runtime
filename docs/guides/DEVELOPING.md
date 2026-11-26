@@ -4,7 +4,7 @@
 
 | Tool | Version | For |
 |---|---|---|
-| Go | 1.26.8 or later (the toolchain line in `go.work` selects the patched release) | Everything |
+| Go | 1.26.10 or later (the toolchain line in `go.work` selects the patched release) | Everything |
 | Bash | Any | CI glue scripts, the commit hook |
 | Ballerina Swan Lake (`bal`) | 2201.14.1 (2201.14.2 cannot load its bundled `ballerina/workflow`) | `make test-smoke`, `make test-full` |
 | Temporal CLI (`temporal`) | Any recent release | The Ballerina suite runner |
@@ -116,6 +116,8 @@ Integrator.
 
 - Temporal is bumped only in `engine/go.mod`, one minor version at a time.
 - A dependency with a fix Temporal has not released is raised with `go get <module>@<version>` in `engine/`.
+- An advisory whose fix does not build with Temporal goes in `third-party/vulnerability-exceptions.txt`, with the
+  reason and when to remove it; `make vulncheck` then reports it as allowed and notes when it is no longer needed.
 - After any change: `go mod tidy`, `make licenses`, commit `third-party/go-licenses.csv` and `go.work.sum`, then
   `make license-check` and `make vulncheck`.
 
