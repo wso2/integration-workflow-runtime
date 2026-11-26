@@ -95,7 +95,7 @@ MySQL, membership ports must be at most 32767, so service ports at most 33067.
 | `user`, `password` | empty | Credentials; `password` is a literal or `$env{NAME}` |
 | `name` | `temporal` | Workflow database |
 | `visibilityName` | `temporal_visibility` | Visibility (search) database; must differ from `name` (ignoring case on MySQL) |
-| `path` | | SQLite only: the database file |
+| `path` | | SQLite only: the database file, taken literally (a `?`, `#` or `%` in the name stays part of it) |
 | `inMemory` | `false` | SQLite only: keep everything in memory |
 | `maxConns` | `20` (`1` for SQLite) | Connections per database; must be `1` for an in-memory SQLite database |
 | `manageSchema` | `true` | Create the databases and install or upgrade their schemas on start; `false` when a DBA applies them |

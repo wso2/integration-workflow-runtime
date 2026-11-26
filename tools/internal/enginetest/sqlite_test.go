@@ -19,6 +19,7 @@ package enginetest
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -28,13 +29,24 @@ import (
 func TestSQLiteFileSurvivesRestart(t *testing.T) {
 	binary := engineBinary(t)
 	dir := t.TempDir()
-	db := filepath.Join(dir, "engine.db")
+	// URI delimiters in the name must not change which file SQLite opens; Windows file names cannot hold "?".
+	name := "engine #1 ?v=2 100%.db"
+	if runtime.GOOS == "windows" {
+		name = "engine #1 100%.db"
+	}
+	db := filepath.Join(dir, name)
 	base := freeBase(t)
 	config := writeConfig(t, dir, ports(base)+"[database]\ntype = \"sqlite\"\npath = "+tomlString(db)+"\n")
 
 	first := start(t, binary, base, nil, "start", "--runtime-config", config, "--allow-no-auth")
 	if _, err := os.Stat(db); err != nil {
 		t.Fatalf("the first start did not create the database file: %v", err)
+	}
+	entries, _ := os.ReadDir(dir)
+	for _, e := range entries {
+		if n := e.Name(); n != "runtime.toml" && !strings.HasPrefix(n, name) {
+			t.Errorf("SQLite created %q, not only %q and its journal files", n, name)
+		}
 	}
 	first.must("operator", "namespace", "create", "--namespace", "persisted", "--retention", "24h")
 	first.must("workflow", "start", "--namespace", "persisted", "--type", "Waiter", "--task-queue", "nobody",
