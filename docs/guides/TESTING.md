@@ -5,7 +5,7 @@
 | Layer | Where | Runs | Gate |
 |---|---|---|---|
 | Go unit tests | Next to the code in each module | `make test`, `make test-coverage`, every pull request | 75% statement coverage outside `cmd/` wrappers |
-| Launcher tests on Windows | `engine/internal/launcher` (the engine runs as a child process there) | The `windows-latest` job of every pull request | All pass |
+| Launcher and API key file tests on Windows | `engine/internal/launcher` (the engine runs as a child process there) and `engine/plugins/apikeys` (access lists and file locks) | The `windows-latest` job of every pull request | All pass |
 | Tool and script tests | `tools/internal/...` (the coverage gate, the suite runner, the shell scripts run for real) | `make test`, every pull request | All pass |
 | workflow-cli tests | `cli/...`: every command against an in-memory fake engine, TLS, profiles | `make test`, every pull request | All pass |
 | Engine tests | `tools/internal/enginetest`: the real engine binary driven by the Temporal CLI and `workflow-cli` | `WORKFLOW_ENGINE=$PWD/../build/workflow-engine WORKFLOW_CLI=$PWD/../build/workflow-cli go test ./internal/enginetest` in `tools/` (absolute paths: tests run in their package directory); the SQLite smoke job of every pull request | All pass |

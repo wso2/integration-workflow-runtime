@@ -112,6 +112,28 @@ func TestAPIKeyCreateListRevoke(t *testing.T) {
 		!strings.Contains(err.Error(), "revoked") {
 		t.Fatalf("a revoked key = %v", err)
 	}
+	// The ID of the remaining key revokes it; an ID created on another node needs --force.
+	var opsID string
+	for _, line := range strings.Split(out, "\n") {
+		if fields := strings.Fields(line); len(fields) > 1 && fields[1] == "ops" {
+			opsID = fields[0]
+		}
+	}
+	if code, _, info := run("revoke", "--runtime-config", path, "--id", opsID); code != 0 || !strings.Contains(info, opsID) {
+		t.Fatalf("revoke --id %q = %d %q", opsID, code, info)
+	}
+	elsewhere := "fedcba9876543210fedcba9876543210"
+	if code, _, info := run("revoke", "--runtime-config", path, "--id", elsewhere, "--force"); code != 0 ||
+		!strings.Contains(info, elsewhere) {
+		t.Fatalf("revoke --id --force = %d %q", code, info)
+	}
+	files, err := runtimeconfig.LoadAPIKeys(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ids, err := apikeys.ReadRevoked(files.RevocationList); err != nil || !ids[opsID] || !ids[elsewhere] {
+		t.Fatalf("revocation list = %v, %v", ids, err)
+	}
 }
 
 func TestAPIKeyErrors(t *testing.T) {
@@ -135,6 +157,8 @@ func TestAPIKeyErrors(t *testing.T) {
 		{[]string{"revoke", "--runtime-config", path}, "give --id or --name"},
 		{[]string{"revoke", "--runtime-config", path, "--name", "nobody"}, "no API key named"},
 		{[]string{"revoke", "--runtime-config", path, "--id", "has#hash"}, "is not an API key ID"},
+		{[]string{"revoke", "--runtime-config", path, "--id", "eyJhbGciOiJFUzI1NiJ9.e30.sig"}, "not the key itself"},
+		{[]string{"revoke", "--runtime-config", path, "--id", "0123456789abcdef0123456789abcdef"}, "add --force"},
 		{[]string{"list", "--runtime-config", filepath.Join(dir, "gone")}, "no such file"},
 	} {
 		cmd, _, stderr := newTestCommand(&fakeServer{}, nil)

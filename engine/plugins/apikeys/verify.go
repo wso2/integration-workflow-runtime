@@ -39,7 +39,7 @@ type Verifier struct {
 }
 
 // NewVerifier verifies keys signed with key; revokedPath names the revocation list. warn, when set, is told when the
-// list is missing: a node the list was not copied to would accept revoked keys.
+// list is missing: once at start when it was never copied, and at every check when a list read before is gone.
 func NewVerifier(key *Key, revokedPath string, warn func(string)) *Verifier {
 	return &Verifier{key: key, revoked: &revocationList{path: revokedPath, warn: warn}, now: time.Now}
 }
@@ -116,30 +116,40 @@ type revocationList struct {
 	path    string
 	warn    func(string)
 	missing bool // the missing list was reported
+	loaded  bool // a list was read, so its disappearance is an error rather than "nothing revoked"
 	mu      sync.Mutex
+	read    bool
+	err     error
 	checked time.Time
 	modTime time.Time
 	size    int64
 	ids     map[string]bool
 }
 
+// has reports whether id is revoked; the list, or the error reading it, is kept until the next check.
 func (r *revocationList) has(id string, now time.Time) (bool, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.ids == nil || now.Sub(r.checked) >= revocationCheck {
-		if err := r.reload(); err != nil {
-			return false, err
-		}
-		r.checked = now
+	if !r.read || now.Sub(r.checked) >= revocationCheck {
+		r.err, r.read, r.checked = r.reload(), true, now
+	}
+	if r.err != nil {
+		return false, r.err
 	}
 	return r.ids[id], nil
 }
 
 func (r *revocationList) reload() error {
 	info, err := os.Stat(r.path)
+	if errors.Is(err, os.ErrNotExist) && r.loaded {
+		// A list that disappears, such as a shared volume that did not mount, must not bring revoked keys back.
+		msg := fmt.Sprintf("the API key revocation list %s was removed; API keys are refused until it is back", r.path)
+		r.notify(msg)
+		return errors.New(msg)
+	}
 	if errors.Is(err, os.ErrNotExist) {
-		if r.warn != nil && !r.missing {
-			r.warn(fmt.Sprintf("the API key revocation list %s does not exist, so no key is revoked on this node; "+
+		if !r.missing {
+			r.notify(fmt.Sprintf("the API key revocation list %s does not exist, so no key is revoked on this node; "+
 				"copy it from the node where keys are revoked", r.path))
 		}
 		r.ids, r.modTime, r.size, r.missing = map[string]bool{}, time.Time{}, 0, true
@@ -149,15 +159,26 @@ func (r *revocationList) reload() error {
 	if err != nil {
 		return fmt.Errorf("unable to read the API key revocation list: %w", err)
 	}
-	if r.ids != nil && info.ModTime().Equal(r.modTime) && info.Size() == r.size {
+	if writableByOthers(info) {
+		return fmt.Errorf("the API key revocation list %s can be written by other users (mode %v), who could "+
+			"un-revoke keys; allow at most its owner and group to write it, for example chmod 640", r.path,
+			info.Mode().Perm())
+	}
+	if r.loaded && info.ModTime().Equal(r.modTime) && info.Size() == r.size {
 		return nil
 	}
 	ids, err := ReadRevoked(r.path)
 	if err != nil {
 		return err
 	}
-	r.ids, r.modTime, r.size = ids, info.ModTime(), info.Size()
+	r.ids, r.modTime, r.size, r.loaded = ids, info.ModTime(), info.Size(), true
 	return nil
+}
+
+func (r *revocationList) notify(msg string) {
+	if r.warn != nil {
+		r.warn(msg)
+	}
 }
 
 // ReadRevoked reads a revocation list; a missing file revokes nothing. A last line without its newline is kept: it is

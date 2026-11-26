@@ -29,6 +29,12 @@ func lockShared(f *os.File) error { return syscall.Flock(int(f.Fd()), syscall.LO
 
 func unlockFile(f *os.File) error { return syscall.Flock(int(f.Fd()), syscall.LOCK_UN) } //nolint:gosec // a file descriptor
 
-// openToOthers reports a file users outside its owner and group can read or write; the group may read it, as a
+// keyTooOpen reports a key file its group can write or other users can use at all; the group may read it, as a
 // Kubernetes secret mounted with fsGroup for a non-root user needs.
-func openToOthers(info os.FileInfo) bool { return info.Mode().Perm()&0o007 != 0 }
+func keyTooOpen(info os.FileInfo) bool { return info.Mode().Perm()&0o027 != 0 }
+
+// writableByOthers reports a file users outside its owner and group can write; a shared volume's group may.
+func writableByOthers(info os.FileInfo) bool { return info.Mode().Perm()&0o002 != 0 }
+
+// restrictToOwner does nothing on Unix, where files are created with mode 0600.
+func restrictToOwner(string) error { return nil }

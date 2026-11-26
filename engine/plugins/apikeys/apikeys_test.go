@@ -50,7 +50,8 @@ func testKey(t *testing.T) (*Key, string) {
 
 func TestLoadKeyCreatesOnceAndReadsBack(t *testing.T) {
 	k, path := testKey(t)
-	if info, err := os.Stat(path); err != nil || info.Mode().Perm() != 0o600 {
+	// Windows reports no Unix mode; its access list is checked in lock_windows_test.go.
+	if info, err := os.Stat(path); err != nil || (runtime.GOOS != "windows" && info.Mode().Perm() != 0o600) {
 		t.Fatalf("key file = %v, %v; want mode 0600", info, err)
 	}
 	again, created, err := LoadKey(path, true)
@@ -193,11 +194,13 @@ func TestRevocationReachesARunningVerifier(t *testing.T) {
 	if err := Revoke(revoked, issued.ID, "leaked # in a log"); err != nil {
 		t.Fatal(err)
 	}
-	if err := Revoke(revoked, "has space", ""); err == nil {
-		t.Error("an ID with a space was accepted")
+	for _, bad := range []string{"has space", "abc", strings.ToUpper(issued.ID), issued.Token} {
+		if err := Revoke(revoked, bad, ""); err == nil || !strings.Contains(err.Error(), "not the key itself") {
+			t.Errorf("Revoke(%.20q) = %v; want an ID form error", bad, err)
+		}
 	}
 	// A reason that long would make a line the list could not be read back with.
-	if err := Revoke(revoked, "abc", strings.Repeat("x", 70000)); err == nil {
+	if err := Revoke(revoked, issued.ID, strings.Repeat("x", 70000)); err == nil {
 		t.Error("an oversized reason was accepted")
 	}
 	// Within the check interval the cached list still holds; after it, the change is read.
@@ -215,8 +218,10 @@ func TestRevocationReachesARunningVerifier(t *testing.T) {
 	if err := os.Remove(revoked); err != nil {
 		t.Fatal(err)
 	}
+	// A list that was read and then disappears must not bring revoked keys back.
 	clock = clock.Add(revocationCheck)
-	if _, err := v.Claims(issued.Token); err != nil {
+	other, _ := k.Create("other-app", []Grant{{"orders", "write"}}, time.Hour*24, now)
+	if _, err := v.Claims(other.Token); err == nil || !strings.Contains(err.Error(), "was removed") {
 		t.Fatalf("after the list was removed: %v", err)
 	}
 }
@@ -402,8 +407,20 @@ func TestLoadKeyRefusesAKeyOthersCanRead(t *testing.T) {
 	if err := os.Chmod(path, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := LoadKey(path, false); err == nil || !strings.Contains(err.Error(), "can be read by other users") {
-		t.Fatalf("a world-readable signing key = %v", err)
+	for _, mode := range []os.FileMode{0o644, 0o660, 0o604} {
+		if err := os.Chmod(path, mode); err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := LoadKey(path, false); err == nil || !strings.Contains(err.Error(), "can be used by other users") {
+			t.Errorf("a signing key with mode %v = %v", mode, err)
+		}
+	}
+	// Group read is what a Kubernetes secret mounted with fsGroup gives.
+	if err := os.Chmod(path, 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := LoadKey(path, false); err != nil {
+		t.Errorf("a group-readable signing key = %v", err)
 	}
 	if _, _, err := LoadKey(filepath.Join(t.TempDir(), "absent.pem"), false); err == nil ||
 		!strings.Contains(err.Error(), "create it with workflow-runtime api-key create") {
@@ -430,11 +447,46 @@ func TestVerifierWarnsWhenTheListIsMissing(t *testing.T) {
 		t.Fatal(err)
 	}
 	clock = clock.Add(revocationCheck)
-	_ = v.Refresh()
+	if err := v.Refresh(); err != nil {
+		t.Fatal(err)
+	}
 	_ = os.Remove(list)
+	// Once read, a missing list refuses keys and is reported at every check until it is back.
+	for want := 2; want <= 3; want++ {
+		clock = clock.Add(revocationCheck)
+		if err := v.Refresh(); err == nil || len(warnings) != want || !strings.Contains(warnings[want-1], "was removed") {
+			t.Fatalf("a list removed later: %v, warnings %q", err, warnings)
+		}
+	}
+	if err := CreateList(list); err != nil {
+		t.Fatal(err)
+	}
 	clock = clock.Add(revocationCheck)
-	_ = v.Refresh()
-	if len(warnings) != 2 {
-		t.Fatalf("a list removed later was not reported: %q", warnings)
+	if err := v.Refresh(); err != nil || len(warnings) != 3 {
+		t.Fatalf("the list back: %v, warnings %q", err, warnings)
+	}
+}
+
+func TestVerifierRefusesAListOthersCanWrite(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows controls access with ACLs, not mode bits")
+	}
+	k, path := testKey(t)
+	list := filepath.Join(filepath.Dir(path), "revoked-api-keys.txt")
+	if err := CreateList(list); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(list, 0o662); err != nil {
+		t.Fatal(err)
+	}
+	if err := NewVerifier(k, list, nil).Refresh(); err == nil || !strings.Contains(err.Error(), "can be written by other users") {
+		t.Fatalf("a list others can write = %v", err)
+	}
+	// A shared volume's group may write the list.
+	if err := os.Chmod(list, 0o660); err != nil {
+		t.Fatal(err)
+	}
+	if err := NewVerifier(k, list, nil).Refresh(); err != nil {
+		t.Fatalf("a group-writable list = %v", err)
 	}
 }

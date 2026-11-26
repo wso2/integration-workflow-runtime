@@ -76,8 +76,8 @@ loopback address.
 
 | Key | Default | Description |
 |---|---|---|
-| `signingKey` | | ECDSA P-256 private key (PEM) that signs and verifies API keys; written by the first `api-key create` when missing; a start refuses to run without it, and refuses one other users can read. Every node needs the same file |
-| `revocationList` | `revoked-api-keys.txt` next to `signingKey` | Revoked key IDs, one per line; read again while the engine runs |
+| `signingKey` | | ECDSA P-256 private key (PEM) that signs and verifies API keys; written by the first `api-key create` when missing (mode 0600; on Windows an access list for its creator and SYSTEM); a start refuses to run without it, and on Linux and macOS refuses one its group can write or other users can use. Every node needs the same file |
+| `revocationList` | `revoked-api-keys.txt` next to `signingKey` | Revoked key IDs, one per line; read again while the engine runs. Once read, a list that disappears makes the engine refuse API keys until it is back; a list other users can write is refused |
 
 `api-key create` also records each key, without its token, in `issued-api-keys.txt` next to `revocationList`.
 

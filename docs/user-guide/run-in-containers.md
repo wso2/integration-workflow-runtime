@@ -76,7 +76,9 @@ command as the readiness probe.
 
 ## API keys in containers
 
-The image runs as a non-root user and its `conf/` is not writable, so keep the API key files on mounted volumes:
+The image runs as a non-root user and its `conf/` is not writable, so keep the API key files in two mounted
+directories: the signing key in a secret, and the revocation list with the issued-key record on a volume every node
+shares, so a revocation reaches all of them.
 
 ```toml
 [engine.auth.apiKeys]
@@ -84,13 +86,66 @@ signingKey = "/var/run/secrets/workflow-runtime/api-key-signing.pem"
 revocationList = "/var/lib/workflow-runtime/keys/revoked-api-keys.txt"
 ```
 
-- Create the signing key and the first keys once, by running the image with a writable directory mounted for both
-  files; the image passes `api-key create ...` to `workflow-runtime`. Then store the signing key as a secret.
-- Mount the signing key read-only from that secret on every node. Other users must not be able to read it: in
-  Kubernetes, set the secret volume's `defaultMode` to `0440` and the pod's `fsGroup` so the runtime's user can.
-- Put the revocation list (and `issued-api-keys.txt`, which sits next to it) on a volume every node mounts, so a
-  revocation reaches all of them; run `api-key revoke` in a container that mounts it writable. A node that cannot see
-  the list logs a warning and accepts revoked keys.
+1. Create the signing key and the first keys once, with both directories mounted writable. `--user` makes the files
+   yours rather than the image's user; the key is printed on standard output:
+
+   ```bash
+   mkdir -p keys/signing keys/lists
+   (umask 077; docker run --rm --user "$(id -u):$(id -g)" \
+     -v "$PWD/runtime.toml:/opt/wso2-workflow-runtime/conf/runtime.toml:ro" \
+     -v "$PWD/keys/signing:/var/run/secrets/workflow-runtime" \
+     -v "$PWD/keys/lists:/var/lib/workflow-runtime/keys" \
+     <image>:<version> api-key create --name ops --namespace '*' --role admin > ops.key)
+   ```
+
+   Run the same command with another `--name`, `--namespace` and `--role` for each integration's key.
+
+2. Store the signing key as a secret and mount it read-only on every node. Other users must not be able to read it,
+   so give the secret volume mode `0440` and the pod the image user's group (`65532`):
+
+   ```bash
+   kubectl create secret generic workflow-runtime-api-key-signing \
+     --from-file=api-key-signing.pem=keys/signing/api-key-signing.pem
+   ```
+
+   ```yaml
+   spec:
+     securityContext:
+       fsGroup: 65532
+     containers:
+       - name: workflow-runtime
+         volumeMounts:
+           - {name: api-key-signing, mountPath: /var/run/secrets/workflow-runtime, readOnly: true}
+           - {name: api-key-lists, mountPath: /var/lib/workflow-runtime/keys}
+     volumes:
+       - name: api-key-signing
+         secret: {secretName: workflow-runtime-api-key-signing, defaultMode: 0440}
+       - name: api-key-lists
+         persistentVolumeClaim: {claimName: workflow-runtime-api-key-lists}
+   ```
+
+   With plain Docker, mount `keys/signing` read-only at the same path instead.
+
+3. Copy `keys/lists/revoked-api-keys.txt` and `keys/lists/issued-api-keys.txt` onto the shared volume, a
+   ReadWriteMany volume such as NFS or Amazon EFS that you can also mount on your machine. Let the image's group read
+   and write them, for example `chgrp 65532` and `chmod 660`; the engine refuses a list other users can write.
+
+4. To revoke a key, run `api-key revoke` with the shared volume mounted writable, here mounted on your machine at
+   `/mnt/workflow-runtime-keys`. Running nodes read the change within seconds:
+
+   ```bash
+   docker run --rm --user "$(id -u):65532" \
+     -v "$PWD/runtime.toml:/opt/wso2-workflow-runtime/conf/runtime.toml:ro" \
+     -v "/mnt/workflow-runtime-keys:/var/lib/workflow-runtime/keys" \
+     <image>:<version> api-key revoke --name orders-integration --reason "leaked in a log"
+   ```
+
+   Later `api-key create` and `api-key list` commands take the same mounts, plus the signing key read-only for
+   `create`.
+
+A node that has read the list and then loses it, for example when the volume fails to mount, refuses every API key
+until the list is back. A node that never saw a list logs a warning at start and accepts every key, so revocations
+reach only the nodes that mount the volume.
 
 ## Amazon ECS and Kubernetes
 

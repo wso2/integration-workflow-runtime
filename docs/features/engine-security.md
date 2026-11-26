@@ -26,7 +26,7 @@ provider, mapped to Temporal's namespace roles.
 | Key | Default | Meaning |
 |---|---|---|
 | `type` | `none` | `apiKeys` checks the runtime's own API keys; `jwt` checks the identity provider's tokens, and API keys too when `[engine.auth.apiKeys]` is set; `none` needs `--allow-no-auth` |
-| `[engine.auth.apiKeys]` `signingKey` | | ECDSA P-256 key (PEM) that signs and verifies API keys, created by the first `api-key create`; the same file on every node, readable by its owner (and group) only |
+| `[engine.auth.apiKeys]` `signingKey` | | ECDSA P-256 key (PEM) that signs and verifies API keys, created by the first `api-key create`; the same file on every node, readable by its owner (and group) only; Linux and macOS starts refuse group write and any access by others |
 | `[engine.auth.apiKeys]` `revocationList` | `revoked-api-keys.txt` beside `signingKey` | Revoked key IDs, one per line, read again while the engine runs |
 | `jwksUrls` | discovered from `issuer` | The identity provider's key set (JWKS) URLs, when it has no OpenID Connect discovery document; https, or http to a loopback host |
 | `keyRefreshInterval` | `1m` | How often the key set is fetched again |
@@ -66,7 +66,7 @@ role = "write"
 |---|---|
 | `workflow-engine api-key create --runtime-config <file> --name <name> --namespace <ns>... --role read\|write\|admin [--expires 365d]` | Signs a key and prints it once on standard output; records it, without the token, in `issued-api-keys.txt` beside the revocation list. `--name` has at most 200 characters and no control characters; at most 100 namespaces of up to 255 characters; `--expires` up to about 292 years (what a Go duration holds) |
 | `workflow-engine api-key list --runtime-config <file>` | The keys created: ID, name, grants, dates, and whether each is active, expired or revoked |
-| `workflow-engine api-key revoke --runtime-config <file> (--id <id> \| --name <name>) [--reason <text>]` | Adds the key, or every key with that name, to the revocation list |
+| `workflow-engine api-key revoke --runtime-config <file> (--id <id> [--force] \| --name <name>) [--reason <text>]` | Adds the key, or every key with that name, to the revocation list. `--id` must be a 32-character key ID in the issued-key record, or `--force` for a key created on another node |
 
 `workflow-runtime api-key ...` runs the same with the distribution's `conf/runtime.toml`.
 
@@ -79,10 +79,14 @@ role = "write"
   API keys. A key signed by another runtime's key is refused by its `kid`.
 - The revocation list is checked for changes at most every 10 seconds, so a revocation reaches a running engine
   without a restart. The issued-key record holds no tokens: a leaked record grants nothing.
-- The first `api-key create` writes the signing key when the file is missing (mode 0600) and an empty revocation
-  list. A start never creates the key: it stops with an error when the key is missing, and when users other than its
-  owner and group can read it, since a node with a key of its own would refuse the keys the others accept. A missing
-  revocation list is logged as a warning, at start and when it disappears later.
+- The first `api-key create` writes the signing key when the file is missing and an empty revocation list, with mode
+  0600; on Windows each file the runtime creates gets a protected access list for its creator and SYSTEM. A start
+  never creates the key, since a node with a key of its own would refuse the keys the others accept: it stops with an
+  error when the key is missing and, on Linux and macOS, when its group can write it or other users can use it. Windows
+  has no mode bits, so a key copied in by hand is the operator's to restrict.
+- A revocation list missing at start is logged once as a warning. A list that was read and then disappears makes
+  every API key fail, with a warning at each check, until it is back: a volume that did not mount must not bring
+  revoked keys back. A list other users can write is refused, since they could un-revoke keys.
 - The `api-key` commands read only `[engine.auth]` from `runtime.toml`, so they run from an operator's shell without
   the service's database password.
 - **Three ways to read roles**, so any identity provider fits:
@@ -140,9 +144,10 @@ Roles from client certificate subjects, keys created through an API (the Manager
 | `engine/plugins/jwtclaims/discovery_test.go` | Discovery: the key set URL, another issuer or a trailing slash, no key set, a plain-http issuer or key set, invalid documents, unreachable providers; which URLs `CheckURL` accepts |
 | `engine/plugins/jwtclaims/keyset_test.go` | Reading RS256 and ES256 keys, keeping them when a refresh fails, refreshing on the interval; a redirect to plain http refused for key sets and discovery, from https to loopback http refused, one to https followed; keys for encryption or another algorithm dropped, a bad entry not replacing a good key with the same ID; oversized key sets and sets without `keys` refused |
 | `engine/plugins/jwtclaims/jwtclaims_test.go` | Temporal's format, rules on nested claims, scope strings, regex, issuer, audience, expiry, tokens issued in the future, forged and malformed tokens |
-| `engine/plugins/apikeys/apikeys_test.go` | Signing keys created once (mode 0600) and read back as SEC 1 or PKCS#8, other curves and kinds refused; keys created and verified with their roles, `*` as system roles, expiry; keys from another signing key, forged and ID-less keys refused; a revocation reaching a running verifier, and a removed list restoring the key; the issued-key record, which holds no token; the mapper routing API keys, provider tokens and calls without a token |
+| `engine/plugins/apikeys/apikeys_test.go` | Signing keys created once (mode 0600) and read back as SEC 1 or PKCS#8, other curves and kinds refused; keys created and verified with their roles, `*` as system roles, expiry; keys from another signing key, forged and ID-less keys refused; a revocation reaching a running verifier, and a removed list refusing every key until it is back; key files its group can write or others can use, and lists others can write, refused; revocations of malformed IDs or of the key itself refused; the issued-key record, which holds no token; the mapper routing API keys, provider tokens and calls without a token |
+| `engine/plugins/apikeys/lock_windows_test.go` (the `windows-latest` CI job) | The signing key, revocation list and issued-key record get a protected access list for the current user and SYSTEM only |
 | `engine/internal/runtimeconfig/security_test.go` | TLS, auth and metrics mapping and every validation rule, including `apiKeys` alone and beside an identity provider |
-| `engine/internal/cli/apikey_test.go` | `api-key create`, `list` and `revoke` end to end with the claim mapper the start builds; every refusal; lifetimes; a start with both an identity provider and API keys |
+| `engine/internal/cli/apikey_test.go` | `api-key create`, `list` and `revoke` (by name, by ID, and `--force` for an ID from another node) end to end with the claim mapper the start builds; every refusal; lifetimes; a start with both an identity provider and API keys |
 | `engine/internal/cli/cli_test.go` | A start with identity-provider auth; which claim mapper is built; the services the profiles and `--service` pass to the server, including `--service` with an `api`-only profile |
 | `tools/internal/enginetest/cluster_test.go` | Two secured nodes on one SQLite file, one with frontend, matching and worker and one with frontend and history, form one engine: a workflow started through the first runs on the second's history, over TLS membership and internode TLS |
 | `tools/internal/balsuite/apikeys_test.go` and the `smoke suite on apikeys` CI job | The Ballerina smoke suite against an engine with TLS and only API keys: `ballerina/workflow` connects with `SELF_HOSTED`, `authApiKey` and `authCaCert`, as in production without an identity provider |

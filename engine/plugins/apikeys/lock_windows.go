@@ -28,6 +28,19 @@ var (
 	kernel32         = syscall.NewLazyDLL("kernel32.dll")
 	procLockFileEx   = kernel32.NewProc("LockFileEx")
 	procUnlockFileEx = kernel32.NewProc("UnlockFileEx")
+	procLocalFree    = kernel32.NewProc("LocalFree")
+
+	advapi32                      = syscall.NewLazyDLL("advapi32.dll")
+	procConvertStringSDToSD       = advapi32.NewProc("ConvertStringSecurityDescriptorToSecurityDescriptorW")
+	procGetSecurityDescriptorDacl = advapi32.NewProc("GetSecurityDescriptorDacl")
+	procSetNamedSecurityInfo      = advapi32.NewProc("SetNamedSecurityInfoW")
+)
+
+const (
+	seFileObject                     = 1
+	daclSecurityInformation          = 0x4
+	protectedDaclSecurityInformation = 0x80000000
+	sddlRevision1                    = 1
 )
 
 const lockfileExclusiveLock = 0x2
@@ -62,5 +75,53 @@ func unlockFile(f *os.File) error {
 	return nil
 }
 
-// openToOthers is false on Windows, whose file access is controlled by ACLs rather than mode bits.
-func openToOthers(os.FileInfo) bool { return false }
+// keyTooOpen is false on Windows, whose file access is controlled by ACLs rather than mode bits; restrictToOwner
+// sets the ACL of the files the runtime creates.
+func keyTooOpen(os.FileInfo) bool { return false }
+
+// writableByOthers is false on Windows, as keyTooOpen.
+func writableByOthers(os.FileInfo) bool { return false }
+
+// restrictToOwner replaces the file's inherited ACL with one that grants full access to the current user and to
+// SYSTEM only. SYSTEM runs Windows services and already controls the machine, so it gains nothing it lacked.
+func restrictToOwner(path string) error {
+	token, err := syscall.OpenCurrentProcessToken()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = token.Close() }()
+	user, err := token.GetTokenUser()
+	if err != nil {
+		return err
+	}
+	sid, err := user.User.Sid.String()
+	if err != nil {
+		return err
+	}
+	// "P" protects the ACL from inherited entries; FA is full access; SY is SYSTEM.
+	sddl, err := syscall.UTF16PtrFromString("D:P(A;;FA;;;" + sid + ")(A;;FA;;;SY)")
+	if err != nil {
+		return err
+	}
+	var sd uintptr
+	if r, _, err := procConvertStringSDToSD.Call(uintptr(unsafe.Pointer(sddl)), sddlRevision1,
+		uintptr(unsafe.Pointer(&sd)), 0); r == 0 {
+		return err
+	}
+	defer procLocalFree.Call(sd) //nolint:errcheck // freeing the descriptor cannot fail usefully
+	var present, defaulted int32
+	var dacl uintptr
+	if r, _, err := procGetSecurityDescriptorDacl.Call(sd, uintptr(unsafe.Pointer(&present)),
+		uintptr(unsafe.Pointer(&dacl)), uintptr(unsafe.Pointer(&defaulted))); r == 0 {
+		return err
+	}
+	name, err := syscall.UTF16PtrFromString(path)
+	if err != nil {
+		return err
+	}
+	if r, _, _ := procSetNamedSecurityInfo.Call(uintptr(unsafe.Pointer(name)), seFileObject,
+		daclSecurityInformation|protectedDaclSecurityInformation, 0, 0, dacl, 0); r != 0 {
+		return syscall.Errno(r)
+	}
+	return nil
+}

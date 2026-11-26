@@ -33,7 +33,7 @@ import (
 //nolint:gosec // usage text, not a credential
 const apiKeyUsage = `usage: workflow-engine api-key create --runtime-config <runtime.toml> --name <name> --namespace <name>... --role read|write|admin [--expires <lifetime>]
        workflow-engine api-key list --runtime-config <runtime.toml>
-       workflow-engine api-key revoke --runtime-config <runtime.toml> (--id <id> | --name <name>) [--reason <text>]`
+       workflow-engine api-key revoke --runtime-config <runtime.toml> (--id <id> [--force] | --name <name>) [--reason <text>]`
 
 func (c command) apiKey(args []string) error {
 	if len(args) == 0 {
@@ -166,31 +166,40 @@ func (c command) apiKeyRevoke(args []string) error {
 	id := flags.String("id", "", "the key's ID, from api-key list")
 	name := flags.String("name", "", "revoke every key with this name instead")
 	reason := flags.String("reason", "", "why, kept in the revocation list")
+	force := flags.Bool("force", false, "revoke an --id that is not in this node's issued-key record")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
 	if (*id == "") == (*name == "") {
 		return errors.New("give --id or --name")
 	}
+	if *id != "" && !apikeys.ValidID(*id) {
+		return fmt.Errorf("%q is not an API key ID: copy the ID column of api-key list, not the key itself", *id)
+	}
 	files, err := apiKeyFiles(*runtimeConfig)
 	if err != nil {
 		return err
 	}
-	ids := []string{*id}
-	if *name != "" {
-		entries, err := apikeys.ReadRecord(files.IssuedRecord)
-		if err != nil {
-			return err
+	entries, err := apikeys.ReadRecord(files.IssuedRecord)
+	if err != nil {
+		return err
+	}
+	var ids []string
+	for _, e := range entries {
+		if (*name != "" && e.Name == *name) || (*id != "" && e.ID == *id) {
+			ids = append(ids, e.ID)
 		}
-		ids = nil
-		for _, e := range entries {
-			if e.Name == *name {
-				ids = append(ids, e.ID)
-			}
-		}
-		if len(ids) == 0 {
-			return fmt.Errorf("no API key named %q in %s", *name, files.IssuedRecord)
-		}
+	}
+	switch {
+	case len(ids) > 0:
+	case *name != "":
+		return fmt.Errorf("no API key named %q in %s", *name, files.IssuedRecord)
+	case !*force:
+		// A mistyped ID would otherwise be "revoked" while the real key keeps working.
+		return fmt.Errorf("API key %s is not in %s; check the ID with api-key list, or add --force to revoke a key "+
+			"created on another node", *id, files.IssuedRecord)
+	default:
+		ids = []string{*id}
 	}
 	for _, k := range ids {
 		if err := apikeys.Revoke(files.RevocationList, k, *reason); err != nil {

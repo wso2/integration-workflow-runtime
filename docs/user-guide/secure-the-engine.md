@@ -88,7 +88,8 @@ sets one as `authApiKey` and runs for as long as the key lasts, with no identity
    ```
 
 2. Create a key for yourself and one per integration. The first `create` writes the signing key, readable by its
-   owner only; the key is printed once, on standard output:
+   owner only (mode 0600 on Linux and macOS; on Windows an access list for the user who ran it and SYSTEM); the key
+   is printed once, on standard output:
 
    ```bash
    (umask 077; sudo -u workflow bin/workflow-runtime api-key create --name ops --namespace '*' --role admin > ops.key)
@@ -107,16 +108,26 @@ sets one as `authApiKey` and runs for as long as the key lasts, with no identity
 `api-key list` shows every key created (ID, name, roles, dates, state) from `conf/security/issued-api-keys.txt`, which
 holds no tokens. `api-key revoke --id <id>` or `--name <name>` adds the key to
 `conf/security/revoked-api-keys.txt`; a running engine reads that file again within seconds, so a revoked key stops
-working without a restart. On several nodes, copy the signing key to every node once, and the revocation list after
-each change ([Run across several nodes](scale-across-nodes.md)).
+working without a restart. `--id` takes the 32-character ID from `api-key list`, not the key itself, and refuses an
+ID the issued-key record does not hold; add `--force` to revoke a key created on another node. On several nodes,
+copy the signing key to every node once, and the revocation list after each change
+([Run across several nodes](scale-across-nodes.md)).
 
 Keep the signing key like a private TLS key: anyone who holds it can create keys. The engine refuses to start when
-the key is missing, or when users other than its owner and group can read it; it never creates one itself, because a
-node with a key of its own would refuse the keys every other node accepts. It warns when the revocation list is
-missing, which on a second node usually means the list was not copied. The engine reads it only at start:
-to replace it, move the old file away, create the new keys, copy the new signing key to every node and restart each
-node. Until a node restarts it still accepts keys signed by the old key and refuses the new ones; after the restart,
-every key signed by the old one stops working.
+the key is missing; on Linux and macOS it also refuses a key its group can write or other users can use at all
+(modes 0600 and 0640 pass). It never creates one itself, because a node with a key of its own would refuse the keys
+every other node accepts. Windows has no mode bits to check, and the files `api-key create` writes are its runner's
+and SYSTEM's alone: run it as the service's account, or, for those files and a key you copy in by hand, grant that
+account yourself, for example
+`icacls conf\security\api-key-signing.pem /inheritance:r /grant:r "<service account>:F" "SYSTEM:F"`.
+
+The engine reads the signing key only at start: to replace it, move the old file away, create the new keys, copy the
+new signing key to every node and restart each node. Until a node restarts it still accepts keys signed by the old
+key and refuses the new ones; after the restart, every key signed by the old one stops working.
+
+The engine warns when the revocation list is missing at start, which on a second node usually means the list was not
+copied. A list it has read that disappears later, such as a shared volume that did not mount, makes it refuse every
+API key until the list is back, so revoked keys never work again. It also refuses a list other users can write.
 
 ## Turn on your identity provider's tokens
 

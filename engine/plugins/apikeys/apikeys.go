@@ -78,10 +78,10 @@ func LoadKey(path string, create bool) (k *Key, created bool, err error) {
 		}
 		return nil, false, fmt.Errorf("unable to read the API key signing key: %w", err)
 	}
-	// Anyone who can read the key can create admin keys, so it must be its owner's alone.
-	if info, err := os.Stat(path); err == nil && openToOthers(info) {
-		return nil, false, fmt.Errorf("the API key signing key %s can be read by other users (mode %v); allow only its "+
-			"owner and group, for example chmod 600", path, info.Mode().Perm())
+	// Anyone who can read the key can create admin keys, and anyone who can write it can replace it.
+	if info, err := os.Stat(path); err == nil && keyTooOpen(info) {
+		return nil, false, fmt.Errorf("the API key signing key %s can be used by other users or written by its group "+
+			"(mode %v); allow its owner and at most group read, for example chmod 600 or 640", path, info.Mode().Perm())
 	}
 	block, _ := pem.Decode(data)
 	if block == nil {
@@ -129,7 +129,10 @@ func newKey(path string) (*Key, bool, error) {
 	if err != nil {
 		return nil, false, fmt.Errorf("unable to create the API key signing key: %w", err)
 	}
-	_, err = f.Write(data)
+	// The access is set before the key is written, so no other user can read it in between.
+	if err = restrictToOwner(path); err == nil {
+		_, err = f.Write(data)
+	}
 	if closeErr := f.Close(); err == nil {
 		err = closeErr
 	}

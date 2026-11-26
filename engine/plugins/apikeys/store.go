@@ -40,10 +40,27 @@ func Record(path string, k Issued) error {
 	return appendLine(path, line)
 }
 
+// idLength is the length of a key ID: 16 random bytes in lowercase hex.
+const idLength = 32
+
+// ValidID reports whether id has the form of the IDs the runtime issues.
+func ValidID(id string) bool {
+	if len(id) != idLength {
+		return false
+	}
+	for _, c := range id {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
 // Revoke adds an ID to the revocation list at path; revoking a key twice is harmless.
 func Revoke(path, id, reason string) error {
-	if id == "" || strings.ContainsAny(id, " \t\n#") {
-		return fmt.Errorf("%q is not an API key ID", id)
+	if !ValidID(id) {
+		return fmt.Errorf("%q is not an API key ID: an ID is the %d hex characters in the ID column of api-key list, "+
+			"not the key itself", id, idLength)
 	}
 	if len(reason) > maxReasonLength {
 		return fmt.Errorf("the reason is longer than %d characters", maxReasonLength)
@@ -59,7 +76,7 @@ func Revoke(path, id, reason string) error {
 // removes any line an earlier append left without its end: a write cut short by a full disk is dropped rather than
 // joined to the next record or left for the readers.
 func appendLine(path, line string) (err error) {
-	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, keyFileMode) //nolint:gosec // configured file
+	f, err := openPrivate(path, os.O_RDWR)
 	if err != nil {
 		return err
 	}
@@ -116,12 +133,29 @@ func readLines(path string, keepPartial bool) (lines []string, err error) {
 }
 
 // CreateList makes an empty revocation list when there is none, so a list missing later means it was not copied.
+// An existing list keeps its mode: the verifier refuses one that other users can write.
 func CreateList(path string) error {
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE, keyFileMode) //nolint:gosec // the configured list
+	f, err := openPrivate(path, os.O_WRONLY)
 	if err != nil {
 		return err
 	}
 	return f.Close()
+}
+
+// openPrivate opens path with flag, creating it first if needed with access for its owner only.
+func openPrivate(path string, flag int) (*os.File, error) {
+	f, err := os.OpenFile(path, flag|os.O_CREATE|os.O_EXCL, keyFileMode) //nolint:gosec // a configured file
+	if errors.Is(err, os.ErrExist) {
+		return os.OpenFile(path, flag, keyFileMode) //nolint:gosec // a configured file
+	}
+	if err != nil {
+		return nil, err
+	}
+	if err := restrictToOwner(path); err != nil {
+		_ = f.Close()
+		return nil, fmt.Errorf("unable to restrict access to %s: %w", path, err)
+	}
+	return f, nil
 }
 
 // maxReasonLength keeps every revocation line far below what ReadRevoked reads; an unreadable list would refuse
